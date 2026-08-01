@@ -1,0 +1,70 @@
+const { db } = require('../config/firebase');
+
+/**
+ * Firestore layout:
+ * users/{userId}/sessions/{sessionId}         -> { title, createdAt, updatedAt }
+ * users/{userId}/sessions/{sessionId}/messages/{messageId} -> { role, content, createdAt }
+ * users/{userId}/facts/{factId}               -> { text, createdAt }
+ */
+
+async function createSession(userId, title = 'New chat') {
+  const ref = db.collection('users').doc(userId).collection('sessions').doc();
+  const now = Date.now();
+  await ref.set({ title, createdAt: now, updatedAt: now });
+  return { id: ref.id, title, createdAt: now, updatedAt: now };
+}
+
+async function listSessions(userId) {
+  const snap = await db
+    .collection('users').doc(userId)
+    .collection('sessions')
+    .orderBy('updatedAt', 'desc')
+    .get();
+  return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+}
+
+async function addMessage(userId, sessionId, role, content) {
+  const sessionRef = db.collection('users').doc(userId).collection('sessions').doc(sessionId);
+  const msgRef = sessionRef.collection('messages').doc();
+  const now = Date.now();
+  await msgRef.set({ role, content, createdAt: now });
+  await sessionRef.set({ updatedAt: now }, { merge: true });
+  return { id: msgRef.id, role, content, createdAt: now };
+}
+
+async function getRecentMessages(userId, sessionId, limit = 20) {
+  const snap = await db
+    .collection('users').doc(userId)
+    .collection('sessions').doc(sessionId)
+    .collection('messages')
+    .orderBy('createdAt', 'asc')
+    .limitToLast(limit)
+    .get();
+  return snap.docs.map(d => d.data());
+}
+
+async function addFact(userId, text) {
+  const ref = db.collection('users').doc(userId).collection('facts').doc();
+  const now = Date.now();
+  await ref.set({ text, createdAt: now });
+  return { id: ref.id, text, createdAt: now };
+}
+
+async function listFacts(userId) {
+  const snap = await db.collection('users').doc(userId).collection('facts').orderBy('createdAt', 'asc').get();
+  return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+}
+
+async function deleteFact(userId, factId) {
+  await db.collection('users').doc(userId).collection('facts').doc(factId).delete();
+}
+
+module.exports = {
+  createSession,
+  listSessions,
+  addMessage,
+  getRecentMessages,
+  addFact,
+  listFacts,
+  deleteFact,
+};
