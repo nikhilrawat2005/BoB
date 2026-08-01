@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Bob — Your Personal AI</title>
+  <meta name="description" content="Bob is your personal AI assistant with memory, file handling, and intelligent conversation." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+  <!-- ═══════════════════════════════ LOGIN SCREEN ═══════════════════════════════ -->
+  <div id="login-screen" class="screen active">
+    <div class="login-bg"></div>
+    <div class="login-card">
+      <div class="login-logo">
+        <div class="logo-orb"></div>
+        <span class="logo-text">Bob</span>
+      </div>
+      <p class="login-subtitle">Your personal AI assistant</p>
+
+      <form id="login-form" autocomplete="on">
+        <div class="field-group">
+          <label for="login-email">Email</label>
+          <input id="login-email" type="email" placeholder="you@example.com" autocomplete="email" required />
+        </div>
+        <div class="field-group">
+          <label for="login-password">Password</label>
+          <input id="login-password" type="password" placeholder="••••••••" autocomplete="current-password" required />
+        </div>
+        <div id="login-error" class="error-msg hidden"></div>
+        <button id="login-btn" type="submit" class="btn-primary">
+          <span id="login-btn-text">Sign In</span>
+          <span id="login-spinner" class="spinner hidden"></span>
+        </button>
+      </form>
+
+      <p class="login-footer">
+        Don't have an account?
+        <a href="#" id="goto-register">Create one</a>
+      </p>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════ REGISTER SCREEN ════════════════════════════ -->
+  <div id="register-screen" class="screen">
+    <div class="login-bg"></div>
+    <div class="login-card">
+      <div class="login-logo">
+        <div class="logo-orb"></div>
+        <span class="logo-text">Bob</span>
+      </div>
+      <p class="login-subtitle">Create your account</p>
+
+      <form id="register-form" autocomplete="on">
+        <div class="field-group">
+          <label for="reg-email">Email</label>
+          <input id="reg-email" type="email" placeholder="you@example.com" autocomplete="email" required />
+        </div>
+        <div class="field-group">
+          <label for="reg-password">Password</label>
+          <input id="reg-password" type="password" placeholder="Min 6 characters" autocomplete="new-password" required />
+        </div>
+        <div id="reg-error" class="error-msg hidden"></div>
+        <button id="reg-btn" type="submit" class="btn-primary">
+          <span id="reg-btn-text">Create Account</span>
+          <span id="reg-spinner" class="spinner hidden"></span>
+        </button>
+      </form>
+
+      <p class="login-footer">
+        Already have an account?
+        <a href="#" id="goto-login">Sign In</a>
+      </p>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════ MAIN APP ═══════════════════════════════════ -->
+  <div id="app-screen" class="screen">
+
+    <!-- Sidebar -->
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar-header">
+        <div class="sidebar-logo">
+          <div class="logo-orb small"></div>
+          <span>Bob</span>
+        </div>
+        <button id="new-chat-btn" class="btn-new-chat" title="New Chat">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        </button>
+      </div>
+
+      <div class="sidebar-section-label">Chats</div>
+      <div id="sessions-list" class="sessions-list">
+        <div class="empty-sessions">No chats yet</div>
+      </div>
+
+      <div class="sidebar-bottom">
+        <button id="toggle-memory-btn" class="sidebar-icon-btn" title="Bob's Memory">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 8v4l3 3"/></svg>
+          Memory
+        </button>
+        <button id="toggle-files-btn" class="sidebar-icon-btn" title="Files">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+          Files
+        </button>
+        <div class="sidebar-divider"></div>
+        <div class="user-row">
+          <div class="user-avatar" id="user-avatar">U</div>
+          <span class="user-email" id="user-email-label">user@email.com</span>
+          <button id="logout-btn" class="logout-btn" title="Sign out">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+          </button>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Main chat area -->
+    <main class="chat-area">
+
+      <!-- Top bar -->
+      <div class="chat-topbar">
+        <button id="sidebar-toggle" class="icon-btn" title="Toggle sidebar">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+        </button>
+        <span id="chat-session-title" class="chat-title">Select a chat</span>
+        <div class="topbar-actions">
+          <select id="model-selector" class="model-select" title="Choose model">
+            <option value="">Auto (Writer)</option>
+            <option value="deepseek/deepseek-chat-v3">DeepSeek v3</option>
+            <option value="anthropic/claude-sonnet-4">Claude Sonnet</option>
+            <option value="openai/gpt-4o">GPT-4o</option>
+            <option value="google/gemini-2.0-flash-001">Gemini Flash</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- Messages -->
+      <div id="messages-container" class="messages-container">
+        <div class="welcome-screen" id="welcome-screen">
+          <div class="welcome-orb"></div>
+          <h1>Hi, I'm Bob</h1>
+          <p>Your personal AI assistant with memory. Start a new chat or select one from the sidebar.</p>
+          <button id="welcome-new-chat" class="btn-primary">Start New Chat</button>
+        </div>
+      </div>
+
+      <!-- Input bar -->
+      <div class="input-area" id="input-area">
+        <div class="input-wrapper">
+          <label for="file-upload-input" class="attach-btn" title="Attach file">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
+          </label>
+          <input type="file" id="file-upload-input" style="display:none" />
+          <textarea id="message-input" placeholder="Message Bob..." rows="1" maxlength="8000"></textarea>
+          <button id="send-btn" class="send-btn" disabled>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+          </button>
+        </div>
+        <div id="file-preview" class="file-preview hidden"></div>
+      </div>
+    </main>
+
+    <!-- Memory Panel (slide-over) -->
+    <div id="memory-panel" class="side-panel hidden">
+      <div class="panel-header">
+        <span>Bob's Memory</span>
+        <button class="panel-close" id="close-memory">✕</button>
+      </div>
+      <div class="panel-body">
+        <div class="add-fact-row">
+          <input id="fact-input" type="text" placeholder="Add a fact about you..." />
+          <button id="add-fact-btn" class="btn-small">Add</button>
+        </div>
+        <div id="facts-list" class="facts-list"></div>
+      </div>
+    </div>
+
+    <!-- Files Panel (slide-over) -->
+    <div id="files-panel" class="side-panel hidden">
+      <div class="panel-header">
+        <span>Uploaded Files</span>
+        <button class="panel-close" id="close-files">✕</button>
+      </div>
+      <div class="panel-body">
+        <div id="files-list" class="files-list">
+          <div class="empty-msg">No files uploaded yet.</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Panel backdrop -->
+    <div id="panel-backdrop" class="panel-backdrop hidden"></div>
+
+  </div><!-- /app-screen -->
+
+  <!-- Firebase SDK (compat version — works with simple script tags) -->
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+
+  <script src="app.js"></script>
+</body>
+</html>
