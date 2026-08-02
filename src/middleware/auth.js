@@ -5,15 +5,19 @@ const { auth } = require('../config/firebase');
  * The frontend gets this token after Firebase Auth login (signInWithEmailAndPassword, etc.)
  * On success, attaches req.userId (Firebase UID) so every route can scope data to that user.
  */
-const ALLOWED_EMAILS = [
-  'nikhil2005114@gmail.com',
-  'nikhilrawat42005@gmail.com',
-  'nikhilrawat4112005@gmail.com',
-  'nikhilrawat2005114@gmail.com'
-];
+// Allowed emails — set ALLOWED_EMAILS in .env as comma-separated list
+// e.g. ALLOWED_EMAILS=nikhil@gmail.com,other@gmail.com
+const ALLOWED_EMAILS = (process.env.ALLOWED_EMAILS || '')
+  .split(',')
+  .map(e => e.trim().toLowerCase())
+  .filter(Boolean);
 
-// Single master ID so all your Google Accounts share the EXACT same chats, memory, and files!
-const SHARED_ADMIN_ID = 'nikhil_master_workspace';
+if (ALLOWED_EMAILS.length === 0) {
+  console.warn('[auth] WARNING: ALLOWED_EMAILS is not set in .env — no one will be able to log in!');
+}
+
+// Single master ID so all your authorized accounts share the EXACT same chats, memory, and files
+const SHARED_ADMIN_ID = process.env.SHARED_ADMIN_ID || 'nikhil_master_workspace';
 
 async function requireAuth(req, res, next) {
   const header = req.headers.authorization || '';

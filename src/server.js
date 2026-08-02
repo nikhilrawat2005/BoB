@@ -23,6 +23,24 @@ app.use(express.static(path.join(__dirname, '../public')));
 // Health check — useful to verify the deploy is alive
 app.get('/api/health', (req, res) => res.json({ status: 'ok', service: 'bob-backend' }));
 
+// Config endpoint — serves Firebase client config from env vars.
+// This keeps API keys OUT of the committed frontend JS file.
+app.get('/api/config', (req, res) => {
+  const cfg = {
+    apiKey:            process.env.FIREBASE_CLIENT_API_KEY,
+    authDomain:        process.env.FIREBASE_AUTH_DOMAIN,
+    projectId:         process.env.FIREBASE_PROJECT_ID,
+    storageBucket:     process.env.FIREBASE_STORAGE_BUCKET,
+    messagingSenderId: process.env.FIREBASE_MESSAGING_SENDER_ID,
+    appId:             process.env.FIREBASE_APP_ID,
+  };
+  // Only expose if the key is actually configured
+  if (!cfg.apiKey) {
+    return res.status(503).json({ error: 'Firebase client config not set in environment.' });
+  }
+  res.json(cfg);
+});
+
 app.use('/api/chat',          chatRoute);
 app.use('/api/sessions',      sessionsRoute);
 app.use('/api/memory',        memoryRoute);

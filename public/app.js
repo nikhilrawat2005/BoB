@@ -3,35 +3,15 @@
    Firebase Auth (client) + Backend API calls
 ═══════════════════════════════════════════════════════
 
-   ⚠️  SETUP REQUIRED:
-   Replace the firebaseConfig below with your actual
-   Firebase Web App config from:
-   Firebase Console → Project Settings → General → Your apps → Web app
-   If you haven't registered a web app yet, click the </> icon to add one.
+   🔒 SECURITY: Firebase config is loaded from the backend
+   (/api/config) at runtime — no API keys are hardcoded here.
+   All secrets live in the server's .env file only.
 ═══════════════════════════════════════════════════════ */
 
-const firebaseConfig = {
-  apiKey:            "AIzaSyCjbVNMc1GTnBVpvLONAoFn-mIdDIiLcaw",
-  authDomain:        "bob-3ff28.firebaseapp.com",
-  projectId:         "bob-3ff28",
-  storageBucket:     "bob-3ff28.firebasestorage.app",
-  messagingSenderId: "180416673423",
-  appId:             "1:180416673423:web:258a36eeee081c7081a2fa"
-};
-
-// ── Init Firebase ────────────────────────────────────
-firebase.initializeApp(firebaseConfig);
-const auth = firebase.auth();
-
 // ── API base (same origin since Express serves both) ─
-const API = '';   // e.g. '' means http://localhost:3000
+const API = '';
 
-// ── State ────────────────────────────────────────────
-let currentUser       = null;
-let idToken           = null;
-let currentSession    = null;
-let pendingFile       = null;   // File selected via attach button
-let pendingPasteImage = null;   // Image pasted via Ctrl+V
+let auth = null;
 
 // ── DOM refs ─────────────────────────────────────────
 const screens = {
@@ -44,6 +24,39 @@ function showScreen(name) {
   Object.values(screens).forEach(s => s.classList.remove('active'));
   screens[name].classList.add('active');
 }
+
+// ── Dynamic Firebase Initialization ──────────────────
+async function initFirebaseApp() {
+  try {
+    const res = await fetch(API + '/api/config');
+    if (!res.ok) throw new Error('Failed to load server configuration');
+    const firebaseConfig = await res.json();
+    
+    firebase.initializeApp(firebaseConfig);
+    auth = firebase.auth();
+    
+    auth.onAuthStateChanged(async (user) => {
+      if (user) {
+        currentUser = user;
+        idToken = await user.getIdToken();
+        showScreen('app');
+        document.getElementById('user-email-label').textContent = user.email || '';
+        document.getElementById('user-avatar').textContent = (user.email || 'U')[0].toUpperCase();
+        await initApp();
+      } else {
+        currentUser = null;
+        idToken = null;
+        showScreen('login');
+      }
+    });
+  } catch (err) {
+    console.error('Firebase config init error:', err);
+    alert('Security / Config Error: Server configuration could not be loaded.');
+  }
+}
+
+// Start initialization on DOM load
+document.addEventListener('DOMContentLoaded', initFirebaseApp);
 
 // ═══════════════════════════════════════════════════════
 // AUTH
