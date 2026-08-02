@@ -105,12 +105,60 @@ document.getElementById('register-form').addEventListener('submit', async (e) =>
   }
 });
 
+// Allowed Google / Login accounts list
+const ALLOWED_EMAILS = [
+  'nikhilrawat42005@gmail.com',
+  'nikhilrawat4112005@gmail.com',
+  'nikhilrawat2005114@gmail.com'
+];
+
+// Google Sign-In
+const googleBtn = document.getElementById('google-login-btn');
+if (googleBtn) {
+  googleBtn.addEventListener('click', async () => {
+    const errEl = document.getElementById('login-error');
+    errEl.classList.add('hidden');
+    const provider = new firebase.auth.GoogleAuthProvider();
+    try {
+      await auth.signInWithPopup(provider);
+    } catch (err) {
+      errEl.textContent = friendlyAuthError(err.code) || err.message;
+      errEl.classList.remove('hidden');
+    }
+  });
+}
+
+// Disable Inspect / Right Click / DevTools Shortcuts
+document.addEventListener('contextmenu', (e) => e.preventDefault());
+document.addEventListener('keydown', (e) => {
+  if (
+    e.keyCode === 123 || // F12
+    (e.ctrlKey && e.shiftKey && (e.keyCode === 73 || e.keyCode === 74 || e.keyCode === 67)) || // Ctrl+Shift+I / J / C
+    (e.ctrlKey && e.keyCode === 85) // Ctrl+U
+  ) {
+    e.preventDefault();
+    return false;
+  }
+});
+
 // Logout
 document.getElementById('logout-btn').addEventListener('click', () => auth.signOut());
 
 // Auth state listener
 auth.onAuthStateChanged(async (user) => {
   if (user) {
+    const email = (user.email || '').toLowerCase();
+    
+    // Check if email is in allowed list
+    if (!ALLOWED_EMAILS.includes(email)) {
+      await auth.signOut();
+      const errEl = document.getElementById('login-error');
+      errEl.textContent = `Access Denied: ${email} is not authorized to use Bob.`;
+      errEl.classList.remove('hidden');
+      showScreen('login');
+      return;
+    }
+
     currentUser = user;
     idToken     = await user.getIdToken();
 
@@ -118,7 +166,6 @@ auth.onAuthStateChanged(async (user) => {
     setInterval(async () => { idToken = await user.getIdToken(true); }, 50 * 60 * 1000);
 
     // Update UI
-    const email = user.email || '';
     document.getElementById('user-email-label').textContent = email;
     document.getElementById('user-avatar').textContent      = email[0]?.toUpperCase() || 'U';
 
