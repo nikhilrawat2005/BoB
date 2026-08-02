@@ -3,11 +3,5 @@
   "rewrites": [
     { "source": "/api/(.*)", "destination": "/src/server.js" },
     { "source": "/(.*)",     "destination": "/public/$1" }
-  ],
-  "crons": [
-    {
-      "path": "/api/scheduler/tick",
-      "schedule": "0 * * * *"
-    }
   ]
 }
