@@ -286,13 +286,15 @@ function renderNotifications(notifications) {
       e.stopPropagation();
       const notifId = btn.dataset.id;
       const snippet = btn.dataset.snippet;
-      await apiFetch(`/api/notifications/${notifId}/read`, { method: 'POST' });
+      // Delete notification so it disappears immediately from notification panel once converted to chat
+      await apiFetch(`/api/notifications/${notifId}`, { method: 'DELETE' });
       await createNewSession();
       const msgInput = document.getElementById('message-input');
       msgInput.value = snippet;
       msgInput.dispatchEvent(new Event('input'));
       await sendMessage();
       await loadNotifications();
+      await loadSessions();
     });
   });
 }
@@ -303,15 +305,43 @@ function renderSessions(sessions) {
     list.innerHTML = '<div class="empty-sessions">No chats yet</div>';
     return;
   }
-  list.innerHTML = sessions.map(s => `
-    <div class="session-item ${currentSession?.id === s.id ? 'active' : ''}"
-         data-id="${s.id}" data-title="${escHtml(s.title || 'Chat')}">
-      ${escHtml(s.title || 'Chat')}
-    </div>
-  `).join('');
+
+  // Check if top session was updated within the last 24h for auto-pulse highlight
+  const now = Date.now();
+
+  list.innerHTML = sessions.map((s, idx) => {
+    const isRecent = idx === 0 && (now - (s.updatedAt || 0)) < 24 * 60 * 60 * 1000;
+    const isAutoActive = isRecent && (s.title || '').toLowerCase().includes('goal') || (s.title || '').toLowerCase().includes('dsa') || isRecent;
+    return `
+      <div class="session-item ${currentSession?.id === s.id ? 'active' : ''} ${isAutoActive ? 'auto-active' : ''}"
+           data-id="${s.id}" data-title="${escHtml(s.title || 'Chat')}">
+        <span class="session-title">${escHtml(s.title || 'Chat')}</span>
+        <button class="btn-delete-session" data-id="${s.id}" title="Delete chat">🗑️</button>
+      </div>
+    `;
+  }).join('');
 
   list.querySelectorAll('.session-item').forEach(el => {
-    el.addEventListener('click', () => selectSession({ id: el.dataset.id, title: el.dataset.title }));
+    el.addEventListener('click', (e) => {
+      if (e.target.classList.contains('btn-delete-session')) return;
+      selectSession({ id: el.dataset.id, title: el.dataset.title });
+    });
+  });
+
+  list.querySelectorAll('.btn-delete-session').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const sessionId = btn.dataset.id;
+      if (confirm('Delete this chat?')) {
+        await apiFetch(`/api/sessions/${sessionId}`, { method: 'DELETE' });
+        if (currentSession?.id === sessionId) {
+          currentSession = null;
+          clearMessages();
+          document.getElementById('chat-session-title').textContent = 'Select a chat';
+        }
+        await loadSessions();
+      }
+    });
   });
 }
 

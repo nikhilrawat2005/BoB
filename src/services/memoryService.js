@@ -110,13 +110,24 @@ async function listNotifications(userId, limit = 20) {
   return snap.docs.map(d => ({ id: d.id, ...d.data() }));
 }
 
-async function markNotificationRead(userId, notifId) {
-  await db.collection('users').doc(userId).collection('notifications').doc(notifId).set({ read: true }, { merge: true });
+async function deleteSession(userId, sessionId) {
+  const ref = db.collection('users').doc(userId).collection('sessions').doc(sessionId);
+  // Delete all messages inside session
+  const msgsSnap = await ref.collection('messages').get();
+  const batch = db.batch();
+  msgsSnap.docs.forEach(doc => batch.delete(doc.ref));
+  batch.delete(ref);
+  await batch.commit();
+}
+
+async function deleteNotification(userId, notifId) {
+  await db.collection('users').doc(userId).collection('notifications').doc(notifId).delete();
 }
 
 module.exports = {
   createSession,
   listSessions,
+  deleteSession,
   addMessage,
   getRecentMessages,
   addFact,
@@ -129,5 +140,6 @@ module.exports = {
   deleteSecretNote,
   addNotification,
   listNotifications,
-  markNotificationRead
+  markNotificationRead,
+  deleteNotification
 };

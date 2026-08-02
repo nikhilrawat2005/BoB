@@ -26,4 +26,14 @@ router.post('/:id/read', requireAuth, async (req, res) => {
   }
 });
 
+// DELETE /api/notifications/:id
+router.delete('/:id', requireAuth, async (req, res) => {
+  try {
+    await memory.deleteNotification(req.userId, req.params.id);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 module.exports = router;

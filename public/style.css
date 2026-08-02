@@ -258,11 +258,33 @@ input:focus, textarea:focus, select:focus {
 .session-item {
   padding: 9px 10px; border-radius: var(--radius-sm);
   cursor: pointer; font-size: 13px; color: var(--text2);
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  display: flex; align-items: center; justify-content: space-between; gap: 6px;
   transition: background var(--transition), color var(--transition);
   border: 1px solid transparent;
+  position: relative;
 }
+.session-item .session-title { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .session-item:hover { background: var(--surface); color: var(--text); }
+.session-item.active { background: rgba(108,99,255,0.15); color: var(--text); border-color: rgba(108,99,255,0.3); }
+
+/* Self-active blinking goal/reminder chats */
+.session-item.auto-active {
+  animation: pulseGlow 2s ease-in-out infinite;
+  border-color: #6c63ff !important;
+}
+@keyframes pulseGlow {
+  0%, 100% { box-shadow: 0 0 4px rgba(108, 99, 255, 0.2); background: rgba(108, 99, 255, 0.1); }
+  50% { box-shadow: 0 0 14px rgba(108, 99, 255, 0.6); background: rgba(108, 99, 255, 0.25); }
+}
+
+.btn-delete-session {
+  background: none; border: none; color: var(--text3);
+  cursor: pointer; font-size: 12px; opacity: 0;
+  transition: opacity 0.2s, color 0.2s;
+  padding: 2px 4px; border-radius: 4px;
+}
+.session-item:hover .btn-delete-session { opacity: 1; }
+.btn-delete-session:hover { color: #ef4444; background: rgba(239,68,68,0.12); }
 .session-item.active { background: rgba(108,99,255,0.15); color: var(--text); border-color: rgba(108,99,255,0.3); }
 
 .empty-sessions { font-size: 12px; color: var(--text3); text-align: center; padding: 24px 12px; }

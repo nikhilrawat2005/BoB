@@ -33,4 +33,14 @@ router.get('/:id/messages', requireAuth, async (req, res) => {
   }
 });
 
+// DELETE /api/sessions/:id
+router.delete('/:id', requireAuth, async (req, res) => {
+  try {
+    await memory.deleteSession(req.userId, req.params.id);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 module.exports = router;
