@@ -6,6 +6,7 @@ const { auth } = require('../config/firebase');
  * On success, attaches req.userId (Firebase UID) so every route can scope data to that user.
  */
 const ALLOWED_EMAILS = [
+  'nikhil2005114@gmail.com',
   'nikhilrawat42005@gmail.com',
   'nikhilrawat4112005@gmail.com',
   'nikhilrawat2005114@gmail.com'

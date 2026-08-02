@@ -107,6 +107,7 @@ document.getElementById('register-form').addEventListener('submit', async (e) =>
 
 // Allowed Google / Login accounts list
 const ALLOWED_EMAILS = [
+  'nikhil2005114@gmail.com',
   'nikhilrawat42005@gmail.com',
   'nikhilrawat4112005@gmail.com',
   'nikhilrawat2005114@gmail.com'
