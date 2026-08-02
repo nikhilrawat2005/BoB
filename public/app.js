@@ -174,8 +174,10 @@ auth.onAuthStateChanged(async (user) => {
     await loadSessions();
     await loadNotifications();
     fetchProactiveGreeting();
+    startBackgroundPolling();
   } else {
     currentUser = null; idToken = null; currentSession = null;
+    stopBackgroundPolling();
     showScreen('login');
   }
 });
@@ -409,6 +411,245 @@ async function loadMessages(sessionId) {
   }
 }
 
+// ── File type metadata ──────────────────────────────
+const FILE_TYPE_META = {
+  // Spreadsheets
+  csv:        { icon: '📊', label: 'CSV Spreadsheet',   ext: 'csv',  mime: 'text/csv' },
+  tsv:        { icon: '📊', label: 'TSV Data',          ext: 'tsv',  mime: 'text/tab-separated-values' },
+  // Documents
+  markdown:   { icon: '📝', label: 'Markdown Document', ext: 'md',   mime: 'text/markdown' },
+  md:         { icon: '📝', label: 'Markdown Document', ext: 'md',   mime: 'text/markdown' },
+  text:       { icon: '📄', label: 'Text File',         ext: 'txt',  mime: 'text/plain' },
+  txt:        { icon: '📄', label: 'Text File',         ext: 'txt',  mime: 'text/plain' },
+  html:       { icon: '🌐', label: 'HTML Page',         ext: 'html', mime: 'text/html' },
+  // Data / Config
+  json:       { icon: '🔧', label: 'JSON Data',         ext: 'json', mime: 'application/json' },
+  yaml:       { icon: '⚙️', label: 'YAML Config',       ext: 'yaml', mime: 'text/yaml' },
+  yml:        { icon: '⚙️', label: 'YAML Config',       ext: 'yml',  mime: 'text/yaml' },
+  xml:        { icon: '📋', label: 'XML Data',          ext: 'xml',  mime: 'application/xml' },
+  toml:       { icon: '⚙️', label: 'TOML Config',       ext: 'toml', mime: 'text/plain' },
+  env:        { icon: '🔐', label: 'Env Config',        ext: 'env',  mime: 'text/plain' },
+  // Code
+  python:     { icon: '🐍', label: 'Python Script',     ext: 'py',   mime: 'text/x-python' },
+  py:         { icon: '🐍', label: 'Python Script',     ext: 'py',   mime: 'text/x-python' },
+  javascript: { icon: '🟨', label: 'JavaScript',        ext: 'js',   mime: 'text/javascript' },
+  js:         { icon: '🟨', label: 'JavaScript',        ext: 'js',   mime: 'text/javascript' },
+  typescript: { icon: '🔷', label: 'TypeScript',        ext: 'ts',   mime: 'text/typescript' },
+  ts:         { icon: '🔷', label: 'TypeScript',        ext: 'ts',   mime: 'text/typescript' },
+  sql:        { icon: '🗃️', label: 'SQL Query',         ext: 'sql',  mime: 'text/plain' },
+  bash:       { icon: '💻', label: 'Shell Script',      ext: 'sh',   mime: 'text/x-shellscript' },
+  sh:         { icon: '💻', label: 'Shell Script',      ext: 'sh',   mime: 'text/x-shellscript' },
+  cpp:        { icon: '⚡', label: 'C++ Program',       ext: 'cpp',  mime: 'text/x-c++src' },
+  c:          { icon: '⚡', label: 'C Program',         ext: 'c',    mime: 'text/x-csrc' },
+  java:       { icon: '☕', label: 'Java Program',      ext: 'java', mime: 'text/x-java-source' },
+  css:        { icon: '🎨', label: 'CSS Stylesheet',    ext: 'css',  mime: 'text/css' },
+  dockerfile: { icon: '🐳', label: 'Dockerfile',        ext: '',     mime: 'text/plain' },
+  makefile:   { icon: '🔨', label: 'Makefile',          ext: '',     mime: 'text/plain' },
+  rust:       { icon: '🦀', label: 'Rust Program',      ext: 'rs',   mime: 'text/plain' },
+  go:         { icon: '🐹', label: 'Go Program',        ext: 'go',   mime: 'text/plain' },
+  php:        { icon: '🐘', label: 'PHP Script',        ext: 'php',  mime: 'application/x-php' },
+  kotlin:     { icon: '🟣', label: 'Kotlin Program',    ext: 'kt',   mime: 'text/plain' },
+  swift:      { icon: '🍊', label: 'Swift Program',     ext: 'swift',mime: 'text/plain' },
+};
+
+// ── Background Polling Timer (30 sec) ────────────────
+let pollInterval = null;
+function startBackgroundPolling() {
+  stopBackgroundPolling();
+  // Poll every 30 seconds: check notifications + trigger scheduler tick
+  pollInterval = setInterval(async () => {
+    if (!currentUser) return;
+    try {
+      // Pings scheduler tick to process any due tasks in real-time
+      await apiFetch('/api/scheduler/tick', { method: 'POST' }).catch(() => {});
+      await loadNotifications();
+    } catch (e) { /* silent */ }
+  }, 30000);
+}
+function stopBackgroundPolling() {
+  if (pollInterval) clearInterval(pollInterval);
+  pollInterval = null;
+}
+
+// ── Parse Bob's message for downloadable file & schedule blocks ─
+function parseFileBlocks(text) {
+  // Match ```<lang> filename=<filename>\n<content>\n``` OR ```schedule\n{...}\n```
+  const regex = /```(?:([\w.+-]+)[ \t]+filename=([^\n\r]+)|(schedule))[\n\r]([\s\S]*?)```/g;
+  const blocks = [];
+  let lastIndex = 0;
+  let match;
+
+  while ((match = regex.exec(text)) !== null) {
+    if (match.index > lastIndex) {
+      blocks.push({ type: 'text', content: text.slice(lastIndex, match.index) });
+    }
+    if (match[3] === 'schedule') {
+      try {
+        const data = JSON.parse(match[4].trim());
+        blocks.push({ type: 'schedule', data });
+      } catch {
+        blocks.push({ type: 'text', content: match[0] });
+      }
+    } else {
+      blocks.push({
+        type:     'file',
+        lang:     match[1].toLowerCase().trim(),
+        filename: match[2].trim(),
+        content:  match[4],
+      });
+    }
+    lastIndex = regex.lastIndex;
+  }
+
+  if (lastIndex < text.length) {
+    blocks.push({ type: 'text', content: text.slice(lastIndex) });
+  }
+
+  return blocks.length > 0 ? blocks : [{ type: 'text', content: text }];
+}
+
+// ── Create a schedule card element ───────────────────
+function createScheduleCard(data) {
+  const card = document.createElement('div');
+  card.className = 'file-gen-card schedule-card';
+  const fireDate = new Date(data.scheduledAt);
+  const formattedTime = isNaN(fireDate.getTime())
+    ? data.scheduledAt
+    : fireDate.toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' });
+
+  card.innerHTML = `
+    <div class="file-gen-header">
+      <div class="file-gen-icon">⏰</div>
+      <div class="file-gen-info">
+        <div class="file-gen-name">Scheduled: ${escHtml(data.title || 'Bob Task')}</div>
+        <div class="file-gen-meta">📅 ${escHtml(formattedTime)} ${data.repeat && data.repeat !== 'none' ? `&bull; Repeat: ${data.repeat}` : ''}</div>
+      </div>
+    </div>
+    <div class="file-gen-actions">
+      <div style="font-size: 11.5px; color: var(--text2); flex:1; align-self:center;">
+        Bob will autonomously generate this message and send a notification at the scheduled time!
+      </div>
+    </div>
+  `;
+  return card;
+}
+
+// ── Create a download card element ───────────────────
+function createFileCard(lang, filename, content) {
+  const meta = FILE_TYPE_META[lang] || { icon: '📁', label: lang.toUpperCase() + ' File', ext: lang, mime: 'text/plain' };
+  // Determine final filename
+  let finalName = filename;
+  if (meta.ext && !filename.includes('.')) {
+    finalName = filename + '.' + meta.ext;
+  }
+  // Handle special filenames like Dockerfile / Makefile
+  if (lang === 'dockerfile' && !filename.includes('.')) finalName = 'Dockerfile';
+  if (lang === 'makefile'   && !filename.includes('.')) finalName = 'Makefile';
+
+  const lineCount = content.split('\n').length;
+  const byteSize  = new TextEncoder().encode(content).length;
+
+  const card = document.createElement('div');
+  card.className = 'file-gen-card';
+  card.innerHTML = `
+    <div class="file-gen-header">
+      <div class="file-gen-icon">${meta.icon}</div>
+      <div class="file-gen-info">
+        <div class="file-gen-name">${escHtml(finalName)}</div>
+        <div class="file-gen-meta">${escHtml(meta.label)} &bull; ${lineCount} lines &bull; ${formatBytes(byteSize)}</div>
+      </div>
+      <button class="file-gen-preview-btn" title="Preview">👁</button>
+    </div>
+    <div class="file-gen-preview hidden">
+      <pre class="file-gen-code"><code>${escHtml(content.trimEnd())}</code></pre>
+    </div>
+    <div class="file-gen-actions">
+      <button class="file-gen-download-btn">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        Download ${escHtml(finalName)}
+      </button>
+      <button class="file-gen-copy-btn">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+        Copy
+      </button>
+    </div>
+  `;
+
+  // Preview toggle
+  card.querySelector('.file-gen-preview-btn').addEventListener('click', () => {
+    const prev = card.querySelector('.file-gen-preview');
+    prev.classList.toggle('hidden');
+    card.querySelector('.file-gen-preview-btn').textContent = prev.classList.contains('hidden') ? '👁' : '🙈';
+  });
+
+  // Download
+  card.querySelector('.file-gen-download-btn').addEventListener('click', () => {
+    const blob = new Blob([content], { type: meta.mime });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href     = url;
+    a.download = finalName;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 2000);
+    // Animate button
+    const btn = card.querySelector('.file-gen-download-btn');
+    btn.textContent = '✅ Downloaded!';
+    btn.style.background = 'rgba(34, 197, 94, 0.2)';
+    btn.style.borderColor = '#22c55e';
+    setTimeout(() => {
+      btn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> Download ${escHtml(finalName)}`;
+      btn.style.background = '';
+      btn.style.borderColor = '';
+    }, 2500);
+  });
+
+  // Copy
+  card.querySelector('.file-gen-copy-btn').addEventListener('click', async () => {
+    try {
+      await navigator.clipboard.writeText(content);
+      const btn = card.querySelector('.file-gen-copy-btn');
+      btn.textContent = '✅ Copied!';
+      setTimeout(() => {
+        btn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg> Copy`;
+      }, 1800);
+    } catch (e) { /* ignore */ }
+  });
+
+  return card;
+}
+
+// ── Simple text → HTML (basic markdown + code blocks) ─
+function renderTextContent(text) {
+  // Escape HTML first
+  let html = text
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+
+  // Bold **text**
+  html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+  // Italic *text*
+  html = html.replace(/\*(.+?)\*/g, '<em>$1</em>');
+  // Inline code `code`
+  html = html.replace(/`([^`]+)`/g, '<code class="inline-code">$1</code>');
+  // Code blocks without filename= (plain code)
+  html = html.replace(/```[\w]*\n([\s\S]*?)```/g, (_, c) => {
+    return `<pre class="plain-code"><code>${c.trimEnd()}</code></pre>`;
+  });
+  // Headers
+  html = html.replace(/^### (.+)$/gm, '<h3>$1</h3>');
+  html = html.replace(/^## (.+)$/gm, '<h2>$1</h2>');
+  html = html.replace(/^# (.+)$/gm, '<h1>$1</h1>');
+  // Bullet lists
+  html = html.replace(/^[-*] (.+)$/gm, '<li>$1</li>');
+  html = html.replace(/(<li>.*<\/li>)/s, '<ul>$1</ul>');
+  // Numbered lists
+  html = html.replace(/^\d+\. (.+)$/gm, '<li>$1</li>');
+  // Line breaks
+  html = html.replace(/\n/g, '<br>');
+
+  return html;
+}
+
 function appendMessage(role, content, animate = true) {
   const container = document.getElementById('messages-container');
 
@@ -422,7 +663,35 @@ function appendMessage(role, content, animate = true) {
 
   const bubble = document.createElement('div');
   bubble.className = 'message-bubble';
-  bubble.textContent = content;
+
+  if (role === 'assistant' && content) {
+    // Parse for downloadable file blocks
+    const blocks = parseFileBlocks(content);
+    const hasFileBlocks = blocks.some(b => b.type === 'file');
+
+    blocks.forEach(block => {
+      if (block.type === 'file') {
+        bubble.appendChild(createFileCard(block.lang, block.filename, block.content));
+      } else if (block.type === 'schedule') {
+        bubble.appendChild(createScheduleCard(block.data));
+      } else if (block.content && block.content.trim()) {
+        const textDiv = document.createElement('div');
+        textDiv.className = 'msg-text-content';
+        textDiv.innerHTML = renderTextContent(block.content);
+        bubble.appendChild(textDiv);
+      }
+    });
+
+    // If only file cards (no accompanying text), add a tiny label above
+    if (hasFileBlocks && blocks.filter(b => b.type === 'text' && b.content.trim()).length === 0) {
+      const label = document.createElement('div');
+      label.className = 'file-gen-label';
+      label.textContent = '📁 File generated — ready to download:';
+      bubble.insertBefore(label, bubble.firstChild);
+    }
+  } else {
+    bubble.textContent = content;
+  }
 
   row.appendChild(bubble);
   container.appendChild(row);
@@ -514,6 +783,12 @@ async function sendMessage() {
 
     removeTypingIndicator();
     appendMessage('assistant', data.reply);
+
+    if (data.updatedTitle && currentSession) {
+      currentSession.title = data.updatedTitle;
+      document.getElementById('chat-session-title').textContent = data.updatedTitle;
+      await loadSessions();
+    }
   } catch (err) {
     removeTypingIndicator();
     appendMessage('assistant', `⚠️ Error: ${err.message}`);
@@ -529,11 +804,30 @@ document.getElementById('file-upload-input').addEventListener('change', (e) => {
   if (!file) return;
   pendingFile = file;
 
+  // Determine file type icon
+  const type = file.type || '';
+  const name = file.name.toLowerCase();
+  let fileIcon = '📄';
+  if (type.startsWith('image/'))           fileIcon = '🖼️';
+  else if (type.startsWith('audio/'))      fileIcon = '🎵';
+  else if (type.startsWith('video/'))      fileIcon = '🎬';
+  else if (type.includes('pdf'))           fileIcon = '📕';
+  else if (name.endsWith('.csv') || name.endsWith('.tsv') || name.endsWith('.xlsx') || name.endsWith('.xls'))
+                                           fileIcon = '📊';
+  else if (name.endsWith('.json'))         fileIcon = '🔧';
+  else if (name.endsWith('.py'))           fileIcon = '🐍';
+  else if (name.endsWith('.js') || name.endsWith('.ts')) fileIcon = '🟨';
+  else if (name.endsWith('.html') || name.endsWith('.htm')) fileIcon = '🌐';
+  else if (name.endsWith('.md'))           fileIcon = '📝';
+  else if (name.endsWith('.sql'))          fileIcon = '🗃️';
+  else if (name.endsWith('.cpp') || name.endsWith('.c') || name.endsWith('.java')) fileIcon = '⚡';
+  else if (name.endsWith('.sh') || name.endsWith('.bash')) fileIcon = '💻';
+
   const preview = document.getElementById('file-preview');
   preview.classList.remove('hidden');
   preview.innerHTML = `
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/></svg>
-    <span>${escHtml(file.name)} (${formatBytes(file.size)})</span>
+    <span class="file-type-badge">${fileIcon}</span>
+    <span>${escHtml(file.name)} <span style="color:var(--text3)">(${formatBytes(file.size)})</span></span>
     <button class="remove-file" id="remove-file-btn">✕</button>
   `;
   document.getElementById('remove-file-btn').addEventListener('click', clearPendingFile);

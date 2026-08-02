@@ -14,6 +14,11 @@ async function createSession(userId, title = 'New chat') {
   return { id: ref.id, title, createdAt: now, updatedAt: now };
 }
 
+async function updateSessionTitle(userId, sessionId, title) {
+  const sessionRef = db.collection('users').doc(userId).collection('sessions').doc(sessionId);
+  await sessionRef.set({ title }, { merge: true });
+}
+
 async function listSessions(userId) {
   const snap = await db
     .collection('users').doc(userId)
@@ -130,6 +135,7 @@ async function deleteNotification(userId, notifId) {
 
 module.exports = {
   createSession,
+  updateSessionTitle,
   listSessions,
   deleteSession,
   addMessage,

@@ -3,13 +3,14 @@ const express = require('express');
 const cors = require('cors');
 const path = require('path');
 
-const chatRoute = require('./routes/chat');
-const sessionsRoute = require('./routes/sessions');
-const memoryRoute = require('./routes/memory');
-const filesRoute = require('./routes/files');
-const researchRoute = require('./routes/research');
-const secretVaultRoute = require('./routes/secretVault');
+const chatRoute          = require('./routes/chat');
+const sessionsRoute      = require('./routes/sessions');
+const memoryRoute        = require('./routes/memory');
+const filesRoute         = require('./routes/files');
+const researchRoute      = require('./routes/research');
+const secretVaultRoute   = require('./routes/secretVault');
 const notificationsRoute = require('./routes/notifications');
+const schedulerRoute     = require('./routes/scheduler');
 
 const app = express();
 
@@ -22,13 +23,14 @@ app.use(express.static(path.join(__dirname, '../public')));
 // Health check — useful to verify the deploy is alive
 app.get('/api/health', (req, res) => res.json({ status: 'ok', service: 'bob-backend' }));
 
-app.use('/api/chat', chatRoute);
-app.use('/api/sessions', sessionsRoute);
-app.use('/api/memory', memoryRoute);
-app.use('/api/files', filesRoute);
-app.use('/api/research', researchRoute);
-app.use('/api/secret', secretVaultRoute);
+app.use('/api/chat',          chatRoute);
+app.use('/api/sessions',      sessionsRoute);
+app.use('/api/memory',        memoryRoute);
+app.use('/api/files',         filesRoute);
+app.use('/api/research',      researchRoute);
+app.use('/api/secret',        secretVaultRoute);
 app.use('/api/notifications', notificationsRoute);
+app.use('/api/scheduler',     schedulerRoute);
 
 // Catch-all error handler
 app.use((err, req, res, next) => {
