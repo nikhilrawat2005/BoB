@@ -251,22 +251,25 @@
           </div>
         </div>
       </div>
-      <!-- Vault Content (unlocked) -->
-      <div id="vault-content-screen" class="hidden">
+      <!-- Vault Content (unlocked private hidden chat) -->
+      <div id="vault-content-screen" class="hidden vault-chat-container">
         <div class="panel-header">
-          <span>🔒 Secret Vault</span>
+          <div style="display:flex;align-items:center;gap:6px;">
+            <span>🕵️ Private Secret Chat</span>
+            <span class="badge-incognito">Encrypted</span>
+          </div>
           <div style="display:flex;align-items:center;gap:8px;">
+            <button id="wipe-vault-chat-btn" class="vault-relock-btn" style="color:var(--red); border-color:rgba(239,68,68,0.3);" title="Wipe secret chat history">🗑️ Wipe</button>
             <button id="relock-vault-btn" class="vault-relock-btn" title="Lock vault">🔒 Lock</button>
             <button class="panel-close" id="close-vault-unlocked">✕</button>
           </div>
         </div>
-        <div class="panel-body">
-          <div class="add-fact-row">
-            <input id="vault-note-input" type="text" placeholder="Add a private note or date..." />
-            <input id="vault-date-input" type="date" class="vault-date" />
-            <button id="add-vault-note-btn" class="btn-small">Add</button>
-          </div>
-          <div id="vault-notes-list" class="facts-list"></div>
+        <div class="vault-chat-messages" id="vault-chat-messages">
+          <div class="empty-msg">🤫 Private Secret Vault Chat active. Messages here are confidential and isolated from normal chats.</div>
+        </div>
+        <div class="vault-chat-input-row">
+          <input id="vault-chat-input" type="text" placeholder="Send private secret message..." />
+          <button id="vault-send-btn" class="btn-small">Send</button>
         </div>
       </div>
     </div>

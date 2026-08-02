@@ -1277,11 +1277,11 @@ async function submitVaultPin() {
     vaultPinScr.classList.add('hidden');
     vaultConScr.classList.remove('hidden');
     vaultErrEl.classList.add('hidden');
-    await loadVaultNotes();
+    await loadVaultChat();
   } catch (err) {
     // Wrong PIN
     shakeErrorDots();
-    vaultErrEl.textContent = 'Incorrect PIN. Try again.';
+    vaultErrEl.textContent = 'Incorrect PIN (Default: 2005). Try again.';
     vaultErrEl.classList.remove('hidden');
     vaultPin = '';
     setTimeout(() => {
@@ -1290,33 +1290,74 @@ async function submitVaultPin() {
   }
 }
 
-// ── Load vault notes ─────────────────────────────────
-async function loadVaultNotes() {
-  const list = document.getElementById('vault-notes-list');
+// ── Load & Manage Vault Private Chat ───────────────────
+async function loadVaultChat() {
+  const container = document.getElementById('vault-chat-messages');
   try {
-    const { notes } = await apiFetch('/api/secret/notes');
-    if (!notes.length) {
-      list.innerHTML = '<div class="empty-msg">No private notes yet. Add your first secret entry below.</div>';
-      vaultBtn.classList.remove('has-notes');
+    const { messages } = await apiFetch('/api/secret/chat');
+    if (!messages || !messages.length) {
+      container.innerHTML = '<div class="empty-msg">🤫 Private Secret Vault Chat active. Messages here are confidential and isolated from normal chats.</div>';
       return;
     }
-    vaultBtn.classList.add('has-notes');
-    list.innerHTML = notes.map(n => `
-      <div class="vault-note-item" data-id="${n.id}">
-        <div class="vault-note-content">
-          <div>${escHtml(n.noteText)}</div>
-          ${n.eventDate ? `<div class="vault-note-date">📅 ${formatEventDate(n.eventDate)}</div>` : ''}
-        </div>
-        <button class="vault-note-delete" data-id="${n.id}" title="Delete">✕</button>
+    container.innerHTML = messages.map(m => `
+      <div class="vault-msg-bubble ${m.role}">
+        <div class="vault-msg-role">${m.role === 'user' ? 'Nikhil' : 'Bob (Private)'}</div>
+        <div class="vault-msg-text">${escHtml(m.content)}</div>
       </div>
     `).join('');
-    list.querySelectorAll('.vault-note-delete').forEach(btn => {
-      btn.addEventListener('click', () => deleteVaultNote(btn.dataset.id));
-    });
+    container.scrollTop = container.scrollHeight;
   } catch (err) {
-    list.innerHTML = `<div class="empty-msg">Error: ${err.message}</div>`;
+    container.innerHTML = `<div class="empty-msg">Error loading secret chat: ${err.message}</div>`;
   }
 }
+
+document.getElementById('vault-send-btn').addEventListener('click', sendVaultMessage);
+document.getElementById('vault-chat-input').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') sendVaultMessage();
+});
+
+async function sendVaultMessage() {
+  const input = document.getElementById('vault-chat-input');
+  const text = input.value.trim();
+  if (!text) return;
+
+  const container = document.getElementById('vault-chat-messages');
+  input.value = '';
+
+  // Append user bubble immediately
+  const userDiv = document.createElement('div');
+  userDiv.className = 'vault-msg-bubble user';
+  userDiv.innerHTML = `<div class="vault-msg-role">Nikhil</div><div class="vault-msg-text">${escHtml(text)}</div>`;
+  container.appendChild(userDiv);
+  container.scrollTop = container.scrollHeight;
+
+  try {
+    const data = await apiFetch('/api/secret/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: text }),
+    });
+
+    const botDiv = document.createElement('div');
+    botDiv.className = 'vault-msg-bubble assistant';
+    botDiv.innerHTML = `<div class="vault-msg-role">Bob (Private)</div><div class="vault-msg-text">${escHtml(data.reply)}</div>`;
+    container.appendChild(botDiv);
+    container.scrollTop = container.scrollHeight;
+  } catch (err) {
+    alert('Failed to send secret message: ' + err.message);
+  }
+}
+
+document.getElementById('wipe-vault-chat-btn').addEventListener('click', async () => {
+  if (!confirm('Are you sure you want to wipe all private secret chat history?')) return;
+  try {
+    await apiFetch('/api/secret/chat', { method: 'DELETE' });
+    await loadVaultChat();
+  } catch (err) {
+    alert('Failed to wipe secret chat: ' + err.message);
+  }
+});
+
 
 // ── Add vault note ────────────────────────────────────
 document.getElementById('add-vault-note-btn').addEventListener('click', async () => {

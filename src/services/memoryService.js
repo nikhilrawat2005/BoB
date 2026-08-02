@@ -97,6 +97,25 @@ async function deleteSecretNote(userId, noteId) {
   await db.collection('users').doc(userId).collection('secretVault').doc(noteId).delete();
 }
 
+async function addVaultMessage(userId, role, content) {
+  const ref = db.collection('users').doc(userId).collection('vaultMessages').doc();
+  const msg = { id: ref.id, role, content, createdAt: Date.now() };
+  await ref.set(msg);
+  return msg;
+}
+
+async function getVaultMessages(userId, limit = 50) {
+  const snap = await db.collection('users').doc(userId).collection('vaultMessages').orderBy('createdAt', 'asc').limit(limit).get();
+  return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+}
+
+async function clearVaultMessages(userId) {
+  const snap = await db.collection('users').doc(userId).collection('vaultMessages').get();
+  const batch = db.batch();
+  snap.docs.forEach(doc => batch.delete(doc.ref));
+  await batch.commit();
+}
+
 async function addNotification(userId, title, message, type = 'reminder', promptSnippet = '') {
   const ref = db.collection('users').doc(userId).collection('notifications').doc();
   const now = Date.now();
@@ -151,5 +170,8 @@ module.exports = {
   addNotification,
   listNotifications,
   markNotificationRead,
-  deleteNotification
+  deleteNotification,
+  addVaultMessage,
+  getVaultMessages,
+  clearVaultMessages,
 };
