@@ -330,7 +330,10 @@ function removeTypingIndicator() {
 
 function scrollToBottom() {
   const c = document.getElementById('messages-container');
-  c.scrollTop = c.scrollHeight;
+  requestAnimationFrame(() => {
+    c.scrollTop = c.scrollHeight;
+    setTimeout(() => { c.scrollTop = c.scrollHeight; }, 50);
+  });
 }
 
 // ═══════════════════════════════════════════════════════
