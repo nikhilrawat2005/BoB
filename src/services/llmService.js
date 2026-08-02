@@ -52,6 +52,8 @@ const MODEL_ROLES = {
   auditor:         process.env.AUDITOR_MODEL  || 'openai/gpt-4o',
   router:          process.env.WRITER_MODEL   || 'google/gemini-2.0-flash-001',
   memorySummarize: process.env.WRITER_MODEL   || 'google/gemini-2.0-flash-001',
+  // Vision-capable model for screenshots, thumbnails, and image analysis
+  vision:          process.env.VISION_MODEL   || 'google/gemini-2.0-flash-001',
 };
 
 // ---------------------------------------------------------------------------
@@ -104,4 +106,72 @@ async function callLLM({ role = 'chat', messages, model, temperature, max_tokens
   };
 }
 
-module.exports = { callLLM, MODEL_ROLES };
+// ---------------------------------------------------------------------------
+// Vision caller — supports text + image_url multimodal messages
+// ---------------------------------------------------------------------------
+
+/**
+ * Calls LLM with vision support (text + images in the same message).
+ * Used for screenshot analysis, thumbnail inspection, and image understanding.
+ *
+ * @param {object} opts
+ * @param {Array}  opts.messages     - Standard messages array (system + history)
+ * @param {string} opts.userText     - The user's current message text
+ * @param {string[]} opts.imageUrls  - Array of image URLs to include in the vision request
+ * @param {string} [opts.model]      - Override model (defaults to vision role model)
+ * @param {number} [opts.temperature]
+ * @param {number} [opts.max_tokens]
+ */
+async function callLLMWithVision({ messages, userText, imageUrls = [], model, temperature, max_tokens }) {
+  const selectedModel = model || MODEL_ROLES.vision;
+  const apiKey = _nextKey();
+
+  // Build multimodal user content: text + images
+  const userContent = [
+    { type: 'text', text: userText },
+    ...imageUrls.map(url => ({
+      type: 'image_url',
+      image_url: { url },
+    })),
+  ];
+
+  // Replace the last user message (or append) with multimodal content
+  const visionMessages = [
+    ...messages.filter(m => m.role !== 'user' || messages.indexOf(m) < messages.length - 1),
+    { role: 'user', content: userContent },
+  ];
+
+  const body = {
+    model: selectedModel,
+    messages: visionMessages,
+    temperature: temperature ?? Number(process.env.TEMPERATURE ?? 0.2),
+    max_tokens:  max_tokens  ?? Number(process.env.MAX_TOKENS  ?? 16000),
+  };
+
+  const res = await fetch(OPENROUTER_URL, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${apiKey}`,
+      'HTTP-Referer': 'https://github.com/nikhilrawat2005/BoB',
+      'X-Title': 'Bob Personal Assistant',
+    },
+    body: JSON.stringify(body),
+  });
+
+  const data = await res.json();
+
+  if (data.error) {
+    const err = new Error(data.error.message || 'OpenRouter vision error');
+    err.details = data.error;
+    throw err;
+  }
+
+  return {
+    text:  data.choices[0].message.content,
+    model: selectedModel,
+    usage: data.usage || null,
+  };
+}
+
+module.exports = { callLLM, callLLMWithVision, MODEL_ROLES };

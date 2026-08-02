@@ -27,10 +27,11 @@ const auth = firebase.auth();
 const API = '';   // e.g. '' means http://localhost:3000
 
 // ── State ────────────────────────────────────────────
-let currentUser    = null;
-let idToken        = null;
-let currentSession = null;
-let pendingFile    = null;
+let currentUser       = null;
+let idToken           = null;
+let currentSession    = null;
+let pendingFile       = null;   // File selected via attach button
+let pendingPasteImage = null;   // Image pasted via Ctrl+V
 
 // ── DOM refs ─────────────────────────────────────────
 const screens = {
@@ -689,6 +690,18 @@ function appendMessage(role, content, animate = true) {
       label.textContent = '📁 File generated — ready to download:';
       bubble.insertBefore(label, bubble.firstChild);
     }
+    // Add Speak Audio Button for Bob's responses
+    const speakBtn = document.createElement('button');
+    speakBtn.className = 'bubble-speak-btn';
+    speakBtn.title = 'Listen to Bob (Hinglish)';
+    speakBtn.innerHTML = '🔊 Listen';
+    speakBtn.addEventListener('click', () => speakHinglishText(content, speakBtn));
+    bubble.appendChild(speakBtn);
+
+    // Auto-speak if TTS is enabled
+    if (isTTSEnabled && animate) {
+      speakHinglishText(content, speakBtn);
+    }
   } else {
     bubble.textContent = content;
   }
@@ -697,6 +710,85 @@ function appendMessage(role, content, animate = true) {
   container.appendChild(row);
   scrollToBottom();
   return row;
+}
+
+// ═══════════════════════════════════════════════════════
+// HINGLISH VOICE SPEECH ENGINE (Web Speech API - 100% Free & Private)
+// ═══════════════════════════════════════════════════════
+let isTTSEnabled = true;
+let currentUtterance = null;
+
+const ttsBtn   = document.getElementById('tts-toggle-btn');
+const ttsIcon  = document.getElementById('tts-icon');
+const ttsLabel = document.getElementById('tts-label');
+
+if (ttsBtn) {
+  ttsBtn.addEventListener('click', () => {
+    isTTSEnabled = !isTTSEnabled;
+    if (!isTTSEnabled && window.speechSynthesis) {
+      window.speechSynthesis.cancel();
+    }
+    ttsIcon.textContent  = isTTSEnabled ? '🔊' : '🔇';
+    ttsLabel.textContent = isTTSEnabled ? 'Voice ON' : 'Voice OFF';
+    ttsBtn.style.opacity = isTTSEnabled ? '1' : '0.6';
+  });
+}
+
+function cleanTextForSpeech(rawText) {
+  return rawText
+    .replace(/```[\s\S]*?```/g, '') // strip code blocks
+    .replace(/`([^`]+)`/g, '$1')     // inline code
+    .replace(/[*_#~]/g, '')           // markdown formatting
+    .replace(/(https?:\/\/[^\s]+)/g, '') // URLs
+    .trim();
+}
+
+function speakHinglishText(text, btnElement = null) {
+  if (!('speechSynthesis' in window)) return;
+
+  const speechText = cleanTextForSpeech(text);
+  if (!speechText) return;
+
+  window.speechSynthesis.cancel(); // stop previous speech
+
+  const utterance = new SpeechSynthesisUtterance(speechText);
+  currentUtterance = utterance;
+
+  // Rate & Pitch tuned for natural Hinglish conversational tone
+  utterance.rate  = 1.05;
+  utterance.pitch = 1.0;
+
+  // Get available browser voices
+  const voices = window.speechSynthesis.getVoices();
+
+  // Smart Voice Picker: Preference: hi-IN (Hindi India) > en-IN (English India) > Default
+  const hindiVoice = voices.find(v => v.lang === 'hi-IN' || v.lang === 'hi_IN');
+  const indianEngVoice = voices.find(v => v.lang === 'en-IN' || v.lang === 'en_IN' || v.name.includes('India'));
+
+  if (hindiVoice) {
+    utterance.voice = hindiVoice;
+    utterance.lang  = 'hi-IN';
+  } else if (indianEngVoice) {
+    utterance.voice = indianEngVoice;
+    utterance.lang  = 'en-IN';
+  } else {
+    utterance.lang  = 'hi-IN'; // Fallback
+  }
+
+  if (btnElement) {
+    btnElement.innerHTML = '⏹️ Stop';
+    utterance.onend = () => { btnElement.innerHTML = '🔊 Listen'; };
+    utterance.onerror = () => { btnElement.innerHTML = '🔊 Listen'; };
+  }
+
+  window.speechSynthesis.speak(utterance);
+}
+
+// Pre-load voices on browser ready
+if ('speechSynthesis' in window) {
+  window.speechSynthesis.onvoiceschanged = () => {
+    window.speechSynthesis.getVoices();
+  };
 }
 
 function showTypingIndicator() {
@@ -732,8 +824,8 @@ messageInput.addEventListener('input', () => {
   // Auto-grow textarea
   messageInput.style.height = 'auto';
   messageInput.style.height = Math.min(messageInput.scrollHeight, 160) + 'px';
-  // Enable send button
-  sendBtn.disabled = !messageInput.value.trim();
+  // Enable send button if there's text OR a pending image/file
+  sendBtn.disabled = !messageInput.value.trim() && !pendingFile && !pendingPasteImage;
 });
 
 messageInput.addEventListener('keydown', (e) => {
@@ -742,6 +834,51 @@ messageInput.addEventListener('keydown', (e) => {
     if (!sendBtn.disabled) sendMessage();
   }
 });
+
+// ── Paste Screenshot Support (Ctrl+V) ─────────────────
+messageInput.addEventListener('paste', (e) => {
+  const items = e.clipboardData && e.clipboardData.items;
+  if (!items) return;
+
+  for (const item of items) {
+    if (item.kind === 'file' && item.type.startsWith('image/')) {
+      e.preventDefault(); // don't paste image as text
+      const file = item.getAsFile();
+      if (!file) return;
+
+      pendingPasteImage = file;
+
+      // Show image thumbnail preview
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        const preview = document.getElementById('file-preview');
+        preview.classList.remove('hidden');
+        preview.innerHTML = `
+          <div class="paste-img-preview">
+            <img src="${ev.target.result}" alt="Screenshot preview" class="paste-thumb" />
+            <div class="paste-img-info">
+              <span class="file-type-badge">🖼️</span>
+              <span>Screenshot pasted <span style="color:var(--text3)">(${formatBytes(file.size)})</span></span>
+            </div>
+            <button class="remove-file" id="remove-paste-btn">✕</button>
+          </div>
+        `;
+        document.getElementById('remove-paste-btn').addEventListener('click', clearPastedImage);
+        sendBtn.disabled = false;
+      };
+      reader.readAsDataURL(file);
+      return; // only handle first image
+    }
+  }
+});
+
+function clearPastedImage() {
+  pendingPasteImage = null;
+  const preview = document.getElementById('file-preview');
+  preview.classList.add('hidden');
+  preview.innerHTML = '';
+  sendBtn.disabled = !messageInput.value.trim() && !pendingFile;
+}
 
 sendBtn.addEventListener('click', sendMessage);
 
@@ -754,31 +891,52 @@ async function sendMessage() {
   const text  = messageInput.value.trim();
   const model = document.getElementById('model-selector').value || undefined;
 
-  if (!text && !pendingFile) return;
+  if (!text && !pendingFile && !pendingPasteImage) return;
 
-  // Upload file first if pending
-  if (pendingFile) {
-    await uploadPendingFile();
+  // Collect image URLs to send to Bob for vision analysis
+  const imageUrls = [];
+
+  // Upload pasted screenshot if any
+  if (pendingPasteImage) {
+    const pasteUrl = await uploadImageFile(pendingPasteImage, 'pasted-screenshot');
+    if (pasteUrl) imageUrls.push(pasteUrl);
+    clearPastedImage();
   }
 
-  if (!text) return;
+  // Upload attached file if any
+  if (pendingFile) {
+    const attachedUrl = await uploadPendingFile();
+    if (attachedUrl && pendingFile && pendingFile.type.startsWith('image/')) {
+      imageUrls.push(attachedUrl);
+    }
+  }
+
+  // If only an image was sent with no text, add a default prompt
+  const finalText = text || (imageUrls.length ? 'Yeh screenshot dekho aur mujhe samjhao ismein kya hai.' : '');
+  if (!finalText) return;
 
   // Clear input
   messageInput.value = '';
   messageInput.style.height = 'auto';
   sendBtn.disabled = true;
 
-  // Show user message
-  appendMessage('user', text);
+  // Show user message (with image indicator if applicable)
+  const displayText = imageUrls.length
+    ? (text ? `🖼️ [Screenshot attached]\n${text}` : '🖼️ [Screenshot] — Yeh dekho aur samjhao')
+    : text;
+  appendMessage('user', displayText);
 
   // Show typing
   showTypingIndicator();
 
   try {
+    const payload = { sessionId: currentSession.id, message: finalText, model };
+    if (imageUrls.length) payload.imageUrls = imageUrls;
+
     const data = await apiFetch('/api/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ sessionId: currentSession.id, message: text, model }),
+      body: JSON.stringify(payload),
     });
 
     removeTypingIndicator();
@@ -842,20 +1000,33 @@ function clearPendingFile() {
 }
 
 async function uploadPendingFile() {
-  if (!currentSession || !pendingFile) return;
-  const formData = new FormData();
-  formData.append('file', pendingFile);
+  if (!currentSession || !pendingFile) return null;
+  const file = pendingFile;
   clearPendingFile();
+  return await uploadImageFile(file, file.name);
+}
+
+/**
+ * Uploads any file (attached or pasted) to backend, returns the Cloudinary URL.
+ * For images, the URL is passed to Bob for vision analysis.
+ */
+async function uploadImageFile(file, label) {
+  const formData = new FormData();
+  formData.append('file', file);
 
   try {
-    await fetch(API + '/api/files/upload', {
+    const res = await fetch(API + '/api/files/upload', {
       method: 'POST',
       headers: { 'Authorization': `Bearer ${idToken}` },
       body: formData,
     });
-    appendMessage('assistant', `📎 File uploaded successfully.`, true);
+    if (!res.ok) throw new Error(`Upload failed: ${res.status}`);
+    const data = await res.json();
+    // Return the URL so it can be sent to Bob for vision analysis
+    return data.file && data.file.url ? data.file.url : null;
   } catch (err) {
     appendMessage('assistant', `⚠️ File upload failed: ${err.message}`, true);
+    return null;
   }
 }
 

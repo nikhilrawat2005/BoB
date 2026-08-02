@@ -1,9 +1,10 @@
 const express = require('express');
 const router = express.Router();
 const { requireAuth } = require('../middleware/auth');
-const { callLLM } = require('../services/llmService');
+const { callLLM, callLLMWithVision } = require('../services/llmService');
 const memory = require('../services/memoryService');
 const scheduler = require('../services/schedulerService');
+const { enrichMessageWithMedia } = require('../services/mediaDetector');
 
 const memoryManager = require('../services/memoryManager');
 const behaviorEngine = require('../services/behaviorEngine');
@@ -19,12 +20,15 @@ router.get('/proactive-greeting', requireAuth, async (req, res) => {
   }
 });
 
-// POST /api/chat  { sessionId, message, model? }
+// POST /api/chat  { sessionId, message, model?, imageUrls? }
 router.post('/', requireAuth, async (req, res) => {
-  const { sessionId, message, model } = req.body;
+  const { sessionId, message, model, imageUrls } = req.body;
   if (!sessionId || !message) {
     return res.status(400).json({ error: 'sessionId and message are required' });
   }
+
+  // Normalize image URLs from request (screenshots uploaded by user)
+  const userImageUrls = Array.isArray(imageUrls) ? imageUrls.filter(Boolean) : [];
 
   try {
     // 1. Save user's message
@@ -39,6 +43,16 @@ router.post('/', requireAuth, async (req, res) => {
     // If new fact detected automatically, store it in memory facts
     if (intent.isNewFact && intent.extractedFact) {
       await memory.addFact(req.userId, intent.extractedFact);
+    }
+
+    // 3b. AUTO MEDIA DETECTION — extract YouTube/Instagram link data from message
+    const mediaEnrichment = await enrichMessageWithMedia(message);
+    const allImageUrls = [
+      ...userImageUrls,
+      ...(mediaEnrichment.imageUrls || []),
+    ];
+    if (mediaEnrichment.hasMedia) {
+      console.log(`[Chat] Media detected: ${mediaEnrichment.detectedTypes.join(', ')} — ${allImageUrls.length} image(s) for vision`);
     }
 
     // 4. Pull recent history, facts, and weekly summaries context
@@ -143,17 +157,54 @@ EXAMPLES:
 4. Write the "prompt" field with FULL detail — that's what Bob will use to generate content at fire time
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-- You have full access to historical chat summaries, habits, and stored facts about Master Nikhil.
-${memoryContext}`;
+━━━ 🎬 MEDIA INTELLIGENCE ENGINE ━━━
+You have the ability to understand YouTube videos, Instagram Reels/posts, and screenshots!
 
-    const { text, model: usedModel } = await callLLM({
-      role: 'chat',
-      model,
-      messages: [
-        { role: 'system', content: systemPrompt },
-        ...recent.map(m => ({ role: m.role, content: m.content })),
-      ],
-    });
+When AUTO-EXTRACTED MEDIA DATA appears in context below:
+- For YOUTUBE videos: You have the FULL TRANSCRIPT. Read it thoroughly and give Master Nikhil a detailed, intelligent analysis. Cover: main topic, key points, important timestamps/concepts, your honest assessment, and what's most useful to learn from it.
+- For INSTAGRAM REELS/POSTS: You have the caption, author info, and a thumbnail image (visually analyzed). Describe what the reel/post is about, the visual content, the message it conveys, and anything notable.
+- For SCREENSHOTS: Carefully read ALL text visible in the image. Identify the app/context, extract key information, and help Master Nikhil understand and take action on what's shown.
+
+🔑 KEY BEHAVIOR:
+- ALWAYS acknowledge when you're using auto-extracted media data
+- Give DEEP, USEFUL analysis — not just a summary. Explain concepts, add context, give opinions.
+- If transcript is available: reference specific parts of it in your explanation
+- If image is provided: describe what you visually see in detail
+- Master Nikhil trusts you to be his eyes and ears on any content he shares
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+- You have full access to historical chat summaries, habits, and stored facts about Master Nikhil.
+${memoryContext}${mediaEnrichment.mediaContext}`;
+
+    // 5. Call Answering Agent LLM — use Vision if images are present
+    const baseMessages = [
+      { role: 'system', content: systemPrompt },
+      ...recent.map(m => ({ role: m.role, content: m.content })),
+    ];
+
+    let llmResult;
+    if (allImageUrls.length > 0) {
+      // Vision call: text + images (screenshots, thumbnails)
+      console.log(`[Chat] Using vision LLM with ${allImageUrls.length} image(s)`);
+      llmResult = await callLLMWithVision({
+        messages: baseMessages,
+        userText: message,
+        imageUrls: allImageUrls,
+        model,
+      });
+    } else {
+      // Standard text-only call
+      llmResult = await callLLM({
+        role: 'chat',
+        model,
+        messages: [
+          ...baseMessages,
+          { role: 'user', content: message },
+        ],
+      });
+    }
+
+    const { text, model: usedModel } = llmResult;
 
     // 6. Save assistant's reply
     await memory.addMessage(req.userId, sessionId, 'assistant', text);

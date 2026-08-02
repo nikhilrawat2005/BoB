@@ -986,6 +986,43 @@ input:focus, textarea:focus, select:focus {
 }
 .file-preview .remove-file:hover { color: var(--red); background: rgba(239,68,68,0.1); }
 
+/* ── Pasted Screenshot Preview ──────────────────────── */
+.paste-img-preview {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+}
+.paste-thumb {
+  width: 56px;
+  height: 40px;
+  object-fit: cover;
+  border-radius: 6px;
+  border: 1px solid rgba(108,99,255,0.3);
+  flex-shrink: 0;
+}
+.paste-img-info {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+}
+.paste-img-preview .remove-file {
+  margin-left: auto;
+  background: none;
+  border: none;
+  color: var(--text3);
+  cursor: pointer;
+  font-size: 13px;
+  padding: 2px 4px;
+  border-radius: 4px;
+  transition: color var(--transition), background var(--transition);
+  flex-shrink: 0;
+}
+.paste-img-preview .remove-file:hover { color: var(--red); background: rgba(239,68,68,0.1); }
+
+
 /* ── Schedule Card ──────────────────────────────────── */
 .schedule-card {
   background: linear-gradient(135deg, rgba(245,158,11,0.08) 0%, rgba(217,119,6,0.04) 100%);
@@ -997,4 +1034,39 @@ input:focus, textarea:focus, select:focus {
 }
 .schedule-card .file-gen-icon {
   filter: drop-shadow(0 0 6px rgba(245,158,11,0.5));
+}
+
+/* ── Speech / Voice Buttons ──────────────────────────── */
+.bubble-speak-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: rgba(255,255,255,0.06);
+  border: 1px solid var(--border);
+  color: var(--text2);
+  font-size: 11px;
+  font-weight: 500;
+  padding: 3px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  margin-top: 6px;
+  transition: all var(--transition);
+}
+.bubble-speak-btn:hover {
+  background: rgba(108,99,255,0.15);
+  color: var(--text);
+  border-color: rgba(108,99,255,0.3);
+}
+
+.tts-btn {
+  background: rgba(108,99,255,0.1);
+  border: 1px solid rgba(108,99,255,0.25);
+  color: var(--text);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all var(--transition);
+}
+.tts-btn:hover {
+  background: rgba(108,99,255,0.2);
+  border-color: rgba(108,99,255,0.4);
 }
