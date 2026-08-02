@@ -197,7 +197,7 @@ function friendlyAuthError(code) {
 // API HELPERS
 // ═══════════════════════════════════════════════════════
 
-async function apiFetch(path, options = {}) {
+async function apiFetch(path, options = {}, isRetry = false) {
   const res = await fetch(API + path, {
     ...options,
     headers: {
@@ -205,9 +205,23 @@ async function apiFetch(path, options = {}) {
       ...(options.headers || {}),
     }
   });
+
   if (!res.ok) {
     const data = await res.json().catch(() => ({}));
-    throw new Error(data.error || `HTTP ${res.status}`);
+    const errorMsg = data.error || `HTTP ${res.status}`;
+
+    // Auto-refresh token and retry once if token is expired/invalid
+    if ((res.status === 401 || errorMsg.includes('expired')) && !isRetry && currentUser) {
+      try {
+        console.log('Token expired. Refreshing token and retrying request...');
+        idToken = await currentUser.getIdToken(true);
+        return await apiFetch(path, options, true);
+      } catch (refreshErr) {
+        console.error('Failed to refresh token:', refreshErr);
+      }
+    }
+
+    throw new Error(errorMsg);
   }
   return res.json();
 }
