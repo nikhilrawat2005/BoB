@@ -11,12 +11,12 @@
 ═══════════════════════════════════════════════════════ */
 
 const firebaseConfig = {
-  apiKey:            "PASTE_YOUR_WEB_API_KEY_HERE",
+  apiKey:            "AIzaSyCjbVNMc1GTnBVpvLONAoFn-mIdDIiLcaw",
   authDomain:        "bob-3ff28.firebaseapp.com",
   projectId:         "bob-3ff28",
   storageBucket:     "bob-3ff28.firebasestorage.app",
-  messagingSenderId: "PASTE_MESSAGING_SENDER_ID_HERE",
-  appId:             "PASTE_APP_ID_HERE"
+  messagingSenderId: "180416673423",
+  appId:             "1:180416673423:web:258a36eeee081c7081a2fa"
 };
 
 // ── Init Firebase ────────────────────────────────────
