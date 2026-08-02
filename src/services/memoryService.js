@@ -66,9 +66,30 @@ async function saveWeeklySummary(userId, weekId, summaryData) {
   return { weekId, ...summaryData, updatedAt: now };
 }
 
-async function listWeeklySummaries(userId) {
-  const snap = await db.collection('users').doc(userId).collection('weeklySummaries').orderBy('updatedAt', 'desc').get();
+async function listWeeklySummaries(userId, limit = 5) {
+  const snap = await db
+    .collection('users').doc(userId)
+    .collection('weeklySummaries')
+    .orderBy('updatedAt', 'desc')
+    .limit(limit)
+    .get();
   return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+}
+
+async function addSecretNote(userId, noteText, eventDate = null) {
+  const ref = db.collection('users').doc(userId).collection('secretVault').doc();
+  const now = Date.now();
+  await ref.set({ noteText, eventDate, createdAt: now });
+  return { id: ref.id, noteText, eventDate, createdAt: now };
+}
+
+async function listSecretNotes(userId) {
+  const snap = await db.collection('users').doc(userId).collection('secretVault').orderBy('createdAt', 'desc').get();
+  return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+}
+
+async function deleteSecretNote(userId, noteId) {
+  await db.collection('users').doc(userId).collection('secretVault').doc(noteId).delete();
 }
 
 module.exports = {
@@ -81,4 +102,7 @@ module.exports = {
   deleteFact,
   saveWeeklySummary,
   listWeeklySummaries,
+  addSecretNote,
+  listSecretNotes,
+  deleteSecretNote,
 };

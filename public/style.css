@@ -187,6 +187,8 @@ input:focus, textarea:focus, select:focus {
   flex-direction: row;
   background: var(--bg);
   position: relative;
+  overflow: hidden;
+  height: 100vh;
 }
 
 /* ── Sidebar ────────────────────────────────────────── */
@@ -256,7 +258,14 @@ input:focus, textarea:focus, select:focus {
 .logout-btn:hover { color: var(--red); background: rgba(239,68,68,0.1); }
 
 /* ── Chat Area ──────────────────────────────────────── */
-.chat-area { flex: 1; display: flex; flex-direction: column; height: 100%; overflow: hidden; }
+.chat-area {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;       /* critical: lets flex child shrink below content size */
+  overflow: hidden;
+}
 
 .chat-topbar {
   display: flex; align-items: center; gap: 10px;
@@ -277,7 +286,9 @@ input:focus, textarea:focus, select:focus {
 /* ── Messages ───────────────────────────────────────── */
 .messages-container {
   flex: 1;
+  min-height: 0;       /* critical: allows overflow-y to activate inside flex */
   overflow-y: auto;
+  overflow-x: hidden;
   padding: 20px 0;
   display: flex;
   flex-direction: column;
@@ -323,13 +334,11 @@ input:focus, textarea:focus, select:focus {
 /* ── Input Area ─────────────────────────────────────── */
 .input-area {
   padding: 12px 24px 20px;
-  flex-shrink: 0;
+  flex-shrink: 0;      /* never grow/shrink — always stays at bottom */
   border-top: 1px solid var(--border);
   background: rgba(13,15,20,0.95);
   backdrop-filter: blur(16px);
-  max-width: 900px;
   width: 100%;
-  margin: 0 auto;
 }
 
 .input-wrapper {
@@ -419,3 +428,240 @@ input:focus, textarea:focus, select:focus {
   .sidebar { position: fixed; z-index: 50; top: 0; bottom: 0; left: 0; }
   .sidebar:not(.open) { margin-left: calc(-1 * var(--sidebar-w)); }
 }
+
+/* ═══════════════════════════════════════════════════════
+   SECRET VAULT — Premium PIN UI
+═══════════════════════════════════════════════════════ */
+
+/* Vault button in sidebar — glows gold */
+.vault-btn {
+  color: #f59e0b !important;
+  position: relative;
+}
+.vault-btn:hover {
+  background: rgba(245, 158, 11, 0.12) !important;
+  color: #fbbf24 !important;
+}
+.vault-btn::after {
+  content: '';
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #f59e0b;
+  box-shadow: 0 0 6px #f59e0b;
+  opacity: 0;
+  transition: opacity 0.3s;
+}
+.vault-btn.has-notes::after { opacity: 1; }
+
+/* Vault panel — darker, more secretive feel */
+.vault-panel {
+  background: linear-gradient(180deg, #0e0c16 0%, #130f1e 100%);
+  border-left: 1px solid rgba(245, 158, 11, 0.2);
+  box-shadow: -20px 0 80px rgba(0, 0, 0, 0.6), -2px 0 0 rgba(245, 158, 11, 0.08);
+}
+
+/* PIN Entry Screen */
+.vault-pin-body {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 24px;
+  height: calc(100% - 60px);
+  gap: 0;
+}
+
+.vault-lock-icon {
+  color: #f59e0b;
+  margin-bottom: 20px;
+  filter: drop-shadow(0 0 16px rgba(245, 158, 11, 0.5));
+  animation: lockPulse 2.5s ease-in-out infinite;
+}
+@keyframes lockPulse {
+  0%, 100% { filter: drop-shadow(0 0 12px rgba(245,158,11,0.4)); }
+  50%       { filter: drop-shadow(0 0 28px rgba(245,158,11,0.75)); }
+}
+
+.vault-pin-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: rgba(245, 158, 11, 0.85);
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  margin-bottom: 24px;
+}
+
+/* PIN dots */
+.vault-pin-dots {
+  display: flex;
+  gap: 14px;
+  margin-bottom: 12px;
+}
+.vault-pin-dots span {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 2px solid rgba(245, 158, 11, 0.4);
+  background: transparent;
+  transition: background 0.2s, border-color 0.2s, box-shadow 0.2s;
+}
+.vault-pin-dots span.filled {
+  background: #f59e0b;
+  border-color: #f59e0b;
+  box-shadow: 0 0 10px rgba(245, 158, 11, 0.6);
+}
+.vault-pin-dots span.error {
+  background: #ef4444;
+  border-color: #ef4444;
+  box-shadow: 0 0 10px rgba(239, 68, 68, 0.6);
+  animation: shake 0.4s ease;
+}
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  20%       { transform: translateX(-5px); }
+  40%       { transform: translateX(5px); }
+  60%       { transform: translateX(-4px); }
+  80%       { transform: translateX(4px); }
+}
+
+#vault-pin-error {
+  font-size: 11px;
+  color: #fca5a5;
+  margin-bottom: 8px;
+  min-height: 20px;
+}
+
+/* Numpad */
+.vault-numpad {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  width: 220px;
+  margin-top: 12px;
+}
+
+.numpad-btn {
+  height: 58px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: var(--text);
+  font-size: 20px;
+  font-weight: 500;
+  font-family: 'Inter', sans-serif;
+  cursor: pointer;
+  transition: background 0.15s, transform 0.1s, box-shadow 0.15s;
+  display: flex; align-items: center; justify-content: center;
+  -webkit-user-select: none; user-select: none;
+}
+.numpad-btn:hover {
+  background: rgba(245, 158, 11, 0.12);
+  border-color: rgba(245, 158, 11, 0.3);
+  color: #fbbf24;
+}
+.numpad-btn:active {
+  transform: scale(0.92);
+  background: rgba(245, 158, 11, 0.2);
+}
+.numpad-btn[data-digit="clear"] {
+  font-size: 18px;
+  color: var(--text3);
+}
+.numpad-btn[data-digit="clear"]:hover { color: var(--red); background: rgba(239,68,68,0.1); border-color: rgba(239,68,68,0.2); }
+
+.numpad-enter {
+  background: linear-gradient(135deg, #d97706, #f59e0b) !important;
+  border: none !important;
+  color: #fff !important;
+  font-size: 20px !important;
+  box-shadow: 0 4px 16px rgba(245, 158, 11, 0.4);
+}
+.numpad-enter:hover {
+  box-shadow: 0 6px 24px rgba(245, 158, 11, 0.6) !important;
+  transform: translateY(-1px) !important;
+}
+
+/* Vault unlocked content */
+#vault-content-screen .panel-header {
+  border-bottom-color: rgba(245, 158, 11, 0.2);
+  color: #fbbf24;
+}
+
+#vault-content-screen .panel-header span {
+  display: flex; align-items: center; gap: 8px;
+}
+
+.vault-date {
+  flex: 0 0 auto;
+  width: 130px;
+  font-size: 12px;
+  padding: 8px 10px;
+  color-scheme: dark;
+}
+
+/* Vault notes list */
+.vault-note-item {
+  background: rgba(245, 158, 11, 0.05);
+  border: 1px solid rgba(245, 158, 11, 0.15);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  font-size: 13px;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  transition: border-color 0.2s, background 0.2s;
+}
+.vault-note-item:hover {
+  background: rgba(245, 158, 11, 0.08);
+  border-color: rgba(245, 158, 11, 0.25);
+}
+.vault-note-content { flex: 1; line-height: 1.5; }
+.vault-note-date {
+  font-size: 11px;
+  color: #f59e0b;
+  margin-top: 3px;
+  display: flex; align-items: center; gap: 4px;
+}
+.vault-note-delete {
+  background: none; border: none; color: var(--text3);
+  cursor: pointer; font-size: 14px; padding: 0 2px;
+  flex-shrink: 0; transition: color var(--transition);
+}
+.vault-note-delete:hover { color: var(--red); }
+
+/* Vault lock button in panel header — re-lock */
+.vault-relock-btn {
+  background: rgba(245, 158, 11, 0.1);
+  border: 1px solid rgba(245, 158, 11, 0.2);
+  border-radius: 6px;
+  color: #f59e0b;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 4px 10px;
+  cursor: pointer;
+  transition: background 0.2s;
+  font-family: 'Inter', sans-serif;
+  letter-spacing: 0.3px;
+}
+.vault-relock-btn:hover { background: rgba(245, 158, 11, 0.2); }
+
+/* Vault header strip */
+.vault-panel .panel-header {
+  background: linear-gradient(90deg, rgba(245,158,11,0.06) 0%, transparent 100%);
+}
+
+/* Add vault note row */
+#vault-content-screen .add-fact-row {
+  flex-wrap: wrap;
+  gap: 6px;
+}
+#vault-content-screen .add-fact-row input[type="text"] {
+  flex: 1 1 140px;
+  min-width: 0;
+}
+

@@ -116,6 +116,10 @@
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
           Files
         </button>
+        <button id="toggle-vault-btn" class="sidebar-icon-btn vault-btn" title="Secret Vault">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/><circle cx="12" cy="16" r="1" fill="currentColor"/></svg>
+          Secret Vault
+        </button>
         <div class="sidebar-divider"></div>
         <div class="user-row">
           <div class="user-avatar" id="user-avatar">U</div>
@@ -197,6 +201,59 @@
       <div class="panel-body">
         <div id="files-list" class="files-list">
           <div class="empty-msg">No files uploaded yet.</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Secret Vault Panel -->
+    <div id="vault-panel" class="side-panel hidden vault-panel">
+      <!-- PIN Screen -->
+      <div id="vault-pin-screen">
+        <div class="panel-header">
+          <span>🔒 Secret Vault</span>
+          <button class="panel-close" id="close-vault">✕</button>
+        </div>
+        <div class="vault-pin-body">
+          <div class="vault-lock-icon">
+            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/><circle cx="12" cy="16" r="1" fill="currentColor"/></svg>
+          </div>
+          <p class="vault-pin-label">Enter Passcode</p>
+          <div class="vault-pin-dots" id="vault-pin-dots">
+            <span></span><span></span><span></span><span></span>
+          </div>
+          <div id="vault-pin-error" class="error-msg hidden">Incorrect PIN. Try again.</div>
+          <div class="vault-numpad">
+            <button class="numpad-btn" data-digit="1">1</button>
+            <button class="numpad-btn" data-digit="2">2</button>
+            <button class="numpad-btn" data-digit="3">3</button>
+            <button class="numpad-btn" data-digit="4">4</button>
+            <button class="numpad-btn" data-digit="5">5</button>
+            <button class="numpad-btn" data-digit="6">6</button>
+            <button class="numpad-btn" data-digit="7">7</button>
+            <button class="numpad-btn" data-digit="8">8</button>
+            <button class="numpad-btn" data-digit="9">9</button>
+            <button class="numpad-btn" data-digit="clear">⌫</button>
+            <button class="numpad-btn" data-digit="0">0</button>
+            <button class="numpad-btn numpad-enter" data-digit="enter">✓</button>
+          </div>
+        </div>
+      </div>
+      <!-- Vault Content (unlocked) -->
+      <div id="vault-content-screen" class="hidden">
+        <div class="panel-header">
+          <span>🔒 Secret Vault</span>
+          <div style="display:flex;align-items:center;gap:8px;">
+            <button id="relock-vault-btn" class="vault-relock-btn" title="Lock vault">🔒 Lock</button>
+            <button class="panel-close" id="close-vault-unlocked">✕</button>
+          </div>
+        </div>
+        <div class="panel-body">
+          <div class="add-fact-row">
+            <input id="vault-note-input" type="text" placeholder="Add a private note or date..." />
+            <input id="vault-date-input" type="date" class="vault-date" />
+            <button id="add-vault-note-btn" class="btn-small">Add</button>
+          </div>
+          <div id="vault-notes-list" class="facts-list"></div>
         </div>
       </div>
     </div>

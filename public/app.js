@@ -572,6 +572,236 @@ document.getElementById('sidebar-toggle').addEventListener('click', () => {
 });
 
 // ═══════════════════════════════════════════════════════
+// SECRET VAULT
+// ═══════════════════════════════════════════════════════
+
+const vaultPanel   = document.getElementById('vault-panel');
+const vaultPinScr  = document.getElementById('vault-pin-screen');
+const vaultConScr  = document.getElementById('vault-content-screen');
+const vaultDots    = document.querySelectorAll('#vault-pin-dots span');
+const vaultErrEl   = document.getElementById('vault-pin-error');
+const vaultBtn     = document.getElementById('toggle-vault-btn');
+
+let vaultPin        = '';
+let vaultUnlocked   = false;
+
+// ── Open / close vault panel ─────────────────────────
+function openVaultPanel() {
+  vaultPanel.classList.remove('hidden');
+  setTimeout(() => vaultPanel.classList.add('open'), 10);
+  backdrop.classList.remove('hidden');
+}
+function closeVaultPanel() {
+  vaultPanel.classList.remove('open');
+  setTimeout(() => {
+    vaultPanel.classList.add('hidden');
+    // Reset to PIN screen after close for security
+    lockVault();
+  }, 300);
+  backdrop.classList.add('hidden');
+}
+
+function lockVault() {
+  vaultPin = '';
+  vaultUnlocked = false;
+  vaultConScr.classList.add('hidden');
+  vaultPinScr.classList.remove('hidden');
+  resetPinDots();
+  vaultErrEl.classList.add('hidden');
+}
+
+// Override closeAllPanels to also handle vault
+const _originalCloseAll = closeAllPanels;
+function closeAllPanelsWithVault() {
+  _originalCloseAll();
+  vaultPanel.classList.remove('open');
+  setTimeout(() => {
+    vaultPanel.classList.add('hidden');
+    lockVault();
+  }, 300);
+}
+backdrop.removeEventListener('click', closeAllPanels);
+backdrop.addEventListener('click', closeAllPanelsWithVault);
+
+vaultBtn.addEventListener('click', () => {
+  // Close other panels first
+  memoryPanel.classList.remove('open');
+  filesPanel.classList.remove('open');
+  setTimeout(() => { memoryPanel.classList.add('hidden'); filesPanel.classList.add('hidden'); }, 300);
+  openVaultPanel();
+});
+
+document.getElementById('close-vault').addEventListener('click', closeVaultPanel);
+document.getElementById('close-vault-unlocked').addEventListener('click', closeVaultPanel);
+document.getElementById('relock-vault-btn').addEventListener('click', lockVault);
+
+// ── PIN dots visual state ───────────────────────────
+function resetPinDots() {
+  vaultDots.forEach(d => { d.className = ''; });
+}
+function updatePinDots() {
+  vaultDots.forEach((d, i) => {
+    d.className = i < vaultPin.length ? 'filled' : '';
+  });
+}
+function shakeErrorDots() {
+  vaultDots.forEach(d => { d.className = 'error'; });
+  setTimeout(resetPinDots, 600);
+}
+
+// ── Numpad clicks ────────────────────────────────────
+document.querySelectorAll('.numpad-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const digit = btn.dataset.digit;
+
+    if (digit === 'clear') {
+      vaultPin = vaultPin.slice(0, -1);
+      updatePinDots();
+      vaultErrEl.classList.add('hidden');
+      return;
+    }
+
+    if (digit === 'enter') {
+      submitVaultPin();
+      return;
+    }
+
+    if (vaultPin.length < 4) {
+      vaultPin += digit;
+      updatePinDots();
+      // Auto-submit when 4 digits entered
+      if (vaultPin.length === 4) {
+        setTimeout(submitVaultPin, 150);
+      }
+    }
+  });
+});
+
+// ── Submit PIN to backend ────────────────────────────
+async function submitVaultPin() {
+  if (vaultPin.length < 4) {
+    vaultErrEl.textContent = 'Please enter a 4-digit PIN.';
+    vaultErrEl.classList.remove('hidden');
+    return;
+  }
+
+  try {
+    await apiFetch('/api/secret/verify-pin', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ pin: vaultPin }),
+    });
+
+    // Correct PIN
+    vaultUnlocked = true;
+    vaultPinScr.classList.add('hidden');
+    vaultConScr.classList.remove('hidden');
+    vaultErrEl.classList.add('hidden');
+    await loadVaultNotes();
+  } catch (err) {
+    // Wrong PIN
+    shakeErrorDots();
+    vaultErrEl.textContent = 'Incorrect PIN. Try again.';
+    vaultErrEl.classList.remove('hidden');
+    vaultPin = '';
+    setTimeout(() => {
+      resetPinDots();
+    }, 650);
+  }
+}
+
+// ── Load vault notes ─────────────────────────────────
+async function loadVaultNotes() {
+  const list = document.getElementById('vault-notes-list');
+  try {
+    const { notes } = await apiFetch('/api/secret/notes');
+    if (!notes.length) {
+      list.innerHTML = '<div class="empty-msg">No private notes yet. Add your first secret entry below.</div>';
+      vaultBtn.classList.remove('has-notes');
+      return;
+    }
+    vaultBtn.classList.add('has-notes');
+    list.innerHTML = notes.map(n => `
+      <div class="vault-note-item" data-id="${n.id}">
+        <div class="vault-note-content">
+          <div>${escHtml(n.noteText)}</div>
+          ${n.eventDate ? `<div class="vault-note-date">📅 ${formatEventDate(n.eventDate)}</div>` : ''}
+        </div>
+        <button class="vault-note-delete" data-id="${n.id}" title="Delete">✕</button>
+      </div>
+    `).join('');
+    list.querySelectorAll('.vault-note-delete').forEach(btn => {
+      btn.addEventListener('click', () => deleteVaultNote(btn.dataset.id));
+    });
+  } catch (err) {
+    list.innerHTML = `<div class="empty-msg">Error: ${err.message}</div>`;
+  }
+}
+
+// ── Add vault note ────────────────────────────────────
+document.getElementById('add-vault-note-btn').addEventListener('click', async () => {
+  const noteInput = document.getElementById('vault-note-input');
+  const dateInput = document.getElementById('vault-date-input');
+  const noteText  = noteInput.value.trim();
+  const eventDate = dateInput.value || null;
+
+  if (!noteText) return;
+  try {
+    await apiFetch('/api/secret/notes', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ noteText, eventDate }),
+    });
+    noteInput.value = '';
+    dateInput.value = '';
+    await loadVaultNotes();
+  } catch (err) {
+    alert('Failed to add note: ' + err.message);
+  }
+});
+
+document.getElementById('vault-note-input').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') document.getElementById('add-vault-note-btn').click();
+});
+
+// ── Delete vault note ─────────────────────────────────
+async function deleteVaultNote(id) {
+  try {
+    await apiFetch(`/api/secret/notes/${id}`, { method: 'DELETE' });
+    await loadVaultNotes();
+  } catch (err) {
+    alert('Failed to delete note: ' + err.message);
+  }
+}
+
+// ── Format event date nicely ──────────────────────────
+function formatEventDate(dateStr) {
+  try {
+    const d = new Date(dateStr + 'T00:00:00');
+    const now = new Date();
+    const diffDays = Math.ceil((d - now) / (1000 * 60 * 60 * 24));
+    const formatted = d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+    if (diffDays === 0) return `${formatted} — Today!`;
+    if (diffDays === 1) return `${formatted} — Tomorrow`;
+    if (diffDays > 0 && diffDays <= 7) return `${formatted} — in ${diffDays} days`;
+    if (diffDays < 0) return `${formatted} — ${Math.abs(diffDays)}d ago`;
+    return formatted;
+  } catch {
+    return dateStr;
+  }
+}
+
+// ── Check vault on login (for sidebar dot) ───────────
+async function checkVaultStatus() {
+  try {
+    // We only check if notes exist via a quick verify with stored PIN
+    // Just ping notes endpoint — if user already verified, great; else skip
+    // Since we can't auto-auth without PIN, we'll just check via a separate status endpoint.
+    // For now silently skip; the dot shows after first open.
+  } catch { /* silent */ }
+}
+
+// ═══════════════════════════════════════════════════════
 // UTILS
 // ═══════════════════════════════════════════════════════
 
@@ -587,3 +817,4 @@ function formatBytes(bytes) {
   if (bytes < 1048576)    return (bytes / 1024).toFixed(1) + ' KB';
   return (bytes / 1048576).toFixed(1) + ' MB';
 }
+
