@@ -1,0 +1,50 @@
+# BOB FUTURE ROADMAP: SELF-DEVELOPING & AUTONOMOUS CRAWLER ENGINE
+
+Created for Master Nikhil.
+This document outlines the architecture, roadmap, and design for Bob's two ultimate super-capabilities:
+1. Autonomous Self-Developing Code Engine
+2. Autonomous Web Crawler, Scraper, & Late-Night Research Agent
+
+---
+
+## 🚀 PART 1: AUTONOMOUS WEB CRAWLER & RESEARCH AGENT
+
+### 🎯 Objective
+Empower Bob to accept web links, URLs, topics, or late-night tasks (e.g., "Bob, I have an exam tomorrow on Operating Systems / analyze this competitor site frontend & content"), automatically crawl/scrape the targets, synthesize full reports, and have everything ready by morning.
+
+### 🛠️ Architecture & Components
+1. **Web Scraper & Crawler Service (`src/services/crawlerService.js`)**:
+   - Uses `cheerio` & `node-fetch` (or dynamic headless scrapers) to extract HTML, JS scripts, metadata, main text, and CSS styles from any target URL.
+   - Extracts page structure, UI components, and raw text content.
+2. **Deep Autonomous Research Agent (`src/services/researchAgent.js`)**:
+   - Takes a research prompt (e.g. "Prepare comprehensive exam notes for Operating Systems: Memory Management & Deadlocks").
+   - Autonomous multi-query web search -> fetches top 5-10 sources -> scrapes key content -> synthesizes a structured Markdown/PDF study report.
+3. **Late-Night Task Queue & Scheduler (`src/services/taskScheduler.js`)**:
+   - Allows Master Nikhil to assign tasks before sleeping.
+   - Executes background cron/queue jobs to perform deep research and store final reports under `users/{userId}/reports/`.
+
+---
+
+## 🧬 PART 2: AUTONOMOUS SELF-DEVELOPING CODE ENGINE
+
+### 🎯 Objective
+Allow Bob to analyze his own codebase, diagnostic reports, and user feature requests, write code patches, test them, and commit/push updates to GitHub automatically.
+
+### 🛠️ Architecture & Components
+1. **Self-Diagnostic & Logger (`src/services/selfAuditor.js`)**:
+   - Tracks response times, failed API calls, and missing capabilities.
+   - Generates daily "Self-Improvement Reports".
+2. **Autonomous Code Modifier (`src/services/selfCoder.js`)**:
+   - Uses GitHub REST API with an authorized access token to read codebase files, generate code diffs, run tests, and open/merge commits directly into `nikhilrawat2005/BoB`.
+3. **Safety & Fallback Layer**:
+   - Pre-commit syntax validation to ensure zero syntax errors before pushing to production.
+
+---
+
+## 📌 Implementation Checklist & Next Steps
+- [x] Document Future Roadmap in `FUTURE_ROADMAP.txt`.
+- [ ] Install web scraping dependencies (`cheerio`).
+- [ ] Build `src/services/crawlerService.js` (Web page URL scraper & HTML parser).
+- [ ] Build `src/services/researchAgent.js` (Multi-source research report generator).
+- [ ] Add `/api/research/crawl` and `/api/research/study-notes` endpoints.
+- [ ] Connect GitHub API for `selfCoder.js`.

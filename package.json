@@ -8,10 +8,17 @@
     "start": "node src/server.js",
     "dev": "nodemon src/server.js"
   },
-  "keywords": ["assistant", "llm", "openrouter", "firebase", "cloudinary"],
+  "keywords": [
+    "assistant",
+    "llm",
+    "openrouter",
+    "firebase",
+    "cloudinary"
+  ],
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "cheerio": "^1.2.0",
     "cloudinary": "^2.4.0",
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",

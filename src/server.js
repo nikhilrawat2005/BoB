@@ -7,6 +7,7 @@ const chatRoute = require('./routes/chat');
 const sessionsRoute = require('./routes/sessions');
 const memoryRoute = require('./routes/memory');
 const filesRoute = require('./routes/files');
+const researchRoute = require('./routes/research');
 
 const app = express();
 
@@ -23,6 +24,7 @@ app.use('/api/chat', chatRoute);
 app.use('/api/sessions', sessionsRoute);
 app.use('/api/memory', memoryRoute);
 app.use('/api/files', filesRoute);
+app.use('/api/research', researchRoute);
 
 // Catch-all error handler
 app.use((err, req, res, next) => {
