@@ -9,6 +9,7 @@ const memoryRoute = require('./routes/memory');
 const filesRoute = require('./routes/files');
 const researchRoute = require('./routes/research');
 const secretVaultRoute = require('./routes/secretVault');
+const notificationsRoute = require('./routes/notifications');
 
 const app = express();
 
@@ -27,6 +28,7 @@ app.use('/api/memory', memoryRoute);
 app.use('/api/files', filesRoute);
 app.use('/api/research', researchRoute);
 app.use('/api/secret', secretVaultRoute);
+app.use('/api/notifications', notificationsRoute);
 
 // Catch-all error handler
 app.use((err, req, res, next) => {

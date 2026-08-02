@@ -92,6 +92,28 @@ async function deleteSecretNote(userId, noteId) {
   await db.collection('users').doc(userId).collection('secretVault').doc(noteId).delete();
 }
 
+async function addNotification(userId, title, message, type = 'reminder', promptSnippet = '') {
+  const ref = db.collection('users').doc(userId).collection('notifications').doc();
+  const now = Date.now();
+  const notif = { id: ref.id, title, message, type, promptSnippet, read: false, createdAt: now };
+  await ref.set(notif);
+  return notif;
+}
+
+async function listNotifications(userId, limit = 20) {
+  const snap = await db
+    .collection('users').doc(userId)
+    .collection('notifications')
+    .orderBy('createdAt', 'desc')
+    .limit(limit)
+    .get();
+  return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+}
+
+async function markNotificationRead(userId, notifId) {
+  await db.collection('users').doc(userId).collection('notifications').doc(notifId).set({ read: true }, { merge: true });
+}
+
 module.exports = {
   createSession,
   listSessions,
@@ -105,4 +127,7 @@ module.exports = {
   addSecretNote,
   listSecretNotes,
   deleteSecretNote,
+  addNotification,
+  listNotifications,
+  markNotificationRead
 };

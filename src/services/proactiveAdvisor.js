@@ -83,6 +83,52 @@ ${memoryContext || 'No context available yet.'}`;
   }
 }
 
+async function checkAndGenerateNotifications(userId) {
+  try {
+    const secretNotes = await memory.listSecretNotes(userId);
+    const existingNotifs = await memory.listNotifications(userId);
+    const existingTitles = new Set(existingNotifs.map(n => n.title));
+
+    const now = Date.now();
+
+    for (const note of secretNotes) {
+      if (!note.eventDate) continue;
+
+      const eventMs = new Date(note.eventDate).getTime();
+      const diffDays = Math.ceil((eventMs - now) / (1000 * 60 * 60 * 24));
+
+      if (diffDays >= 0 && diffDays <= 7) {
+        const notifTitle = `Vault Reminder (${note.eventDate})`;
+        if (!existingTitles.has(notifTitle)) {
+          const timeMsg = diffDays === 0 ? "today!" : diffDays === 1 ? "tomorrow" : `in ${diffDays} days`;
+          const snippet = note.noteText.length > 30 ? note.noteText.slice(0, 30) + "..." : note.noteText;
+          await memory.addNotification(
+            userId,
+            notifTitle,
+            `Master Nikhil, a secret vault date is approaching ${timeMsg}!`,
+            'vault',
+            `Master Nikhil, regarding my Secret Vault reminder for ${timeMsg}: '${snippet}', let's discuss this!`
+          );
+        }
+      }
+    }
+
+    // Goal / General check if no recent notification exists
+    if (existingNotifs.length === 0) {
+      await memory.addNotification(
+        userId,
+        "Welcome Goal Tracking",
+        "Master Nikhil, Bob is actively tracking your goals & secret vault reminders.",
+        "goal",
+        "Master, tell me about your main goal or priority for today!"
+      );
+    }
+  } catch (err) {
+    console.error('checkAndGenerateNotifications error:', err.message);
+  }
+}
+
 module.exports = {
   generateProactiveGreeting,
+  checkAndGenerateNotifications
 };

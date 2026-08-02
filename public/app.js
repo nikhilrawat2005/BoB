@@ -172,6 +172,7 @@ auth.onAuthStateChanged(async (user) => {
 
     showScreen('app');
     await loadSessions();
+    await loadNotifications();
     fetchProactiveGreeting();
   } else {
     currentUser = null; idToken = null; currentSession = null;
@@ -237,6 +238,63 @@ async function loadSessions() {
   } catch (err) {
     console.error('loadSessions error:', err);
   }
+}
+
+// ═══════════════════════════════════════════════════════
+// NOTIFICATIONS
+// ═══════════════════════════════════════════════════════
+
+async function loadNotifications() {
+  try {
+    const { notifications } = await apiFetch('/api/notifications');
+    renderNotifications(notifications || []);
+  } catch (err) {
+    console.error('loadNotifications error:', err);
+  }
+}
+
+function renderNotifications(notifications) {
+  const list = document.getElementById('notifications-list');
+  const badge = document.getElementById('notif-count-badge');
+
+  const unreadCount = notifications.filter(n => !n.read).length;
+  if (unreadCount > 0) {
+    badge.textContent = unreadCount;
+    badge.classList.remove('hidden');
+  } else {
+    badge.classList.add('hidden');
+  }
+
+  if (!notifications.length) {
+    list.innerHTML = '<div class="empty-sessions">No notifications right now</div>';
+    return;
+  }
+
+  list.innerHTML = notifications.map(n => `
+    <div class="notif-item ${!n.read ? 'unread' : ''}" data-id="${n.id}">
+      <div class="notif-title">🔔 ${escHtml(n.title)}</div>
+      <div class="notif-msg">${escHtml(n.message)}</div>
+      <div class="notif-time">${new Date(n.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>
+      <div class="notif-actions">
+        <button class="btn-notif-reply" data-id="${n.id}" data-snippet="${escHtml(n.promptSnippet || n.message)}">💬 Reply in Chat</button>
+      </div>
+    </div>
+  `).join('');
+
+  list.querySelectorAll('.btn-notif-reply').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const notifId = btn.dataset.id;
+      const snippet = btn.dataset.snippet;
+      await apiFetch(`/api/notifications/${notifId}/read`, { method: 'POST' });
+      await createNewSession();
+      const msgInput = document.getElementById('message-input');
+      msgInput.value = snippet;
+      msgInput.dispatchEvent(new Event('input'));
+      await sendMessage();
+      await loadNotifications();
+    });
+  });
 }
 
 function renderSessions(sessions) {
