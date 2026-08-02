@@ -4,7 +4,7 @@ const { requireAuth } = require('../middleware/auth');
 const memory = require('../services/memoryService');
 
 // Default PIN for Master Nikhil's vault
-const VAULT_PIN = process.env.SECRET_VAULT_PIN || '1234';
+const VAULT_PIN = process.env.SECRET_VAULT_PIN || '2005';
 
 // POST /api/secret/verify-pin
 router.post('/verify-pin', requireAuth, (req, res) => {
