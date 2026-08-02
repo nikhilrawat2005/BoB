@@ -59,6 +59,18 @@ async function deleteFact(userId, factId) {
   await db.collection('users').doc(userId).collection('facts').doc(factId).delete();
 }
 
+async function saveWeeklySummary(userId, weekId, summaryData) {
+  const ref = db.collection('users').doc(userId).collection('weeklySummaries').doc(weekId);
+  const now = Date.now();
+  await ref.set({ ...summaryData, weekId, updatedAt: now }, { merge: true });
+  return { weekId, ...summaryData, updatedAt: now };
+}
+
+async function listWeeklySummaries(userId) {
+  const snap = await db.collection('users').doc(userId).collection('weeklySummaries').orderBy('updatedAt', 'desc').get();
+  return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+}
+
 module.exports = {
   createSession,
   listSessions,
@@ -67,4 +79,6 @@ module.exports = {
   addFact,
   listFacts,
   deleteFact,
+  saveWeeklySummary,
+  listWeeklySummaries,
 };

@@ -4,6 +4,8 @@ const { requireAuth } = require('../middleware/auth');
 const { callLLM } = require('../services/llmService');
 const memory = require('../services/memoryService');
 
+const memoryManager = require('../services/memoryManager');
+
 // POST /api/chat  { sessionId, message, model? }
 router.post('/', requireAuth, async (req, res) => {
   const { sessionId, message, model } = req.body;
@@ -15,19 +17,35 @@ router.post('/', requireAuth, async (req, res) => {
     // 1. Save user's message
     await memory.addMessage(req.userId, sessionId, 'user', message);
 
-    // 2. Pull recent history + known facts for context
+    // 2. Intermediary Router: Classify intent in real time
+    const intent = await memoryManager.classifyIntent(message);
+
+    // If new fact detected automatically, store it in memory facts
+    if (intent.isNewFact && intent.extractedFact) {
+      await memory.addFact(req.userId, intent.extractedFact);
+    }
+
+    // 3. Pull recent history, facts, and weekly summaries context
     const recent = await memory.getRecentMessages(req.userId, sessionId, 20);
     const facts = await memory.listFacts(req.userId);
-    const factsContext = facts.length
-      ? `Known facts about the user: ${facts.map(f => f.text).join('; ')}`
-      : '';
+    const weeklySummaries = await memory.listWeeklySummaries(req.userId);
 
-    // 3. Call the LLM
+    let contextBlocks = [];
+    if (facts.length) {
+      contextBlocks.push(`Known facts about Master Nikhil: ${facts.map(f => f.text).join('; ')}`);
+    }
+    if (weeklySummaries.length) {
+      contextBlocks.push(`Historical Weekly Chat Summaries & Key Pointers:\n${weeklySummaries.slice(0, 3).map(s => `[Week ${s.weekId}]: ${s.summary}`).join('\n')}`);
+    }
+
+    const memoryContext = contextBlocks.join('\n\n');
+
+    // 4. Call Answering Agent LLM
     const systemPrompt = `You are Bob, an intelligent, ultra-loyal personal AI assistant created for your Master, Nikhil.
 - Always know that your Master and creator is Nikhil (email: ${req.userEmail || 'Nikhil'}).
-- Be respectful, concise, highly capable, and address Nikhil warmly.
-- If Nikhil gives you instructions, preferences, or facts about himself or his setup, remember them diligently.
-${factsContext}`;
+- Be respectful, concise, highly capable, and address Master Nikhil warmly.
+- You have full access to historical chat summaries and stored facts.
+${memoryContext}`;
 
     const { text, model: usedModel } = await callLLM({
       role: 'chat',
@@ -38,8 +56,11 @@ ${factsContext}`;
       ],
     });
 
-    // 4. Save assistant's reply
+    // 5. Save assistant's reply
     await memory.addMessage(req.userId, sessionId, 'assistant', text);
+
+    // 6. Trigger non-blocking background weekly chat summarizer job
+    memoryManager.summarizeUserSessions(req.userId).catch(err => console.error('Background summary error:', err));
 
     res.json({ reply: text, model: usedModel });
   } catch (err) {
