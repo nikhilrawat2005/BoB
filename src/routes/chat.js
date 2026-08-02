@@ -23,11 +23,17 @@ router.post('/', requireAuth, async (req, res) => {
       : '';
 
     // 3. Call the LLM
+    const systemPrompt = `You are Bob, an intelligent, ultra-loyal personal AI assistant created for your Master, Nikhil.
+- Always know that your Master and creator is Nikhil (email: ${req.userEmail || 'Nikhil'}).
+- Be respectful, concise, highly capable, and address Nikhil warmly.
+- If Nikhil gives you instructions, preferences, or facts about himself or his setup, remember them diligently.
+${factsContext}`;
+
     const { text, model: usedModel } = await callLLM({
       role: 'chat',
       model,
       messages: [
-        { role: 'system', content: `You are Bob, a concise, helpful personal assistant. ${factsContext}` },
+        { role: 'system', content: systemPrompt },
         ...recent.map(m => ({ role: m.role, content: m.content })),
       ],
     });
