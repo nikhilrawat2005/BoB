@@ -172,6 +172,7 @@ auth.onAuthStateChanged(async (user) => {
 
     showScreen('app');
     await loadSessions();
+    fetchProactiveGreeting();
   } else {
     currentUser = null; idToken = null; currentSession = null;
     showScreen('login');
@@ -254,6 +255,19 @@ async function selectSession(session) {
 
   clearMessages();
   await loadMessages(session.id);
+}
+
+async function fetchProactiveGreeting() {
+  try {
+    const { greeting } = await apiFetch('/api/chat/proactive-greeting');
+    const welcomeEl = document.getElementById('welcome-screen');
+    if (welcomeEl && greeting) {
+      const p = welcomeEl.querySelector('p');
+      if (p) p.textContent = greeting;
+    }
+  } catch (err) {
+    console.error('Proactive greeting error:', err);
+  }
 }
 
 async function createNewSession() {
