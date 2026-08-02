@@ -120,6 +120,10 @@ async function deleteSession(userId, sessionId) {
   await batch.commit();
 }
 
+async function markNotificationRead(userId, notifId) {
+  await db.collection('users').doc(userId).collection('notifications').doc(notifId).set({ read: true }, { merge: true });
+}
+
 async function deleteNotification(userId, notifId) {
   await db.collection('users').doc(userId).collection('notifications').doc(notifId).delete();
 }
