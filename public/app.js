@@ -1115,13 +1115,16 @@ function showTypingIndicator() {
   const row = document.createElement('div');
   row.className = 'message-row assistant';
   row.id = 'typing-row';
-  row.innerHTML = `<div class="message-bubble"><div class="typing-indicator"><span></span><span></span><span></span></div></div>`;
+  row.innerHTML = `<div class="message-bubble"><div class="typing-indicator"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="typing-label">Bob is thinking…</span></div></div>`;
   container.appendChild(row);
   scrollToBottom();
 }
 
 function removeTypingIndicator() {
-  document.getElementById('typing-row')?.remove();
+  const row = document.getElementById('typing-row');
+  if (!row) return;
+  row.classList.add('typing-fade');
+  setTimeout(() => row.remove(), 260);
 }
 
 function scrollToBottom() {
@@ -1201,6 +1204,33 @@ function clearPastedImage() {
 
 sendBtn.addEventListener('click', sendMessage);
 
+// ── Welcome screen suggestion chips ───────────────────
+const WELCOME_SUGGESTIONS = [
+  { icon: '📈', label: 'Aaj ka market batao' },
+  { icon: '🌦️', label: 'Mumbai ka weather' },
+  { icon: '🧠', label: 'Meri memory kya hai' },
+  { icon: '🗓️', label: 'DSA roadmap banao' },
+  { icon: '📊', label: 'Ek data chart banao' },
+];
+function renderWelcomeSuggestions() {
+  const wrap = document.getElementById('welcome-suggestions');
+  if (!wrap) return;
+  wrap.innerHTML = '';
+  WELCOME_SUGGESTIONS.forEach(s => {
+    const chip = document.createElement('button');
+    chip.type = 'button';
+    chip.className = 'welcome-chip';
+    chip.innerHTML = `<span>${s.icon}</span> ${s.label}`;
+    chip.addEventListener('click', () => {
+      messageInput.value = s.label;
+      sendBtn.disabled = false;
+      sendMessage();
+    });
+    wrap.appendChild(chip);
+  });
+}
+renderWelcomeSuggestions();
+
 async function sendMessage() {
   if (!currentSession) {
     await createNewSession();
@@ -1238,6 +1268,7 @@ async function sendMessage() {
   messageInput.value = '';
   messageInput.style.height = 'auto';
   sendBtn.disabled = true;
+  messageInput.focus();
 
   // Show user message (with image indicator if applicable)
   const displayText = imageUrls.length
