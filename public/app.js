@@ -655,6 +655,18 @@ function renderTextContent(text) {
     return stashToken();
   });
 
+  // Auto-link URLs (clickable) — runs after code stash so links inside code stay raw
+  html = html.replace(/(https?:\/\/[^\s<>"']+)/g, (url) => {
+    let clean = url.replace(/[.,;:!?]+$/, '');
+    // Drop trailing closing brackets only if they aren't balanced by opens
+    clean = clean.replace(/[)\]}]+$/, (m) => {
+      const opens  = (clean.match(/[(\[{]/g) || []).length;
+      const closes = (clean.match(/[)\]}]/g) || []).length;
+      return closes > opens ? '' : m;
+    });
+    return `<a href="${clean}" target="_blank" rel="noopener noreferrer">${clean}</a>`;
+  });
+
   // Bold **text**
   html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
   // Italic *text*
