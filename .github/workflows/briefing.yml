@@ -1,0 +1,21 @@
+name: Bob Daily Briefing
+
+on:
+  schedule:
+    # 03:00 UTC = 08:30 IST (morning briefing for Nikhil)
+    - cron: '30 3 * * *'
+  workflow_dispatch:
+
+jobs:
+  briefing:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger daily briefing
+        run: |
+          URL="${BOB_URL:-https://bob-backend.vercel.app}"
+          curl -sS -o /dev/null -w "briefing HTTP %{http_code}\n" \
+            -X POST \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            "$URL/api/live/briefing"
+        env:
+          BOB_URL: ${{ secrets.BOB_URL }}

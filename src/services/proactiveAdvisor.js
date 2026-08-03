@@ -1,5 +1,8 @@
 const { callLLM } = require('./llmService');
 const memory = require('./memoryService');
+const weather = require('./weatherService');
+const news = require('./newsService');
+const stocks = require('./stocksService');
 
 /**
  * Proactive Advisor Service
@@ -47,15 +50,23 @@ function buildVaultHint(secretNotes) {
 
 async function generateProactiveGreeting(userId, userEmail) {
   try {
-    const facts = await memory.listFacts(userId);
-    const summaries = await memory.listWeeklySummaries(userId);
-    const secretNotes = await memory.listSecretNotes(userId);
+    const [facts, summaries, secretNotes, liveResult] = await Promise.allSettled([
+      memory.listFacts(userId),
+      memory.listWeeklySummaries(userId),
+      memory.listSecretNotes(userId),
+      fetchLiveContext(),
+    ]);
 
-    const vaultHint = buildVaultHint(secretNotes);
+    const factsArr = facts.status === 'fulfilled' ? facts.value : [];
+    const summariesArr = summaries.status === 'fulfilled' ? summaries.value : [];
+    const secretNotesArr = secretNotes.status === 'fulfilled' ? secretNotes.value : [];
+    const liveContext = liveResult.status === 'fulfilled' ? liveResult.value : null;
+
+    const vaultHint = buildVaultHint(secretNotesArr);
 
     const memoryContext = [
-      facts.length ? `Known Master Facts & Habits: ${facts.map(f => f.text).join('; ')}` : '',
-      summaries.length ? `Recent Weekly Focus: ${summaries[0]?.summary || ''}` : '',
+      factsArr.length ? `Known Master Facts & Habits: ${factsArr.map(f => f.text).join('; ')}` : '',
+      summariesArr.length ? `Recent Weekly Focus: ${summariesArr[0]?.summary || ''}` : '',
       vaultHint
     ].filter(Boolean).join('\n');
 
@@ -64,8 +75,11 @@ Master Nikhil just opened the app. Generate a short, warm, proactive welcome gre
 Rules:
 1. Greet Master Nikhil warmly by name.
 2. If there is a SUBTLE VAULT REMINDER in Memory Context, mention it EXACTLY as instructed — do NOT change the wording, do NOT reveal sensitive details.
-3. Otherwise, offer a motivating suggestion based on Memory Context.
-4. Keep it concise and natural — no bullet points, no lists.
+3. ${liveContext ? 'Otherwise, naturally weave in ONE line from the Live Context below (weather or market or a news headline) that feels most relevant today, then add a motivating suggestion based on Memory Context.' : 'Otherwise, offer a motivating suggestion based on Memory Context.'}
+4. Keep it concise and natural — no bullet points, no lists. Use exact numbers from Live Context only.
+
+Live Context (fetched just now — exact values, do not invent):
+${liveContext || 'No live context available.'}
 
 Memory Context:
 ${memoryContext || 'No context available yet.'}`;
@@ -81,6 +95,33 @@ ${memoryContext || 'No context available yet.'}`;
     console.error('generateProactiveGreeting error:', err.message);
     return `Hello Master Nikhil! I'm online and ready. How can I assist you with your projects today?`;
   }
+}
+
+/**
+ * Fetch a compact live line for the greeting (weather + market + top headline).
+ * Tolerates any failure — returns null if nothing is available.
+ */
+async function fetchLiveContext() {
+  const defaultCity = process.env.DEFAULT_CITY || 'New Delhi';
+  const [w, n, s] = await Promise.allSettled([
+    weather.getWeatherForCity(defaultCity),
+    news.getNews('top', 1),
+    stocks.getQuotes(['^NSEI', '^BSESN']),
+  ]);
+
+  const parts = [];
+  if (w.status === 'fulfilled') {
+    const line = weather.formatWeather(w.value);
+    if (line) parts.push(`🌦️ Weather: ${line}`);
+  }
+  if (s.status === 'fulfilled') {
+    const line = stocks.formatQuotes(s.value);
+    if (line) parts.push(`📈 Market: ${line}`);
+  }
+  if (n.status === 'fulfilled' && n.value && n.value.length) {
+    parts.push(`📰 Top headline: ${n.value[0].title}`);
+  }
+  return parts.length ? parts.join('\n') : null;
 }
 
 async function checkAndGenerateNotifications(userId) {

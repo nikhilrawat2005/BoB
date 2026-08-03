@@ -10,6 +10,61 @@ const memoryManager = require('../services/memoryManager');
 const behaviorEngine = require('../services/behaviorEngine');
 const proactiveAdvisor = require('../services/proactiveAdvisor');
 const statsService = require('../services/statsService');
+const weatherService = require('../services/weatherService');
+const newsService = require('../services/newsService');
+const stocksService = require('../services/stocksService');
+
+// ─────────────────────────────────────────────────────────
+// Live-data detection — when Master asks about weather, news, or
+// markets, we fetch REAL data in parallel and inject it into Bob's
+// context so he answers from exact numbers instead of guessing.
+// ─────────────────────────────────────────────────────────
+const WEATHER_WORDS = ['weather', 'mausam', 'temperature', 'temperature', 'rain', 'barish', 'forecast', 'sunny', 'cloudy', 'cloud', 'humidity', 'humid', 'cold', 'heat', 'garam', 'sardi', 'aaj kitna', 'kitna hota', '°c', 'degrees'];
+const NEWS_WORDS = ['news', 'khabar', 'headline', 'headlines', 'current affairs', 'breaking', 'samachar', 'latest update', 'top stories', 'aaj ki'];
+const STOCK_WORDS = ['stock', 'stocks', 'share', 'shares', 'market', 'nifty', 'sensex', 'trading', 'invest', 'investing', 'stonks', 'share price', 'market kaisa', 'bull', 'bear', 'bse', 'nse', 'mutual fund', 'price of'];
+
+function detectLiveNeeds(message) {
+  const m = (' ' + String(message || '').toLowerCase() + ' ');
+  const needs = { weather: false, news: false, stocks: false };
+  for (const w of WEATHER_WORDS) if (m.includes(w)) { needs.weather = true; break; }
+  for (const w of NEWS_WORDS) if (m.includes(w)) { needs.news = true; break; }
+  for (const w of STOCK_WORDS) if (m.includes(w)) { needs.stocks = true; break; }
+  return needs;
+}
+
+/**
+ * Fetch live data based on keyword needs. Never throws — returns a
+ * compact "🌐 LIVE DATA" string (or null) for the LLM context.
+ */
+async function fetchLiveData(message) {
+  const needs = detectLiveNeeds(message);
+  if (!needs.weather && !needs.news && !needs.stocks) return null;
+
+  const city = weatherService.extractCity(message) || process.env.DEFAULT_CITY || 'New Delhi';
+
+  const [w, n, s] = await Promise.allSettled([
+    needs.weather ? weatherService.getWeatherForCity(city) : Promise.resolve(null),
+    needs.news ? newsService.getNews('top', 5) : Promise.resolve(null),
+    needs.stocks ? stocksService.getQuotes(null) : Promise.resolve(null),
+  ]);
+
+  const parts = [];
+  if (needs.weather) {
+    const line = w.status === 'fulfilled' ? weatherService.formatWeather(w.value) : null;
+    if (line) parts.push(`🌦️ WEATHER — ${line}`);
+  }
+  if (needs.news) {
+    const line = n.status === 'fulfilled' ? newsService.formatNews(n.value) : null;
+    if (line) parts.push(`📰 TOP HEADLINES —\n${line}`);
+  }
+  if (needs.stocks) {
+    const line = s.status === 'fulfilled' ? stocksService.formatQuotes(s.value) : null;
+    if (line) parts.push(`📈 MARKET (NSE/BSE, vs previous close) — ${line}`);
+  }
+
+  if (!parts.length) return null;
+  return `🌐 LIVE DATA (fetched just now — use these EXACT numbers, never invent your own):\n${parts.join('\n')}`;
+}
 
 // GET /api/chat/proactive-greeting  - Proactively greets Master Nikhil with daily insights
 router.get('/proactive-greeting', requireAuth, async (req, res) => {
@@ -65,9 +120,10 @@ router.post('/', requireAuth, async (req, res) => {
     //    (they are independent, so we don't serialise their latency)
     behaviorEngine.updateBehaviorProfile(req.userId, promptMessage).catch(err => console.error(err));
 
-    const [intent, mediaEnrichment] = await Promise.all([
+    const [intent, mediaEnrichment, liveBlock] = await Promise.all([
       memoryManager.classifyIntent(promptMessage),
       enrichMessageWithMedia(promptMessage),
+      fetchLiveData(promptMessage),
     ]);
 
     // If new fact detected automatically, store it in memory facts (deduped)
@@ -95,6 +151,9 @@ router.post('/', requireAuth, async (req, res) => {
     await memory.addMessage(req.userId, sessionId, 'user', promptMessage);
 
     let contextBlocks = [];
+    if (liveBlock) {
+      contextBlocks.push(liveBlock);
+    }
     if (autoStats) {
       contextBlocks.push(`📊 AUTO-ANALYSIS of the data Master Nikhil just provided (exact computed values):\n${autoStats}`);
     }
@@ -225,6 +284,17 @@ RULES:
 - Keep node labels short; emojis allowed in labels.
 - ALWAYS pair the diagram with a short written explanation + the next concrete step to take.
 - Every roadmap must be practical and actionable — no vague steps.
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+━━━ 🌐 LIVE DATA ACCESS (Weather / News / Markets) ━━━
+You have real-time access to WEATHER (Open-Meteo), top NEWS headlines (RSS), and INDIAN STOCK MARKET prices (Yahoo Finance) — no API keys needed.
+When Master Nikhil asks about weather, news, or the stock market, the backend fetches LIVE data and injects it above as a "🌐 LIVE DATA" block. Then:
+- ALWAYS answer from those exact numbers — NEVER invent temperatures, prices, or headlines.
+- 🌦️ Weather: mention city, temp (°C), condition, feels-like, humidity, today's min/max.
+- 📈 Markets: lead with NIFTY 50 & SENSEX (% change vs previous close with ▲/▼), then any specific stocks asked about. Prices in ₹.
+- 📰 News: give the top 3–5 headlines with a crisp one-line summary for each.
+- If live data is missing/unavailable, say "live data ish samay fetch nahi hua" and give a general answer instead of making numbers up.
+- You can ALSO proactively suggest checking these when relevant (e.g. "shall I track Nifty for you?").
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 ━━━ ⏰ AUTONOMOUS SCHEDULED SELF-MESSAGING ENGINE ━━━
