@@ -102,7 +102,7 @@
         </button>
       </div>
 
-      <div class="sidebar-section-label flex-between">
+      <div class="sidebar-section-label flex-between" id="sidebar-notif-wrap">
         <span>Notifications 🔔</span>
         <span id="notif-count-badge" class="notif-badge hidden">0</span>
       </div>
@@ -110,7 +110,7 @@
         <div class="empty-sessions">No notifications right now</div>
       </div>
 
-      <div class="sidebar-section-label">Chats</div>
+      <div class="sidebar-section-label" id="sidebar-session-label">Chats</div>
       <div id="sessions-list" class="sessions-list">
         <div class="empty-sessions">No chats yet</div>
       </div>
@@ -147,6 +147,14 @@
         <button id="sidebar-toggle" class="icon-btn" title="Toggle sidebar">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
         </button>
+        <div class="persona-switch" id="persona-switch">
+          <button class="persona-btn active" data-persona="bob" title="Bob — personal assistant">
+            <span class="persona-orb bob">🧑</span>Bob
+          </button>
+          <button class="persona-btn" data-persona="builder" title="Bob the Builder — project planning & prompt packs">
+            <span class="persona-orb builder">🏗️</span>Builder
+          </button>
+        </div>
         <span id="chat-session-title" class="chat-title">Select a chat</span>
         <div class="topbar-actions">
           <button id="tts-toggle-btn" class="icon-btn tts-btn" title="Toggle Bob Voice (Hinglish)" style="padding: 4px 10px; font-size: 13px; display: flex; align-items: center; gap: 4px;">
@@ -168,8 +176,8 @@
       <div id="messages-container" class="messages-container">
         <div class="welcome-screen" id="welcome-screen">
           <div class="welcome-orb"></div>
-          <h1>Hi, I'm Bob</h1>
-          <p>Your personal AI assistant with memory. Start a new chat or select one from the sidebar.</p>
+          <h1 id="welcome-title">Hi, I'm Bob</h1>
+          <p id="welcome-sub">Your personal AI assistant with memory. Start a new chat or select one from the sidebar.</p>
           <button id="welcome-new-chat" class="btn-primary">Start New Chat</button>
           <div class="welcome-suggestions" id="welcome-suggestions"></div>
         </div>

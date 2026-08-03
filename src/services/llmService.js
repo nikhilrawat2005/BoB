@@ -18,6 +18,14 @@ if (process.env.OPENROUTER_API_KEY && process.env.OPENROUTER_API_KEY.trim()) {
   _rawKeys.push(process.env.OPENROUTER_API_KEY.trim());
 }
 
+// The dedicated Builder key stays OUT of Bob's rotation pool.
+const _builderKey = (process.env.BUILDER_API_KEY || '').trim();
+if (_builderKey) {
+  for (let i = _rawKeys.length - 1; i >= 0; i--) {
+    if (_rawKeys[i] === _builderKey) _rawKeys.splice(i, 1);
+  }
+}
+
 if (_rawKeys.length === 0) {
   console.warn(
     '[llmService] WARNING: No OpenRouter API key found. ' +
@@ -39,11 +47,25 @@ function _nextKey() {
 }
 
 // ---------------------------------------------------------------------------
+// Dedicated "Bob the Builder" key — planning/architecture persona stays on its
+// own API key (BUILDER_API_KEY, declared above) so it never fights the main
+// Bob pool for rate limits. Falls back to the shared pool if unset.
+// ---------------------------------------------------------------------------
+function _builderKeyOrPool() {
+  if (_builderKey) return _builderKey;
+  if (_rawKeys.length === 0) throw new Error('No OpenRouter API key configured.');
+  const key = _rawKeys[_keyIndex % _rawKeys.length];
+  _keyIndex++;
+  return key;
+}
+
+// ---------------------------------------------------------------------------
 // Model Roles
 // Priority: per-role env vars > hardcoded defaults
 // WRITER_MODEL  → used for the main chat / writing tasks
 // REVIEW_MODEL  → used for reviewing / reasoning tasks
 // AUDITOR_MODEL → used for auditing / safety checks
+// BUILDER_MODEL → used by "Bob the Builder" persona (planning/architecture)
 // ---------------------------------------------------------------------------
 const MODEL_ROLES = {
   chat:            process.env.WRITER_MODEL   || 'google/gemini-2.0-flash-001',
@@ -52,6 +74,7 @@ const MODEL_ROLES = {
   auditor:         process.env.AUDITOR_MODEL  || 'openai/gpt-4o',
   router:          process.env.WRITER_MODEL   || 'google/gemini-2.0-flash-001',
   memorySummarize: process.env.WRITER_MODEL   || 'google/gemini-2.0-flash-001',
+  builder:         process.env.BUILDER_MODEL  || 'deepseek/deepseek-chat-v3',
   // Vision-capable model for screenshots, thumbnails, and image analysis
   vision:          process.env.VISION_MODEL   || 'google/gemini-2.0-flash-001',
 };
@@ -68,9 +91,9 @@ const MODEL_ROLES = {
  * @param {number} [opts.temperature]   - Defaults to TEMPERATURE env var or 0.2
  * @param {number} [opts.max_tokens]    - Defaults to MAX_TOKENS env var or 16000
  */
-async function callLLM({ role = 'chat', messages, model, temperature, max_tokens }) {
+async function callLLM({ role = 'chat', messages, model, temperature, max_tokens, persona }) {
   const selectedModel = model || MODEL_ROLES[role] || MODEL_ROLES.chat;
-  const apiKey = _nextKey();
+  const apiKey = persona === 'builder' ? _builderKeyOrPool() : _nextKey();
 
   const body = {
     model: selectedModel,

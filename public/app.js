@@ -17,6 +17,7 @@ let idToken = null;
 let currentSession = null;
 let pendingFile = null;
 let pendingPasteImage = null;
+let currentPersona = 'bob'; // 'bob' | 'builder'
 
 // ── DOM refs ─────────────────────────────────────────
 const screens = {
@@ -250,7 +251,8 @@ async function apiFetch(path, options = {}, isRetry = false) {
 
 async function loadSessions() {
   try {
-    const { sessions } = await apiFetch('/api/sessions');
+    const url = currentPersona === 'builder' ? '/api/builder/sessions' : '/api/sessions';
+    const { sessions } = await apiFetch(url);
     renderSessions(sessions || []);
   } catch (err) {
     console.error('loadSessions error:', err);
@@ -351,11 +353,13 @@ function renderSessions(sessions) {
       e.stopPropagation();
       const sessionId = btn.dataset.id;
       if (confirm('Delete this chat?')) {
-        await apiFetch(`/api/sessions/${sessionId}`, { method: 'DELETE' });
+        const delUrl = currentPersona === 'builder' ? `/api/builder/sessions/${sessionId}` : `/api/sessions/${sessionId}`;
+        await apiFetch(delUrl, { method: 'DELETE' });
         if (currentSession?.id === sessionId) {
           currentSession = null;
           clearMessages();
-          document.getElementById('chat-session-title').textContent = 'Select a chat';
+          showWelcome();
+          document.getElementById('chat-session-title').textContent = currentPersona === 'builder' ? 'Select a project' : 'Select a chat';
         }
         await loadSessions();
       }
@@ -391,6 +395,15 @@ async function fetchProactiveGreeting() {
 }
 
 async function createNewSession() {
+  // Builder persona: projects are created lazily on first message — just reset to welcome
+  if (currentPersona === 'builder') {
+    currentSession = null;
+    clearMessages();
+    showWelcome();
+    document.getElementById('chat-session-title').textContent = 'Select a project';
+    messageInput.focus();
+    return;
+  }
   try {
     const title    = 'New Chat ' + new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     const { session } = await apiFetch('/api/sessions', {
@@ -419,7 +432,8 @@ function clearMessages() {
 
 async function loadMessages(sessionId) {
   try {
-    const { messages } = await apiFetch(`/api/sessions/${sessionId}/messages`);
+    const url = currentPersona === 'builder' ? `/api/builder/sessions/${sessionId}/messages` : `/api/sessions/${sessionId}/messages`;
+    const { messages } = await apiFetch(url);
     (messages || []).forEach(m => appendMessage(m.role, m.content, false));
     scrollToBottom();
   } catch (err) {
@@ -1212,11 +1226,19 @@ const WELCOME_SUGGESTIONS = [
   { icon: '🗓️', label: 'DSA roadmap banao' },
   { icon: '📊', label: 'Ek data chart banao' },
 ];
+const BUILDER_SUGGESTIONS = [
+  { icon: '🛒', label: 'E-commerce website ka plan banao' },
+  { icon: '🏗️', label: 'Portfolio site architect karo' },
+  { icon: '🍔', label: 'Food delivery app ka prompt pack banao' },
+  { icon: '💳', label: 'SaaS dashboard project setup plan' },
+  { icon: '🎨', label: 'UI polish master prompt banao' },
+];
 function renderWelcomeSuggestions() {
   const wrap = document.getElementById('welcome-suggestions');
   if (!wrap) return;
   wrap.innerHTML = '';
-  WELCOME_SUGGESTIONS.forEach(s => {
+  const arr = currentPersona === 'builder' ? BUILDER_SUGGESTIONS : WELCOME_SUGGESTIONS;
+  arr.forEach(s => {
     const chip = document.createElement('button');
     chip.type = 'button';
     chip.className = 'welcome-chip';
@@ -1231,10 +1253,70 @@ function renderWelcomeSuggestions() {
 }
 renderWelcomeSuggestions();
 
+// ── Persona helpers (Bob ⇄ Builder) ───────────────────
+function updateWelcomeText() {
+  const title = document.getElementById('welcome-title');
+  const sub   = document.getElementById('welcome-sub');
+  const btn   = document.getElementById('welcome-new-chat');
+  if (!title) return;
+  if (currentPersona === 'builder') {
+    title.textContent = "Hi, I'm Bob the Builder";
+    sub.textContent = 'Your project planning & prompt-engineering side. Ek idea batao — Bob the Builder use architect karega, poora prompt pack likhega, aur step-by-step guide karega.';
+    if (btn) btn.textContent = 'Start New Project';
+  } else {
+    title.textContent = "Hi, I'm Bob";
+    sub.textContent = 'Your personal AI assistant with memory. Start a new chat or select one from the sidebar.';
+    if (btn) btn.textContent = 'Start New Chat';
+  }
+}
+
+function showWelcome() {
+  const c = document.getElementById('messages-container');
+  c.innerHTML = `
+    <div class="welcome-screen" id="welcome-screen">
+      <div class="welcome-orb"></div>
+      <h1 id="welcome-title">Hi, I'm Bob</h1>
+      <p id="welcome-sub">Your personal AI assistant with memory. Start a new chat or select one from the sidebar.</p>
+      <button id="welcome-new-chat" class="btn-primary">Start New Chat</button>
+      <div class="welcome-suggestions" id="welcome-suggestions"></div>
+    </div>
+  `;
+  document.getElementById('welcome-new-chat').addEventListener('click', createNewSession);
+  updateWelcomeText();
+  renderWelcomeSuggestions();
+}
+
+function setPersona(p) {
+  if (!p || currentPersona === p) return;
+  currentPersona = p;
+  document.body.classList.toggle('persona-builder', p === 'builder');
+  document.querySelectorAll('.persona-btn').forEach(b => b.classList.toggle('active', b.dataset.persona === p));
+  closeAllPanels();
+  currentSession = null;
+  clearMessages();
+  document.getElementById('chat-session-title').textContent = p === 'builder' ? 'Select a project' : 'Select a chat';
+  document.getElementById('sidebar-session-label').textContent = p === 'builder' ? 'Builder Projects' : 'Chats';
+  messageInput.placeholder = p === 'builder'
+    ? 'Apna project describe karo — Bob the Builder architect + prompt pack banayega...'
+    : 'Message Bob...';
+  showWelcome();
+  loadSessions();
+  if (p === 'bob') {
+    loadNotifications();
+    fetchProactiveGreeting();
+  }
+}
+document.querySelectorAll('.persona-btn').forEach(btn => {
+  btn.addEventListener('click', () => setPersona(btn.dataset.persona));
+});
+
 async function sendMessage() {
   if (!currentSession) {
-    await createNewSession();
-    if (!currentSession) return;
+    if (currentPersona === 'bob') {
+      await createNewSession();
+      if (!currentSession) return;
+    }
+    // Builder: session is created lazily by /api/builder/chat
   }
 
   const text  = messageInput.value.trim();
@@ -1242,21 +1324,23 @@ async function sendMessage() {
 
   if (!text && !pendingFile && !pendingPasteImage) return;
 
-  // Collect image URLs to send to Bob for vision analysis
+  // Collect image URLs to send to Bob for vision analysis (Bob persona only)
   const imageUrls = [];
 
-  // Upload pasted screenshot if any
-  if (pendingPasteImage) {
-    const pasteUrl = await uploadImageFile(pendingPasteImage, 'pasted-screenshot');
-    if (pasteUrl) imageUrls.push(pasteUrl);
-    clearPastedImage();
-  }
+  if (currentPersona === 'bob') {
+    // Upload pasted screenshot if any
+    if (pendingPasteImage) {
+      const pasteUrl = await uploadImageFile(pendingPasteImage, 'pasted-screenshot');
+      if (pasteUrl) imageUrls.push(pasteUrl);
+      clearPastedImage();
+    }
 
-  // Upload attached file if any
-  if (pendingFile) {
-    const attachedUrl = await uploadPendingFile();
-    if (attachedUrl && pendingFile && pendingFile.type.startsWith('image/')) {
-      imageUrls.push(attachedUrl);
+    // Upload attached file if any
+    if (pendingFile) {
+      const attachedUrl = await uploadPendingFile();
+      if (attachedUrl && pendingFile && pendingFile.type.startsWith('image/')) {
+        imageUrls.push(attachedUrl);
+      }
     }
   }
 
@@ -1280,23 +1364,38 @@ async function sendMessage() {
   showTypingIndicator();
 
   try {
-    const payload = { sessionId: currentSession.id, message: finalText, model };
-    if (imageUrls.length) payload.imageUrls = imageUrls;
+    let data;
+    if (currentPersona === 'builder') {
+      const payload = { message: finalText };
+      if (currentSession) payload.sessionId = currentSession.id;
+      data = await apiFetch('/api/builder/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const title = data.title || data.projectType || 'Project';
+      currentSession = { id: data.sessionId, title };
+      document.getElementById('chat-session-title').textContent = title;
+      await loadSessions();
+    } else {
+      const payload = { sessionId: currentSession.id, message: finalText, model };
+      if (imageUrls.length) payload.imageUrls = imageUrls;
 
-    const data = await apiFetch('/api/chat', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
+      data = await apiFetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+
+      if (data.updatedTitle && currentSession) {
+        currentSession.title = data.updatedTitle;
+        document.getElementById('chat-session-title').textContent = data.updatedTitle;
+        await loadSessions();
+      }
+    }
 
     removeTypingIndicator();
     appendMessage('assistant', data.reply);
-
-    if (data.updatedTitle && currentSession) {
-      currentSession.title = data.updatedTitle;
-      document.getElementById('chat-session-title').textContent = data.updatedTitle;
-      await loadSessions();
-    }
   } catch (err) {
     removeTypingIndicator();
     appendMessage('assistant', `⚠️ Error: ${err.message}`);

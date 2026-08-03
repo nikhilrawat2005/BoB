@@ -12,6 +12,7 @@ const secretVaultRoute   = require('./routes/secretVault');
 const notificationsRoute = require('./routes/notifications');
 const schedulerRoute     = require('./routes/scheduler');
 const liveRoute          = require('./routes/live');
+const builderRoute       = require('./routes/builder');
 
 const app = express();
 
@@ -59,6 +60,7 @@ app.use('/api/secret',        secretVaultRoute);
 app.use('/api/notifications', notificationsRoute);
 app.use('/api/scheduler',     schedulerRoute);
 app.use('/api/live',          liveRoute);
+app.use('/api/builder',       builderRoute);
 
 // 404 handler for unknown API routes
 app.use('/api', (req, res) => {
