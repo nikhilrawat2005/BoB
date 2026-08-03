@@ -489,8 +489,9 @@ function stopBackgroundPolling() {
 
 // ── Parse Bob's message for downloadable file & schedule blocks ─
 function parseFileBlocks(text) {
-  // Match ```<lang> filename=<filename>\n<content>\n```, ```schedule\n{...}\n```, or ```chart\n{...}\n```
-  const regex = /```(?:([\w.+-]+)[ \t]+filename=([^\n\r]+)|(schedule)|(chart))[\n\r]([\s\S]*?)```/g;
+  // Match ```<lang> filename=<filename>\n<content>\n```, ```schedule\n{...}\n```,
+  // ```chart\n{...}\n```, or ```mermaid\n<diagram>\n```
+  const regex = /```(?:([\w.+-]+)[ \t]+filename=([^\n\r]+)|(schedule)|(chart)|(mermaid))[\n\r]([\s\S]*?)```/g;
   const blocks = [];
   let lastIndex = 0;
   let match;
@@ -501,24 +502,26 @@ function parseFileBlocks(text) {
     }
     if (match[3] === 'schedule') {
       try {
-        const data = JSON.parse(match[5].trim());
+        const data = JSON.parse(match[6].trim());
         blocks.push({ type: 'schedule', data });
       } catch {
         blocks.push({ type: 'text', content: match[0] });
       }
     } else if (match[4] === 'chart') {
       try {
-        const data = JSON.parse(match[5].trim());
+        const data = JSON.parse(match[6].trim());
         blocks.push({ type: 'chart', data });
       } catch {
         blocks.push({ type: 'text', content: match[0] });
       }
+    } else if (match[5] === 'mermaid') {
+      blocks.push({ type: 'mermaid', source: match[6].trim() });
     } else {
       blocks.push({
         type:     'file',
         lang:     match[1].toLowerCase().trim(),
         filename: match[2].trim(),
-        content:  match[5],
+        content:  match[6],
       });
     }
     lastIndex = regex.lastIndex;
@@ -574,12 +577,19 @@ function createChartCard(chartData) {
     return card;
   }
 
-  if (chartData.title) {
-    const title = document.createElement('div');
-    title.className = 'chart-title';
-    title.textContent = chartData.title;
-    card.appendChild(title);
-  }
+  // Toolbar: title (left) + Download PNG (right)
+  const toolbar = document.createElement('div');
+  toolbar.className = 'chart-title-row';
+  const title = document.createElement('span');
+  title.className = 'chart-title';
+  title.textContent = chartData.title || '📊 Chart';
+  toolbar.appendChild(title);
+  const pngBtn = document.createElement('button');
+  pngBtn.className = 'file-gen-download-btn';
+  pngBtn.textContent = '⬇ PNG';
+  pngBtn.title = 'Download chart as image';
+  toolbar.appendChild(pngBtn);
+  card.appendChild(toolbar);
 
   const wrap = document.createElement('div');
   wrap.className = 'chart-wrap';
@@ -603,7 +613,91 @@ function createChartCard(chartData) {
       card.innerHTML = '<div class="chart-fallback">⚠️ Chart render error: ' + escHtml(err.message) + '</div>';
     }
   });
+
+  pngBtn.addEventListener('click', () => {
+    try {
+      const a = document.createElement('a');
+      a.href = canvas.toDataURL('image/png');
+      a.download = (chartData.title || 'chart').replace(/\s+/g, '_') + '.png';
+      a.click();
+      pngBtn.textContent = '✅ Saved!';
+      setTimeout(() => { pngBtn.textContent = '⬇ PNG'; }, 1800);
+    } catch (e) { /* ignore */ }
+  });
+
   return card;
+}
+
+// ── Create a Mermaid diagram card (roadmap/flow/timeline) ───
+function createMermaidCard(source) {
+  const card = document.createElement('div');
+  card.className = 'mermaid-card';
+  const src = (source || '').trim();
+
+  if (typeof mermaid === 'undefined') {
+    card.innerHTML = '<div class="chart-fallback">🧭 Mermaid load nahi hua — internet connection check karo.</div>';
+    return card;
+  }
+  if (!src) {
+    card.innerHTML = '<div class="chart-fallback">⚠️ Diagram source empty.</div>';
+    return card;
+  }
+
+  const toolbar = document.createElement('div');
+  toolbar.className = 'chart-title-row';
+  const title = document.createElement('span');
+  title.className = 'chart-title';
+  title.textContent = '🧭 Diagram / Roadmap';
+  toolbar.appendChild(title);
+  const pngBtn = document.createElement('button');
+  pngBtn.className = 'file-gen-download-btn';
+  pngBtn.textContent = '⬇ PNG';
+  pngBtn.title = 'Download diagram as image';
+  toolbar.appendChild(pngBtn);
+  card.appendChild(toolbar);
+
+  const wrap = document.createElement('div');
+  wrap.className = 'mermaid-wrap';
+  wrap.textContent = '⏳ Rendering diagram…';
+  card.appendChild(wrap);
+
+  const uid = 'mmd' + Date.now() + '_' + Math.floor(Math.random() * 99999);
+  mermaid.initialize({ startOnLoad: false, theme: 'dark', fontFamily: 'Inter, sans-serif' });
+  mermaid.render(uid, src)
+    .then(({ svg }) => {
+      wrap.innerHTML = svg;
+      wrap.dataset.svg = svg;
+      pngBtn.addEventListener('click', () => downloadSvgAsPng(svg, 'diagram'));
+    })
+    .catch(err => {
+      wrap.innerHTML = `<div class="chart-fallback">⚠️ Diagram render error: ${escHtml(err.message)}</div><pre class="plain-code"><code>${escHtml(src)}</code></pre>`;
+    });
+
+  return card;
+}
+
+function downloadSvgAsPng(svgText, name) {
+  try {
+    const blob = new Blob([svgText], { type: 'image/svg+xml;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      canvas.width  = Math.max(1, Math.round(img.width * 2));
+      canvas.height = Math.max(1, Math.round(img.height * 2));
+      const ctx = canvas.getContext('2d');
+      ctx.fillStyle = '#0d0f14';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      URL.revokeObjectURL(url);
+      const a = document.createElement('a');
+      a.href = canvas.toDataURL('image/png');
+      a.download = (name || 'diagram').replace(/\s+/g, '_') + '.png';
+      a.click();
+    };
+    img.onerror = () => URL.revokeObjectURL(url);
+    img.src = url;
+  } catch (e) { /* ignore */ }
 }
 
 function chartConfig(chartData) {
@@ -668,10 +762,10 @@ function createFileCard(lang, filename, content) {
         <div class="file-gen-name">${escHtml(finalName)}</div>
         <div class="file-gen-meta">${escHtml(meta.label)} &bull; ${lineCount} lines &bull; ${formatBytes(byteSize)}</div>
       </div>
-      <button class="file-gen-preview-btn" title="Preview">👁</button>
+      <button class="file-gen-preview-btn" title="Toggle preview">🙈</button>
     </div>
-    <div class="file-gen-preview hidden">
-      <pre class="file-gen-code"><code>${escHtml(content.trimEnd())}</code></pre>
+    <div class="file-gen-preview">
+      ${buildFilePreview(lang, content)}
     </div>
     <div class="file-gen-actions">
       <button class="file-gen-download-btn">
@@ -682,10 +776,14 @@ function createFileCard(lang, filename, content) {
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
         Copy
       </button>
+      <button class="file-gen-save-btn" title="Store this file in My Files (only when you click)">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+        Save to My Files
+      </button>
     </div>
   `;
 
-  // Preview toggle
+  // Preview toggle (expanded by default)
   card.querySelector('.file-gen-preview-btn').addEventListener('click', () => {
     const prev = card.querySelector('.file-gen-preview');
     prev.classList.toggle('hidden');
@@ -725,7 +823,75 @@ function createFileCard(lang, filename, content) {
     } catch (e) { /* ignore */ }
   });
 
+  // Save to My Files (opt-in — only stores when Master clicks)
+  card.querySelector('.file-gen-save-btn').addEventListener('click', async () => {
+    const btn = card.querySelector('.file-gen-save-btn');
+    if (btn.dataset.busy) return;
+    btn.dataset.busy = '1';
+    btn.textContent = '⏳ Saving…';
+    const ok = await saveGeneratedFile(finalName, content, meta.mime);
+    delete btn.dataset.busy;
+    btn.textContent = ok ? '✅ Saved to My Files' : '⚠️ Save failed';
+    if (ok) setTimeout(() => { btn.textContent = 'Save to My Files'; }, 3000);
+  });
+
   return card;
+}
+
+// ── Render a rich live preview for a generated file ───
+function buildFilePreview(lang, content) {
+  const lines = content.trimEnd().split('\n');
+  if (lang === 'csv' || lang === 'tsv') {
+    const sep = lang === 'tsv' ? /\t/ : /,/;
+    const rows = lines.slice(0, 9).map(l => l.split(sep).map(c => c.trim()));
+    if (rows.length && rows.some(r => r.length > 0)) {
+      const maxCols = Math.max(...rows.map(r => r.length));
+      let t = '<table class="md-table"><thead><tr>';
+      rows[0].forEach(c => { t += `<th>${escHtml(c)}</th>`; });
+      t += '</tr></thead><tbody>';
+      rows.slice(1).forEach(r => {
+        t += '<tr>';
+        for (let i = 0; i < maxCols; i++) t += `<td>${escHtml(r[i] || '')}</td>`;
+        t += '</tr>';
+      });
+      t += '</tbody></table>';
+      if (lines.length > 9) t += `<div class="file-preview-note">… +${lines.length - 9} more rows</div>`;
+      return t;
+    }
+    return `<pre class="file-gen-code"><code>${escHtml(content.trimEnd())}</code></pre>`;
+  }
+  if (lang === 'json') {
+    try {
+      const pretty = JSON.stringify(JSON.parse(content), null, 2);
+      const shown = pretty.length > 2500 ? pretty.slice(0, 2500) + '\n… (truncated)' : pretty;
+      return `<pre class="file-gen-code"><code>${escHtml(shown)}</code></pre>`;
+    } catch (e) {
+      return `<pre class="file-gen-code"><code>${escHtml(content.trimEnd())}</code></pre>`;
+    }
+  }
+  if (lang === 'markdown' || lang === 'md') {
+    return `<div class="file-gen-md-preview">${renderTextContent(content.trim())}</div>`;
+  }
+  const shown = lines.slice(0, 40).join('\n');
+  const extra = lines.length > 40 ? `\n… +${lines.length - 40} more lines` : '';
+  return `<pre class="file-gen-code"><code>${escHtml(shown + extra)}</code></pre>`;
+}
+
+// ── Store a generated file into My Files (Firestore + Cloudinary) ───
+async function saveGeneratedFile(name, content, mime) {
+  try {
+    const file = new File([content], name, { type: mime || 'text/plain' });
+    const formData = new FormData();
+    formData.append('file', file);
+    const res = await fetch(API + '/api/files/upload', {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${idToken}` },
+      body: formData,
+    });
+    return res.ok;
+  } catch (err) {
+    return false;
+  }
 }
 
 // ── Simple text → HTML (basic markdown + code blocks) ─
@@ -793,7 +959,8 @@ function renderTextContent(text) {
     out += '</tbody></table>';
     return out;
   });
-  // Line breaks
+  // Line breaks (collapse 3+ blank lines so spacing stays tight)
+  html = html.replace(/\n{3,}/g, '\n\n');
   html = html.replace(/\n/g, '<br>');
 
   return unstash(html);
@@ -825,6 +992,8 @@ function appendMessage(role, content, animate = true) {
         bubble.appendChild(createScheduleCard(block.data));
       } else if (block.type === 'chart') {
         bubble.appendChild(createChartCard(block.data));
+      } else if (block.type === 'mermaid') {
+        bubble.appendChild(createMermaidCard(block.source));
       } else if (block.content && block.content.trim()) {
         const textDiv = document.createElement('div');
         textDiv.className = 'msg-text-content';

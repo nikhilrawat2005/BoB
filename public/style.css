@@ -915,14 +915,16 @@ input:focus, textarea:focus, select:focus {
 
 /* ── Markdown rendering inside Bob's messages ──────── */
 .msg-text-content {
-  line-height: 1.65;
+  line-height: 1.5;
+  font-size: 13.5px;
   color: var(--text);
+  word-break: break-word;
 }
 .msg-text-content strong { color: #e2e8f0; font-weight: 600; }
 .msg-text-content em { color: var(--text2); font-style: italic; }
-.msg-text-content h1 { font-size: 16px; font-weight: 700; margin: 8px 0 4px; color: var(--text); }
-.msg-text-content h2 { font-size: 14px; font-weight: 700; margin: 8px 0 4px; color: var(--text); }
-.msg-text-content h3 { font-size: 13px; font-weight: 600; margin: 6px 0 3px; color: var(--text); }
+.msg-text-content h1 { font-size: 15px; font-weight: 700; margin: 10px 0 4px; color: var(--text); }
+.msg-text-content h2 { font-size: 13.5px; font-weight: 700; margin: 8px 0 3px; color: var(--text); }
+.msg-text-content h3 { font-size: 12.5px; font-weight: 600; margin: 6px 0 2px; color: var(--text); }
 .msg-text-content ul {
   margin: 6px 0;
   padding-left: 18px;
@@ -965,7 +967,14 @@ input:focus, textarea:focus, select:focus {
   margin: 8px 0;
   max-width: 100%;
 }
-.chart-title { font-size: 13px; font-weight: 600; color: #e2e8f0; margin-bottom: 8px; }
+.chart-title { font-size: 13px; font-weight: 600; color: #e2e8f0; }
+.chart-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+}
 .chart-wrap { position: relative; height: 280px; }
 .chart-stats {
   margin-top: 10px;
@@ -978,6 +987,29 @@ input:focus, textarea:focus, select:focus {
   word-break: break-word;
 }
 .chart-fallback { color: var(--text2); font-size: 12px; padding: 8px; }
+
+/* Mermaid diagram cards */
+.mermaid-card {
+  background: rgba(13, 15, 20, 0.7);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 12px 14px;
+  margin: 8px 0;
+  max-width: 100%;
+}
+.mermaid-wrap {
+  overflow-x: auto;
+  background: rgba(0, 0, 0, 0.25);
+  border-radius: 8px;
+  padding: 10px;
+  color: var(--text2);
+  font-size: 12px;
+}
+.mermaid-wrap svg { max-width: 100%; height: auto; }
+
+/* File preview extras */
+.file-gen-md-preview { padding: 10px 12px; }
+.file-preview-note { font-size: 11px; color: var(--text2); padding: 4px 2px; }
 
 /* Inline code */
 .inline-code {
