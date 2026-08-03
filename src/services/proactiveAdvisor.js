@@ -1,5 +1,6 @@
 const { callLLM } = require('./llmService');
 const memory = require('./memoryService');
+const memoryManager = require('./memoryManager');
 const weather = require('./weatherService');
 const news = require('./newsService');
 const stocks = require('./stocksService');
@@ -50,15 +51,16 @@ function buildVaultHint(secretNotes) {
 
 async function generateProactiveGreeting(userId, userEmail) {
   try {
-    const [facts, summaries, secretNotes, liveResult] = await Promise.allSettled([
+    const currentMonthId = memoryManager.isoMonthKey(new Date());
+    const [facts, monthText, secretNotes, liveResult] = await Promise.allSettled([
       memory.listFacts(userId),
-      memory.listWeeklySummaries(userId),
+      memory.getMonthMemoryText(userId, currentMonthId),
       memory.listSecretNotes(userId),
       fetchLiveContext(),
     ]);
 
     const factsArr = facts.status === 'fulfilled' ? facts.value : [];
-    const summariesArr = summaries.status === 'fulfilled' ? summaries.value : [];
+    const monthMemory = monthText.status === 'fulfilled' ? monthText.value : null;
     const secretNotesArr = secretNotes.status === 'fulfilled' ? secretNotes.value : [];
     const liveContext = liveResult.status === 'fulfilled' ? liveResult.value : null;
 
@@ -66,7 +68,7 @@ async function generateProactiveGreeting(userId, userEmail) {
 
     const memoryContext = [
       factsArr.length ? `Known Master Facts & Habits: ${factsArr.map(f => f.text).join('; ')}` : '',
-      summariesArr.length ? `Recent Weekly Focus: ${summariesArr[0]?.summary || ''}` : '',
+      monthMemory ? `Current Month Memory (${currentMonthId}): ${monthMemory}` : '',
       vaultHint
     ].filter(Boolean).join('\n');
 

@@ -1374,11 +1374,74 @@ document.getElementById('close-files').addEventListener('click',  closeAllPanels
 document.getElementById('toggle-memory-btn').addEventListener('click', async () => {
   openPanel(memoryPanel);
   await loadFacts();
+  await loadMonthlyFiles();
 });
 
 document.getElementById('toggle-files-btn').addEventListener('click', async () => {
   openPanel(filesPanel);
   await loadFiles();
+});
+
+// Monthly memory files
+async function loadMonthlyFiles() {
+  const list = document.getElementById('monthly-files-list');
+  try {
+    const data = await apiFetch('/api/memory/months');
+    const files = (data.files || []).sort((a, b) => (a.id < b.id ? 1 : -1));
+    if (!files.length) {
+      list.innerHTML = '<div class="empty-msg">No monthly memory files yet. Har month end par locked file banegi.</div>';
+      return;
+    }
+    list.innerHTML = files.map(f => `
+      <div class="weekly-file-item">
+        <div class="weekly-file-info">
+          <div class="weekly-file-name">${escHtml(f.filename || ('Bob-Memory-' + f.id + '.md'))}</div>
+          <div class="weekly-file-meta">${escHtml(f.id)} · ${new Date(f.createdAt).toLocaleDateString()}</div>
+        </div>
+        <button class="weekly-file-dl" data-id="${escHtml(f.id)}">⬇ Download</button>
+      </div>
+    `).join('');
+    list.querySelectorAll('.weekly-file-dl').forEach(btn => {
+      btn.addEventListener('click', () => downloadMonthlyFile(btn.dataset.id));
+    });
+  } catch (err) {
+    list.innerHTML = `<div class="empty-msg">Error: ${escHtml(err.message)}</div>`;
+  }
+}
+
+async function downloadMonthlyFile(monthId) {
+  try {
+    const res = await fetch(`${API}/api/memory/months/${monthId}/download`, {
+      headers: { 'Authorization': `Bearer ${idToken}` },
+    });
+    if (!res.ok) throw new Error('Download failed');
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `Bob-Memory-${monthId}.md`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 2000);
+  } catch (err) {
+    alert('Failed to download: ' + err.message);
+  }
+}
+
+document.getElementById('memory-refresh-btn').addEventListener('click', async () => {
+  const btn = document.getElementById('memory-refresh-btn');
+  btn.disabled = true;
+  btn.textContent = '⏳ Summarizing…';
+  try {
+    await apiFetch('/api/memory/refresh', { method: 'POST' });
+    await loadFacts();
+    await loadMonthlyFiles();
+    btn.textContent = '✅ Done!';
+    setTimeout(() => { btn.textContent = '🔄 Summarize my memory now'; btn.disabled = false; }, 2000);
+  } catch (err) {
+    btn.disabled = false;
+    btn.textContent = '🔄 Summarize my memory now';
+    alert('Failed: ' + err.message);
+  }
 });
 
 // Facts

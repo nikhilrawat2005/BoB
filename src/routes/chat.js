@@ -139,12 +139,14 @@ router.post('/', requireAuth, async (req, res) => {
       console.log(`[Chat] Media detected: ${mediaEnrichment.detectedTypes.join(', ')} — ${allImageUrls.length} image(s) for vision`);
     }
 
-    // 2. Pull recent history, facts, and weekly summaries context
+    // 2. Pull recent history, facts, and layered month-memory context
     //    (recent does NOT include the current message yet — we append it once below)
-    const [recent, facts, weeklySummaries] = await Promise.all([
+    const currentMonthId = memoryManager.isoMonthKey(new Date());
+    const [recent, facts, currentMonth, pastMonths] = await Promise.all([
       memory.getRecentMessages(req.userId, sessionId, 20),
       memory.listFacts(req.userId),
-      memory.listWeeklySummaries(req.userId),
+      memory.getMonthMemory(req.userId, currentMonthId),
+      intent.isHistoryQuery ? memory.listMonthMemory(req.userId, 6) : Promise.resolve([]),
     ]);
 
     // 3. Save user's message
@@ -160,8 +162,14 @@ router.post('/', requireAuth, async (req, res) => {
     if (facts.length) {
       contextBlocks.push(`Known facts & habits of Master Nikhil: ${facts.map(f => f.text).join('; ')}`);
     }
-    if (weeklySummaries.length) {
-      contextBlocks.push(`Historical Weekly Chat Summaries & Key Pointers:\n${weeklySummaries.slice(0, 3).map(s => `[Week ${s.weekId}]: ${s.summary}`).join('\n')}`);
+    if (currentMonth && currentMonth.chunks && currentMonth.chunks.length) {
+      contextBlocks.push(`🧠 CURRENT MONTH MEMORY (${currentMonthId}) — everything Bob remembers about Master Nikhil this month (appended every 3 days, nothing overwritten):\n${currentMonth.chunks.map(c => c.points).join('\n')}`);
+    }
+    if (intent.isHistoryQuery && pastMonths.length) {
+      const pastBlocks = pastMonths.filter(m => m.id !== currentMonthId && m.chunks && m.chunks.length);
+      if (pastBlocks.length) {
+        contextBlocks.push(`📚 PAST MONTH MEMORIES (queried because Master asked about history):\n${pastBlocks.map(m => `[${m.id} ${memoryManager.monthLabel(m.id)}]:\n${m.chunks.map(c => c.points).join('\n')}`).join('\n\n')}`);
+      }
     }
 
     const memoryContext = contextBlocks.join('\n\n');
@@ -328,6 +336,14 @@ EXAMPLES:
 2. In your normal reply, CONFIRM what was scheduled: "✅ Scheduled! Bob will send you [title] at [time]."
 3. Use IST timezone (+05:30) for all datetime calculations
 4. Write the "prompt" field with FULL detail — that's what Bob will use to generate content at fire time
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+━━━ 🧠 MEMORY ENGINE (How Bob remembers Master Nikhil) ━━━
+You have a self-growing memory that NEVER loses old data:
+- FACTS: personal details, habits, preferences, and rules Master Nikhil told you (provided in context on every chat).
+- MONTHLY MEMORY: every ~3 days you auto-append a new chunk of key points & decisions to the current month. At the end of the month that month is locked and exported as a downloadable markdown file (Bob-Memory-YYYY-MM.md). Old chunks are NEVER overwritten — nothing is lost.
+- CURRENT MONTH MEMORY and PAST MONTH MEMORIES are injected into your context below when relevant.
+When Master Nikhil asks about the past ("pehle kya kiya tha", "last month plan", "mera kya goal hai"), read the past-month memories carefully and answer from them. If it helps, mention that monthly memory files are saved and downloadable from his Memory panel.
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 ━━━ 🎬 MEDIA INTELLIGENCE ENGINE ━━━

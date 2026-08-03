@@ -3,6 +3,7 @@ const router = express.Router();
 const { requireAuth } = require('../middleware/auth');
 const { callLLM } = require('../services/llmService');
 const memory = require('../services/memoryService');
+const memoryManager = require('../services/memoryManager');
 const weather = require('../services/weatherService');
 const news = require('../services/newsService');
 const stocks = require('../services/stocksService');
@@ -68,6 +69,9 @@ router.post('/briefing', cronAuth, async (req, res) => {
 
     const defaultCity = process.env.DEFAULT_CITY || 'New Delhi';
 
+    // 0. Close out any stale months (runs daily via this job even if user doesn't chat)
+    await memoryManager.finalizeStaleMonths(userId).catch(() => {});
+
     // 1. Gather live data in parallel — any failure is tolerated.
     const [weatherRes, newsRes, stocksRes] = await Promise.allSettled([
       weather.getWeatherForCity(defaultCity),
@@ -79,16 +83,17 @@ router.post('/briefing', cronAuth, async (req, res) => {
     const newsLines = newsRes.status === 'fulfilled' ? news.formatNews(newsRes.value) : null;
     const marketLine = stocksRes.status === 'fulfilled' ? stocks.formatQuotes(stocksRes.value) : null;
 
-    // 2. Pull Master's memory context
-    const [facts, summaries, sessions] = await Promise.all([
+    // 2. Pull Master's memory context (facts + current-month memory)
+    const currentMonthId = memoryManager.isoMonthKey(new Date());
+    const [facts, monthText, sessions] = await Promise.all([
       memory.listFacts(userId).catch(() => []),
-      memory.listWeeklySummaries(userId).catch(() => []),
+      memory.getMonthMemoryText(userId, currentMonthId).catch(() => null),
       memory.listSessions(userId).catch(() => []),
     ]);
 
     const memoryContext = [
       facts.length ? `Known facts & habits: ${facts.map(f => f.text).join('; ')}` : '',
-      summaries.length ? `Recent weekly focus: ${summaries[0]?.summary || ''}` : '',
+      monthText ? `Current month memory (${currentMonthId}):\n${monthText}` : '',
     ].filter(Boolean).join('\n');
 
     const nowIST = new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', weekday: 'long', day: 'numeric', month: 'long' });

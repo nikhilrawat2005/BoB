@@ -1,10 +1,12 @@
-const { db } = require('../config/firebase');
+const { db, firebaseAdmin } = require('../config/firebase');
 
 /**
  * Firestore layout:
  * users/{userId}/sessions/{sessionId}         -> { title, createdAt, updatedAt }
  * users/{userId}/sessions/{sessionId}/messages/{messageId} -> { role, content, createdAt }
  * users/{userId}/facts/{factId}               -> { text, createdAt }
+ * users/{userId}/memoryMonths/{monthId}       -> { monthId, chunks: [{ts, points}], updatedAt, lastChunkTs, finalized?, closedAt? }
+ * users/{userId}/monthlyFiles/{monthId}       -> { filename, content, mime, monthId, createdAt }
  */
 
 async function createSession(userId, title = 'New chat') {
@@ -89,6 +91,93 @@ async function listWeeklySummaries(userId, limit = 5) {
     .limit(limit)
     .get();
   return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+}
+
+// ─────────────────────────────────────────────────────────
+// MONTHLY MEMORY (append-only chunks — nothing is overwritten)
+// ─────────────────────────────────────────────────────────
+
+async function getMessagesSince(userId, sessionId, afterTs, limit = 50) {
+  const snap = await db
+    .collection('users').doc(userId)
+    .collection('sessions').doc(sessionId)
+    .collection('messages')
+    .orderBy('createdAt', 'asc')
+    .startAfter(afterTs)
+    .limit(limit)
+    .get();
+  return snap.docs.map(d => d.data());
+}
+
+async function saveMonthlyChunk(userId, monthId, points) {
+  const ref = db.collection('users').doc(userId).collection('memoryMonths').doc(monthId);
+  const now = Date.now();
+  const chunk = { ts: now, points };
+  await ref.set(
+    {
+      monthId,
+      chunks: firebaseAdmin.firestore.FieldValue.arrayUnion(chunk),
+      updatedAt: now,
+      lastChunkTs: now,
+    },
+    { merge: true }
+  );
+  return { monthId, chunk, updatedAt: now };
+}
+
+async function getMonthMemory(userId, monthId) {
+  const doc = await db.collection('users').doc(userId).collection('memoryMonths').doc(monthId).get();
+  return doc.exists ? { id: doc.id, ...doc.data() } : null;
+}
+
+async function listMonthMemory(userId, limit = 12) {
+  const snap = await db
+    .collection('users').doc(userId)
+    .collection('memoryMonths')
+    .orderBy('updatedAt', 'desc')
+    .limit(limit)
+    .get();
+  return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+}
+
+async function finalizeMonth(userId, monthId) {
+  await db
+    .collection('users').doc(userId)
+    .collection('memoryMonths').doc(monthId)
+    .set({ finalized: true, closedAt: Date.now() }, { merge: true });
+}
+
+async function saveMonthlyFile(userId, monthId, fileData) {
+  const ref = db.collection('users').doc(userId).collection('monthlyFiles').doc(monthId);
+  const now = Date.now();
+  await ref.set({ ...fileData, monthId, createdAt: now });
+  return { id: monthId, ...fileData, createdAt: now };
+}
+
+async function listMonthlyFiles(userId, limit = 12) {
+  const snap = await db
+    .collection('users').doc(userId)
+    .collection('monthlyFiles')
+    .orderBy('createdAt', 'desc')
+    .limit(limit)
+    .get();
+  return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+}
+
+async function getMonthlyFile(userId, monthId) {
+  const doc = await db.collection('users').doc(userId).collection('monthlyFiles').doc(monthId).get();
+  return doc.exists ? { id: doc.id, ...doc.data() } : null;
+}
+
+async function getMonthMemoryText(userId, monthId) {
+  const month = await getMonthMemory(userId, monthId);
+  if (!month || !month.chunks || !month.chunks.length) return null;
+  return month.chunks
+    .slice()
+    .sort((a, b) => (a.ts || 0) - (b.ts || 0))
+    .map(c => c.points)
+    .filter(Boolean)
+    .join('\n');
 }
 
 async function addSecretNote(userId, noteText, eventDate = null) {
@@ -179,6 +268,15 @@ module.exports = {
   deleteFact,
   saveWeeklySummary,
   listWeeklySummaries,
+  getMessagesSince,
+  saveMonthlyChunk,
+  getMonthMemory,
+  listMonthMemory,
+  finalizeMonth,
+  saveMonthlyFile,
+  listMonthlyFiles,
+  getMonthlyFile,
+  getMonthMemoryText,
   addSecretNote,
   listSecretNotes,
   deleteSecretNote,

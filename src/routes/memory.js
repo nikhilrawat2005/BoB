@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { requireAuth } = require('../middleware/auth');
 const memory = require('../services/memoryService');
+const memoryManager = require('../services/memoryManager');
 
 // GET /api/memory/facts
 router.get('/facts', requireAuth, async (req, res) => {
@@ -33,6 +34,88 @@ router.delete('/facts/:id', requireAuth, async (req, res) => {
   try {
     await memory.deleteFact(req.userId, req.params.id);
     res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/memory/refresh  — manually run monthly summarizer + finalize stale months
+router.post('/refresh', requireAuth, async (req, res) => {
+  try {
+    await memoryManager.finalizeStaleMonths(req.userId);
+    const summarized = await memoryManager.summarizeUserSessions(req.userId);
+    res.json({ ok: true, summarized: Boolean(summarized) });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/memory/months  — list month memory (chunks) + exported monthly files
+router.get('/months', requireAuth, async (req, res) => {
+  try {
+    const [months, files] = await Promise.all([
+      memory.listMonthMemory(req.userId, 12),
+      memory.listMonthlyFiles(req.userId, 12),
+    ]);
+    const enriched = months.map(m => ({
+      monthId: m.id,
+      label: memoryManager.monthLabel(m.id),
+      range: memoryManager.monthRange(m.id),
+      chunkCount: (m.chunks || []).length,
+      finalized: Boolean(m.finalized),
+      updatedAt: m.updatedAt || 0,
+      preview: (m.chunks || []).length
+        ? m.chunks[m.chunks.length - 1].points.slice(0, 140)
+        : '',
+    }));
+    res.json({ months: enriched, files });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/memory/months/:monthId/download  — download exported monthly .md file
+router.get('/months/:monthId/download', requireAuth, async (req, res) => {
+  try {
+    const { monthId } = req.params;
+    if (!/^\d{4}-\d{2}$/.test(monthId)) return res.status(400).json({ error: 'Invalid month id' });
+    const file = await memory.getMonthlyFile(req.userId, monthId);
+    if (!file) {
+      // Fallback: build the report on the fly from memory chunks
+      const month = await memory.getMonthMemory(req.userId, monthId);
+      if (!month || !month.chunks || !month.chunks.length) {
+        return res.status(404).json({ error: 'Monthly memory not found' });
+      }
+      const content = memoryManager.buildMonthReportMarkdown
+        ? memoryManager.buildMonthReportMarkdown(monthId, month.chunks)
+        : month.chunks.map(c => c.points).join('\n\n');
+      res.setHeader('Content-Type', 'text/markdown');
+      res.setHeader('Content-Disposition', `attachment; filename="Bob-Memory-${monthId}.md"`);
+      return res.send(content);
+    }
+    res.setHeader('Content-Type', file.mime || 'text/markdown');
+    res.setHeader('Content-Disposition', `attachment; filename="${file.filename || `Bob-Memory-${monthId}.md`}"`);
+    res.send(file.content);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/memory/year/:year/download  — combine all finalized months of a year
+router.get('/year/:year/download', requireAuth, async (req, res) => {
+  try {
+    const { year } = req.params;
+    if (!/^\d{4}$/.test(year)) return res.status(400).json({ error: 'Invalid year' });
+    const files = await memory.listMonthlyFiles(req.userId, 12);
+    const yearFiles = files.filter(f => (f.id || '').startsWith(year + '-'));
+    if (!yearFiles.length) return res.status(404).json({ error: 'No monthly files for this year' });
+    const parts = yearFiles
+      .sort((a, b) => (a.id < b.id ? 1 : -1))
+      .map(f => f.content)
+      .join('\n\n---\n\n');
+    res.setHeader('Content-Type', 'text/markdown');
+    res.setHeader('Content-Disposition', `attachment; filename="Bob-Memory-Year-${year}.md"`);
+    res.send(parts);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

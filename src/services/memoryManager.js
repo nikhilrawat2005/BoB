@@ -51,43 +51,111 @@ function isoWeekKey(date) {
   return `${d.getUTCFullYear()}-W${String(weekNo).padStart(2, '0')}`;
 }
 
+/** Month key (e.g. "2026-07"). */
+function isoMonthKey(date) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+}
+
+function monthLabel(monthId) {
+  const m = /^(\d{4})-(\d{2})$/.exec(monthId);
+  if (!m) return monthId;
+  const months = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+  return `${months[+m[2] - 1]} ${m[1]}`;
+}
+
+function monthRange(monthId) {
+  const m = /^(\d{4})-(\d{2})$/.exec(monthId);
+  if (!m) return monthId;
+  const year = +m[1], mon = +m[2];
+  const start = new Date(Date.UTC(year, mon - 1, 1));
+  const end = new Date(Date.UTC(year, mon, 0));
+  const fmt = d => d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', timeZone: 'UTC' });
+  return `${fmt(start)} – ${fmt(end)} ${year}`;
+}
+
 /**
- * Background Auto-Summarizer for Weekly Chats
- * Runs at most once every 24h per user to avoid firing on every chat message.
+ * Close out any non-current months that were never finalized and export each
+ * one as a downloadable markdown file. Safe to run often (idempotent).
+ */
+async function finalizeStaleMonths(userId) {
+  try {
+    const currentMonth = isoMonthKey(new Date());
+    const existing = await memory.listMonthMemory(userId, 12);
+    for (const month of existing) {
+      if (month.id !== currentMonth && !month.finalized) {
+        const content = buildMonthReportMarkdown(month.id, month.chunks || []);
+        await memory.finalizeMonth(userId, month.id);
+        await memory.saveMonthlyFile(userId, month.id, {
+          filename: `Bob-Memory-${month.id}.md`,
+          content,
+          mime: 'text/markdown',
+        });
+        console.log(`[Memory] Finalized + exported ${month.id}`);
+      }
+    }
+  } catch (err) {
+    console.error('finalizeStaleMonths error:', err.message);
+  }
+}
+
+function buildMonthReportMarkdown(monthId, chunks) {
+  const body = (chunks || [])
+    .slice()
+    .sort((a, b) => (a.ts || 0) - (b.ts || 0))
+    .map((c, i) => {
+      const d = new Date(c.ts || Date.now()).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+      return `### Chunk ${i + 1} — ${d}\n\n${c.points || ''}`;
+    })
+    .join('\n\n');
+  return `# 🧠 Bob — Monthly Memory Report\n\n**Month:** ${monthLabel(monthId)} (${monthRange(monthId)})\n\nThis file accumulates every key point, decision, and instruction Bob captured with Master Nikhil during the month. Nothing is overwritten — every 3-day chunk is appended.\n\n---\n\n${body || '_No key points captured this month._'}\n`;
+}
+
+/**
+ * Background Auto-Summarizer for Monthly Memory
+ * - Appends a new "chunk" every ~3 days (or when the month rolls over).
+ * - ONLY summarizes messages that arrived AFTER the previous chunk, so key
+ *   points never duplicate and old data is never lost.
  */
 async function summarizeUserSessions(userId) {
   try {
-    const existing = await memory.listWeeklySummaries(userId, 1);
-    if (existing.length) {
-      const lastRun = existing[0].updatedAt || 0;
-      if (Date.now() - lastRun < 24 * 60 * 60 * 1000) return null;
-    }
+    // First, close out any stale months (idempotent — cheap on every call)
+    await finalizeStaleMonths(userId);
+
+    const monthId = isoMonthKey(new Date());
+    const month = await memory.getMonthMemory(userId, monthId);
+    const lastChunkTs = (month && month.lastChunkTs) || 0;
+
+    // 3-day cooldown (and never fire twice in the same month before day 3)
+    if (lastChunkTs && Date.now() - lastChunkTs < 3 * 24 * 60 * 60 * 1000) return null;
 
     const sessions = await memory.listSessions(userId);
     if (!sessions || !sessions.length) return null;
 
-    let fullTranscript = '';
-    // Collect recent 5 active sessions
+    // Collect ONLY messages newer than the last chunk (from recent sessions)
+    let newTranscript = '';
     for (const sess of sessions.slice(0, 5)) {
-      const msgs = await memory.getRecentMessages(userId, sess.id, 30);
+      const msgs = lastChunkTs
+        ? await memory.getMessagesSince(userId, sess.id, lastChunkTs, 50)
+        : await memory.getRecentMessages(userId, sess.id, 30);
       if (msgs.length) {
-        fullTranscript += `\n--- Session: ${sess.title || 'Chat'} ---\n`;
+        newTranscript += `\n--- Session: ${sess.title || 'Chat'} ---\n`;
         msgs.forEach(m => {
-          fullTranscript += `${m.role.toUpperCase()}: ${m.content}\n`;
+          newTranscript += `${m.role.toUpperCase()}: ${m.content}\n`;
         });
       }
     }
 
-    if (!fullTranscript.trim()) return null;
+    if (!newTranscript.trim()) return null;
 
     const summaryPrompt = `You are Bob's Memory Manager LLM.
-Summarize the following chat history from Master Nikhil into structured, high-value bullet pointers and key decisions.
-Do NOT lose any important instructions, preferences, tech decisions, or account details.
+Summarize the following new chat activity from Master Nikhil into high-value KEY POINTERS and KEY DECISIONS.
+Include every important instruction, preference, goal, tech decision, personal detail, and account note.
+Do NOT lose or omit anything meaningful. Keep each point short and bullet-style.
 
-Chat History:
-${fullTranscript}
+New Chat Activity:
+${newTranscript}
 
-Format: Return a concise summary with Key Pointers & Key Decisions.`;
+Format: Return a concise bullet list of Key Pointers & Key Decisions.`;
 
     const { text } = await callLLM({
       role: 'memorySummarize',
@@ -95,9 +163,8 @@ Format: Return a concise summary with Key Pointers & Key Decisions.`;
       temperature: 0.2,
     });
 
-    // Save current week summary
-    const weekId = isoWeekKey(new Date());
-    await memory.saveWeeklySummary(userId, weekId, { summary: text });
+    // Append this chunk — previous chunks stay untouched
+    await memory.saveMonthlyChunk(userId, monthId, text);
     return text;
   } catch (err) {
     console.error('Background summarizer error:', err.message);
@@ -108,4 +175,10 @@ Format: Return a concise summary with Key Pointers & Key Decisions.`;
 module.exports = {
   classifyIntent,
   summarizeUserSessions,
+  finalizeStaleMonths,
+  isoMonthKey,
+  isoWeekKey,
+  monthLabel,
+  monthRange,
+  buildMonthReportMarkdown,
 };
