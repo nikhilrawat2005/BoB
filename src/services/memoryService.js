@@ -55,6 +55,16 @@ async function addFact(userId, text) {
   return { id: ref.id, text, createdAt: now };
 }
 
+// Adds a fact only if an identical one doesn't already exist (case-insensitive).
+// Returns null when skipped — used by auto-extraction paths to avoid duplicates.
+async function addFactUnique(userId, text) {
+  const snap = await db.collection('users').doc(userId).collection('facts').get();
+  const needle = String(text).trim().toLowerCase();
+  const exists = snap.docs.some(d => (String(d.data().text || '').trim().toLowerCase() === needle));
+  if (exists) return null;
+  return addFact(userId, text);
+}
+
 async function listFacts(userId) {
   const snap = await db.collection('users').doc(userId).collection('facts').orderBy('createdAt', 'asc').get();
   return snap.docs.map(d => ({ id: d.id, ...d.data() }));
@@ -110,10 +120,7 @@ async function getVaultMessages(userId, limit = 50) {
 }
 
 async function clearVaultMessages(userId) {
-  const snap = await db.collection('users').doc(userId).collection('vaultMessages').get();
-  const batch = db.batch();
-  snap.docs.forEach(doc => batch.delete(doc.ref));
-  await batch.commit();
+  await deleteAllInCollection(db.collection('users').doc(userId).collection('vaultMessages'));
 }
 
 async function addNotification(userId, title, message, type = 'reminder', promptSnippet = '') {
@@ -136,12 +143,19 @@ async function listNotifications(userId, limit = 20) {
 
 async function deleteSession(userId, sessionId) {
   const ref = db.collection('users').doc(userId).collection('sessions').doc(sessionId);
-  // Delete all messages inside session
-  const msgsSnap = await ref.collection('messages').get();
-  const batch = db.batch();
-  msgsSnap.docs.forEach(doc => batch.delete(doc.ref));
-  batch.delete(ref);
-  await batch.commit();
+  // Delete all messages inside session (chunked — batch max is 500 ops)
+  await deleteAllInCollection(ref.collection('messages'));
+  await ref.delete();
+}
+
+async function deleteAllInCollection(collectionRef, chunkSize = 400) {
+  const snap = await collectionRef.get();
+  const refs = snap.docs.map(d => d.ref);
+  for (let i = 0; i < refs.length; i += chunkSize) {
+    const batch = db.batch();
+    refs.slice(i, i + chunkSize).forEach(r => batch.delete(r));
+    await batch.commit();
+  }
 }
 
 async function markNotificationRead(userId, notifId) {
@@ -160,6 +174,7 @@ module.exports = {
   addMessage,
   getRecentMessages,
   addFact,
+  addFactUnique,
   listFacts,
   deleteFact,
   saveWeeklySummary,

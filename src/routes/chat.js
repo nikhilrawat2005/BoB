@@ -26,27 +26,28 @@ router.post('/', requireAuth, async (req, res) => {
   if (!sessionId || !message) {
     return res.status(400).json({ error: 'sessionId and message are required' });
   }
+  if (typeof message !== 'string' || message.length > 8000) {
+    return res.status(400).json({ error: 'message must be a string under 8000 characters' });
+  }
 
   // Normalize image URLs from request (screenshots uploaded by user)
-  const userImageUrls = Array.isArray(imageUrls) ? imageUrls.filter(Boolean) : [];
+  const userImageUrls = Array.isArray(imageUrls) ? imageUrls.filter(Boolean).slice(0, 6) : [];
 
   try {
-    // 1. Save user's message
-    await memory.addMessage(req.userId, sessionId, 'user', message);
-
-    // 2. Behavior Profiler: Learn habits asynchronously
+    // 1. Behavior Profiler + Intent Router + Media Detection run in parallel
+    //    (they are independent, so we don't serialise their latency)
     behaviorEngine.updateBehaviorProfile(req.userId, message).catch(err => console.error(err));
 
-    // 3. Intermediary Router: Classify intent in real time
-    const intent = await memoryManager.classifyIntent(message);
+    const [intent, mediaEnrichment] = await Promise.all([
+      memoryManager.classifyIntent(message),
+      enrichMessageWithMedia(message),
+    ]);
 
-    // If new fact detected automatically, store it in memory facts
+    // If new fact detected automatically, store it in memory facts (deduped)
     if (intent.isNewFact && intent.extractedFact) {
-      await memory.addFact(req.userId, intent.extractedFact);
+      await memory.addFactUnique(req.userId, intent.extractedFact);
     }
 
-    // 3b. AUTO MEDIA DETECTION — extract YouTube/Instagram link data from message
-    const mediaEnrichment = await enrichMessageWithMedia(message);
     const allImageUrls = [
       ...userImageUrls,
       ...(mediaEnrichment.imageUrls || []),
@@ -55,10 +56,16 @@ router.post('/', requireAuth, async (req, res) => {
       console.log(`[Chat] Media detected: ${mediaEnrichment.detectedTypes.join(', ')} — ${allImageUrls.length} image(s) for vision`);
     }
 
-    // 4. Pull recent history, facts, and weekly summaries context
-    const recent = await memory.getRecentMessages(req.userId, sessionId, 20);
-    const facts = await memory.listFacts(req.userId);
-    const weeklySummaries = await memory.listWeeklySummaries(req.userId);
+    // 2. Pull recent history, facts, and weekly summaries context
+    //    (recent does NOT include the current message yet — we append it once below)
+    const [recent, facts, weeklySummaries] = await Promise.all([
+      memory.getRecentMessages(req.userId, sessionId, 20),
+      memory.listFacts(req.userId),
+      memory.listWeeklySummaries(req.userId),
+    ]);
+
+    // 3. Save user's message
+    await memory.addMessage(req.userId, sessionId, 'user', message);
 
     let contextBlocks = [];
     if (facts.length) {
@@ -251,6 +258,7 @@ ${memoryContext}${mediaEnrichment.mediaContext}`;
 
     res.json({ reply: text, model: usedModel, scheduledTasks: createdTasks, updatedTitle });
   } catch (err) {
+    console.error('[Chat] Error:', err.message);
     res.status(500).json({ error: 'LLM call failed', details: err.message });
   }
 });

@@ -1,16 +1,61 @@
 const fetch = require('node-fetch');
 const cheerio = require('cheerio');
+const net = require('net');
+const dns = require('dns').promises;
 
 /**
  * Autonomous Web Crawler & Scraper Service
  * Scrapes HTML, JavaScript snippets, CSS styles, metadata, links, and readable text from any URL
  */
 
+// Blocks SSRF — no localhost, private, link-local, or CGNAT hosts.
+function isBlockedIp(ip) {
+  const v4 = ip.split('.').map(Number);
+  if (v4.length === 4 && v4.every(n => Number.isInteger(n))) {
+    if (v4[0] === 10) return true;                                   // 10.0.0.0/8
+    if (v4[0] === 127) return true;                                  // loopback
+    if (v4[0] === 0) return true;                                    // 0.0.0.0/8
+    if (v4[0] === 169 && v4[1] === 254) return true;                 // link-local
+    if (v4[0] === 172 && v4[1] >= 16 && v4[1] <= 31) return true;    // 172.16/12
+    if (v4[0] === 192 && v4[1] === 168) return true;                 // 192.168/16
+    if (v4[0] === 100 && v4[1] >= 64 && v4[1] <= 127) return true;   // CGNAT 100.64/10
+    return false;
+  }
+  const lower = ip.toLowerCase();
+  return lower === '::1' || lower === '::' || lower.startsWith('fc') || lower.startsWith('fd') || lower.startsWith('fe80:');
+}
+
+async function validatePublicUrl(targetUrl) {
+  let u;
+  try {
+    u = new URL(targetUrl);
+  } catch {
+    throw new Error('Invalid URL provided.');
+  }
+  if (u.protocol !== 'http:' && u.protocol !== 'https:') {
+    throw new Error('Only http:// and https:// URLs are allowed.');
+  }
+  const host = u.hostname.toLowerCase();
+  if (host === 'localhost' || host.endsWith('.local') || host.endsWith('.internal')) {
+    throw new Error('Local/private hosts are not allowed.');
+  }
+  if (net.isIP(host)) {
+    if (isBlockedIp(host)) throw new Error('Private IP addresses are not allowed.');
+    return;
+  }
+  const addrs = await dns.lookup(host, { all: true });
+  for (const a of addrs) {
+    if (isBlockedIp(a.address)) throw new Error('URL resolves to a private address.');
+  }
+}
+
 async function scrapeURL(targetUrl) {
   try {
     if (!targetUrl.startsWith('http://') && !targetUrl.startsWith('https://')) {
       targetUrl = 'https://' + targetUrl;
     }
+
+    await validatePublicUrl(targetUrl);
 
     const response = await fetch(targetUrl, {
       headers: {

@@ -16,7 +16,11 @@ router.get('/', requireAuth, async (req, res) => {
 // POST /api/sessions  { title? }
 router.post('/', requireAuth, async (req, res) => {
   try {
-    const session = await memory.createSession(req.userId, req.body.title);
+    let title = req.body.title;
+    if (title && (typeof title !== 'string' || title.length > 100)) {
+      return res.status(400).json({ error: 'title must be a string under 100 characters' });
+    }
+    const session = await memory.createSession(req.userId, title);
     res.json({ session });
   } catch (err) {
     res.status(500).json({ error: err.message });

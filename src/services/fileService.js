@@ -35,4 +35,20 @@ async function listFiles(userId) {
   return snap.docs.map(d => ({ id: d.id, ...d.data() }));
 }
 
-module.exports = { uploadFile, listFiles };
+async function deleteFile(userId, fileId) {
+  const ref = db.collection('users').doc(userId).collection('files').doc(fileId);
+  const snap = await ref.get();
+  if (!snap.exists) return false;
+
+  const record = snap.data();
+  // Remove the actual asset from Cloudinary, then the Firestore record.
+  if (record.publicId) {
+    await cloudinary.uploader.destroy(record.publicId, {
+      resource_type: record.resourceType || 'raw',
+    }).catch(err => console.error('[fileService] Cloudinary destroy failed:', err.message));
+  }
+  await ref.delete();
+  return true;
+}
+
+module.exports = { uploadFile, listFiles, deleteFile };

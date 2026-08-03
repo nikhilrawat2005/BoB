@@ -16,6 +16,15 @@ router.post('/', requireAuth, async (req, res) => {
   if (!prompt) {
     return res.status(400).json({ error: 'prompt is required — what should Bob generate?' });
   }
+  if (typeof prompt !== 'string' || prompt.length > 4000) {
+    return res.status(400).json({ error: 'prompt must be a string under 4000 characters' });
+  }
+  if (title && (typeof title !== 'string' || title.length > 100)) {
+    return res.status(400).json({ error: 'title must be a string under 100 characters' });
+  }
+  if (repeat && !['none', 'daily', 'weekly'].includes(repeat)) {
+    return res.status(400).json({ error: 'repeat must be one of: none, daily, weekly' });
+  }
 
   try {
     const task = await scheduler.createTask(req.userId, { title, prompt, scheduledAt, repeat });
@@ -52,20 +61,24 @@ router.delete('/:id', requireAuth, async (req, res) => {
 
 // ─────────────────────────────────────────────────────────
 // POST /api/scheduler/tick  — Vercel Cron endpoint
-// Called automatically by Vercel every 15 minutes
-// Protected by CRON_SECRET header
+// Called automatically by Vercel every 15 minutes.
+// Auth: if CRON_SECRET is set, Vercel Cron sends it as
+// Authorization: Bearer <CRON_SECRET>; otherwise (dev mode) the
+// browser-polling path falls back to the normal Firebase auth.
 // ─────────────────────────────────────────────────────────
-router.post('/tick', async (req, res) => {
-  // Vercel sends Authorization: Bearer <CRON_SECRET>
+function tickAuth(req, res, next) {
   const cronSecret = process.env.CRON_SECRET;
   const authHeader  = req.headers['authorization'] || '';
-  const provided    = authHeader.replace('Bearer ', '').trim();
+  const provided    = authHeader.replace(/^Bearer\s+/i, '').trim();
 
-  // If CRON_SECRET is set, validate it; if not set, allow (dev mode)
-  if (cronSecret && provided !== cronSecret) {
+  if (cronSecret) {
+    if (provided === cronSecret) return next();
     return res.status(401).json({ error: 'Unauthorized cron call' });
   }
+  return requireAuth(req, res, next);
+}
 
+router.post('/tick', tickAuth, async (req, res) => {
   try {
     const result = await scheduler.tick();
     res.json({ ok: true, ...result, timestamp: new Date().toISOString() });

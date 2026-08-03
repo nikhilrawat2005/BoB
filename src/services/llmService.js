@@ -99,6 +99,10 @@ async function callLLM({ role = 'chat', messages, model, temperature, max_tokens
     throw err;
   }
 
+  if (!data.choices || !data.choices.length || !data.choices[0].message) {
+    throw new Error('OpenRouter returned an empty response');
+  }
+
   return {
     text:  data.choices[0].message.content,
     model: selectedModel,
@@ -135,11 +139,12 @@ async function callLLMWithVision({ messages, userText, imageUrls = [], model, te
     })),
   ];
 
-  // Replace the last user message (or append) with multimodal content
-  const visionMessages = [
-    ...messages.filter(m => m.role !== 'user' || messages.indexOf(m) < messages.length - 1),
-    { role: 'user', content: userContent },
-  ];
+  // Only replace the last message if it is a user message (the current prompt).
+  // Assistant/system history is always preserved.
+  const visionMessages = [...messages];
+  const last = visionMessages[visionMessages.length - 1];
+  if (last && last.role === 'user') visionMessages.pop();
+  visionMessages.push({ role: 'user', content: userContent });
 
   const body = {
     model: selectedModel,
@@ -165,6 +170,10 @@ async function callLLMWithVision({ messages, userText, imageUrls = [], model, te
     const err = new Error(data.error.message || 'OpenRouter vision error');
     err.details = data.error;
     throw err;
+  }
+
+  if (!data.choices || !data.choices.length || !data.choices[0].message) {
+    throw new Error('OpenRouter returned an empty response');
   }
 
   return {

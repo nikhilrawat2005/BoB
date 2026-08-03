@@ -9,6 +9,9 @@ const memory = require('../services/memoryService');
 router.post('/crawl', requireAuth, async (req, res) => {
   const { url } = req.body;
   if (!url) return res.status(400).json({ error: 'URL parameter is required' });
+  if (typeof url !== 'string' || url.length > 500) {
+    return res.status(400).json({ error: 'url must be a string under 500 characters' });
+  }
 
   try {
     const scrapedData = await crawler.scrapeURL(url);
@@ -49,6 +52,9 @@ Provide a comprehensive analysis:
 router.post('/study-notes', requireAuth, async (req, res) => {
   const { topic } = req.body;
   if (!topic) return res.status(400).json({ error: 'Topic is required' });
+  if (typeof topic !== 'string' || topic.length > 500) {
+    return res.status(400).json({ error: 'topic must be a string under 500 characters' });
+  }
 
   try {
     const prompt = `You are Bob, Master Nikhil's personal research & study agent.

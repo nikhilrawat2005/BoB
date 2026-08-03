@@ -39,10 +39,30 @@ Respond strictly in valid JSON format:
 }
 
 /**
+ * ISO-style week key (e.g. "2026-W31") — includes year AND week number so
+ * summaries from different months/years never overwrite each other.
+ */
+function isoWeekKey(date) {
+  const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+  const dayNum = d.getUTCDay() || 7; // Monday = 1 ... Sunday = 7
+  d.setUTCDate(d.getUTCDate() + 4 - dayNum);
+  const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+  const weekNo = Math.ceil((((d - yearStart) / 86400000) + 1) / 7);
+  return `${d.getUTCFullYear()}-W${String(weekNo).padStart(2, '0')}`;
+}
+
+/**
  * Background Auto-Summarizer for Weekly Chats
+ * Runs at most once every 24h per user to avoid firing on every chat message.
  */
 async function summarizeUserSessions(userId) {
   try {
+    const existing = await memory.listWeeklySummaries(userId, 1);
+    if (existing.length) {
+      const lastRun = existing[0].updatedAt || 0;
+      if (Date.now() - lastRun < 24 * 60 * 60 * 1000) return null;
+    }
+
     const sessions = await memory.listSessions(userId);
     if (!sessions || !sessions.length) return null;
 
@@ -76,8 +96,7 @@ Format: Return a concise summary with Key Pointers & Key Decisions.`;
     });
 
     // Save current week summary
-    const now = new Date();
-    const weekId = `${now.getFullYear()}-W${Math.ceil(now.getDate() / 7)}`;
+    const weekId = isoWeekKey(new Date());
     await memory.saveWeeklySummary(userId, weekId, { summary: text });
     return text;
   } catch (err) {

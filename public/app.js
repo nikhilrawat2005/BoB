@@ -12,6 +12,11 @@
 const API = '';
 
 let auth = null;
+let currentUser = null;
+let idToken = null;
+let currentSession = null;
+let pendingFile = null;
+let pendingPasteImage = null;
 
 // ── DOM refs ─────────────────────────────────────────
 const screens = {
@@ -37,16 +42,9 @@ async function initFirebaseApp() {
     
     auth.onAuthStateChanged(async (user) => {
       if (user) {
-        currentUser = user;
-        idToken = await user.getIdToken();
-        showScreen('app');
-        document.getElementById('user-email-label').textContent = user.email || '';
-        document.getElementById('user-avatar').textContent = (user.email || 'U')[0].toUpperCase();
-        await initApp();
+        await handleAuthUser(user);
       } else {
-        currentUser = null;
-        idToken = null;
-        showScreen('login');
+        await handleSignOut();
       }
     });
   } catch (err) {
@@ -159,42 +157,45 @@ document.addEventListener('keydown', (e) => {
 // Logout
 document.getElementById('logout-btn').addEventListener('click', () => auth.signOut());
 
-// Auth state listener
-auth.onAuthStateChanged(async (user) => {
-  if (user) {
-    const email = (user.email || '').toLowerCase();
-    
-    // Check if email is in allowed list
-    if (!ALLOWED_EMAILS.includes(email)) {
-      await auth.signOut();
-      const errEl = document.getElementById('login-error');
-      errEl.textContent = `Access Denied: ${email} is not authorized to use Bob.`;
-      errEl.classList.remove('hidden');
-      showScreen('login');
-      return;
-    }
+// Auth state handler — runs once per auth change (single source of truth)
+async function handleAuthUser(user) {
+  const email = (user.email || '').toLowerCase();
 
-    currentUser = user;
-    idToken     = await user.getIdToken();
-
-    // Refresh token every 50 min (expires at 60)
-    setInterval(async () => { idToken = await user.getIdToken(true); }, 50 * 60 * 1000);
-
-    // Update UI
-    document.getElementById('user-email-label').textContent = email;
-    document.getElementById('user-avatar').textContent      = email[0]?.toUpperCase() || 'U';
-
-    showScreen('app');
-    await loadSessions();
-    await loadNotifications();
-    fetchProactiveGreeting();
-    startBackgroundPolling();
-  } else {
-    currentUser = null; idToken = null; currentSession = null;
-    stopBackgroundPolling();
+  if (!ALLOWED_EMAILS.includes(email)) {
+    await auth.signOut();
+    const errEl = document.getElementById('login-error');
+    errEl.textContent = `Access Denied: ${email} is not authorized to use Bob.`;
+    errEl.classList.remove('hidden');
     showScreen('login');
+    return;
   }
-});
+
+  currentUser = user;
+  idToken     = await user.getIdToken();
+
+  // Refresh token every 50 min (expires at 60)
+  setInterval(async () => { idToken = await user.getIdToken(true); }, 50 * 60 * 1000);
+
+  // Update UI
+  document.getElementById('user-email-label').textContent = email;
+  document.getElementById('user-avatar').textContent      = email[0]?.toUpperCase() || 'U';
+
+  showScreen('app');
+  await initApp();
+}
+
+async function handleSignOut() {
+  currentUser = null; idToken = null; currentSession = null;
+  stopBackgroundPolling();
+  showScreen('login');
+}
+
+async function initApp() {
+  await loadSessions();
+  await loadNotifications();
+  fetchProactiveGreeting();
+  startBackgroundPolling();
+}
 
 function friendlyAuthError(code) {
   const map = {
@@ -327,7 +328,8 @@ function renderSessions(sessions) {
 
   list.innerHTML = sessions.map((s, idx) => {
     const isRecent = idx === 0 && (now - (s.updatedAt || 0)) < 24 * 60 * 60 * 1000;
-    const isAutoActive = isRecent && (s.title || '').toLowerCase().includes('goal') || (s.title || '').toLowerCase().includes('dsa') || isRecent;
+    const titleLc = (s.title || '').toLowerCase();
+    const isAutoActive = isRecent && (titleLc.includes('goal') || titleLc.includes('dsa'));
     return `
       <div class="session-item ${currentSession?.id === s.id ? 'active' : ''} ${isAutoActive ? 'auto-active' : ''}"
            data-id="${s.id}" data-title="${escHtml(s.title || 'Chat')}">
@@ -639,29 +641,36 @@ function renderTextContent(text) {
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;');
 
+  // Protect code blocks + inline code so markdown inside them stays raw
+  const stash = [];
+  const stashToken = () => `\u0000STASH${stash.length - 1}\u0000`;
+  const unstash = (s) => s.replace(/\u0000STASH(\d+)\u0000/g, (_, i) => stash[+i]);
+
+  html = html.replace(/```[\w]*\n([\s\S]*?)```/g, (_, c) => {
+    stash.push(`<pre class="plain-code"><code>${c.trimEnd()}</code></pre>`);
+    return stashToken();
+  });
+  html = html.replace(/`([^`]+)`/g, (_, c) => {
+    stash.push(`<code class="inline-code">${c}</code>`);
+    return stashToken();
+  });
+
   // Bold **text**
   html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
   // Italic *text*
   html = html.replace(/\*(.+?)\*/g, '<em>$1</em>');
-  // Inline code `code`
-  html = html.replace(/`([^`]+)`/g, '<code class="inline-code">$1</code>');
-  // Code blocks without filename= (plain code)
-  html = html.replace(/```[\w]*\n([\s\S]*?)```/g, (_, c) => {
-    return `<pre class="plain-code"><code>${c.trimEnd()}</code></pre>`;
-  });
   // Headers
   html = html.replace(/^### (.+)$/gm, '<h3>$1</h3>');
   html = html.replace(/^## (.+)$/gm, '<h2>$1</h2>');
   html = html.replace(/^# (.+)$/gm, '<h1>$1</h1>');
-  // Bullet lists
-  html = html.replace(/^[-*] (.+)$/gm, '<li>$1</li>');
-  html = html.replace(/(<li>.*<\/li>)/s, '<ul>$1</ul>');
-  // Numbered lists
-  html = html.replace(/^\d+\. (.+)$/gm, '<li>$1</li>');
+  // Bullet + numbered lists (group consecutive items into one list)
+  html = html.replace(/^(?:[-*] |\d+\. )(.+)$/gm, (line) => `<li>${line.replace(/^(?:[-*] |\d+\. )/, '')}</li>`);
+  html = html.replace(/((?:<li>.*?<\/li>\n?)+)/g, '<ul>$1</ul>');
+  html = html.replace(/<ul>([\s\S]*?)<\/ul>/g, (_, inner) => '<ul>' + inner.replace(/\n/g, '') + '</ul>');
   // Line breaks
   html = html.replace(/\n/g, '<br>');
 
-  return html;
+  return unstash(html);
 }
 
 function appendMessage(role, content, animate = true) {
@@ -1294,7 +1303,9 @@ async function submitVaultPin() {
 async function loadVaultChat() {
   const container = document.getElementById('vault-chat-messages');
   try {
-    const { messages } = await apiFetch('/api/secret/chat');
+    const { messages } = await apiFetch('/api/secret/chat', {
+      headers: { 'X-Vault-Pin': vaultPin },
+    });
     if (!messages || !messages.length) {
       container.innerHTML = '<div class="empty-msg">🤫 Private Secret Vault Chat active. Messages here are confidential and isolated from normal chats.</div>';
       return;
@@ -1334,7 +1345,7 @@ async function sendVaultMessage() {
   try {
     const data = await apiFetch('/api/secret/chat', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'X-Vault-Pin': vaultPin },
       body: JSON.stringify({ message: text }),
     });
 
@@ -1351,76 +1362,13 @@ async function sendVaultMessage() {
 document.getElementById('wipe-vault-chat-btn').addEventListener('click', async () => {
   if (!confirm('Are you sure you want to wipe all private secret chat history?')) return;
   try {
-    await apiFetch('/api/secret/chat', { method: 'DELETE' });
+    await apiFetch('/api/secret/chat', { method: 'DELETE', headers: { 'X-Vault-Pin': vaultPin } });
     await loadVaultChat();
   } catch (err) {
     alert('Failed to wipe secret chat: ' + err.message);
   }
 });
 
-
-// ── Add vault note ────────────────────────────────────
-document.getElementById('add-vault-note-btn').addEventListener('click', async () => {
-  const noteInput = document.getElementById('vault-note-input');
-  const dateInput = document.getElementById('vault-date-input');
-  const noteText  = noteInput.value.trim();
-  const eventDate = dateInput.value || null;
-
-  if (!noteText) return;
-  try {
-    await apiFetch('/api/secret/notes', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ noteText, eventDate }),
-    });
-    noteInput.value = '';
-    dateInput.value = '';
-    await loadVaultNotes();
-  } catch (err) {
-    alert('Failed to add note: ' + err.message);
-  }
-});
-
-document.getElementById('vault-note-input').addEventListener('keydown', (e) => {
-  if (e.key === 'Enter') document.getElementById('add-vault-note-btn').click();
-});
-
-// ── Delete vault note ─────────────────────────────────
-async function deleteVaultNote(id) {
-  try {
-    await apiFetch(`/api/secret/notes/${id}`, { method: 'DELETE' });
-    await loadVaultNotes();
-  } catch (err) {
-    alert('Failed to delete note: ' + err.message);
-  }
-}
-
-// ── Format event date nicely ──────────────────────────
-function formatEventDate(dateStr) {
-  try {
-    const d = new Date(dateStr + 'T00:00:00');
-    const now = new Date();
-    const diffDays = Math.ceil((d - now) / (1000 * 60 * 60 * 24));
-    const formatted = d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
-    if (diffDays === 0) return `${formatted} — Today!`;
-    if (diffDays === 1) return `${formatted} — Tomorrow`;
-    if (diffDays > 0 && diffDays <= 7) return `${formatted} — in ${diffDays} days`;
-    if (diffDays < 0) return `${formatted} — ${Math.abs(diffDays)}d ago`;
-    return formatted;
-  } catch {
-    return dateStr;
-  }
-}
-
-// ── Check vault on login (for sidebar dot) ───────────
-async function checkVaultStatus() {
-  try {
-    // We only check if notes exist via a quick verify with stored PIN
-    // Just ping notes endpoint — if user already verified, great; else skip
-    // Since we can't auto-auth without PIN, we'll just check via a separate status endpoint.
-    // For now silently skip; the dot shows after first open.
-  } catch { /* silent */ }
-}
 
 // ═══════════════════════════════════════════════════════
 // UTILS

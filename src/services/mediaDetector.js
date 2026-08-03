@@ -8,7 +8,7 @@ const { getInstagramContext, isInstagramUrl } = require('./instagramService');
  */
 
 // Regex patterns for link detection
-const YOUTUBE_PATTERN = /https?:\/\/(?:www\.|m\.)?(?:youtube\.com\/(?:watch\?(?:.*&)?v=|shorts\/|embed\/|v\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})[^\s]*/gi;
+const YOUTUBE_PATTERN = /https?:\/\/(?:www\.|m\.)?(?:youtube\.com\/(?:watch\?(?:.*&)?v=|shorts\/|embed\/|v\/)|youtu\.be\/)([a-zA-Z0-9_-]{6,})[^\s]*/gi;
 const INSTAGRAM_PATTERN = /https?:\/\/(?:www\.)?instagram\.com\/(?:p|reel|tv|reels)\/[a-zA-Z0-9_-]+\/?[^\s]*/gi;
 const GENERAL_URL_PATTERN = /https?:\/\/[^\s]+/gi;
 
@@ -68,8 +68,8 @@ async function enrichMessageWithMedia(messageText) {
 
   console.log(`[mediaDetector] Detected links — YouTube: ${youtubeLinks.length}, Instagram: ${instagramLinks.length}`);
 
-  // Process YouTube links (limit to 2 to avoid timeout)
-  for (const ytUrl of youtubeLinks.slice(0, 2)) {
+  // Process links in parallel (YouTube + Instagram groups) to cut total latency.
+  const processYouTube = async (ytUrl) => {
     try {
       console.log(`[mediaDetector] Fetching YouTube data for: ${ytUrl}`);
       const ytContext = await getYouTubeContext(ytUrl);
@@ -88,10 +88,9 @@ async function enrichMessageWithMedia(messageText) {
       console.error(`[mediaDetector] YouTube processing error:`, err.message);
       contextParts.push(`📺 YouTube URL detected: ${ytUrl}\nNote: Data fetch failed — ${err.message}`);
     }
-  }
+  };
 
-  // Process Instagram links (limit to 2)
-  for (const igUrl of instagramLinks.slice(0, 2)) {
+  const processInstagram = async (igUrl) => {
     try {
       console.log(`[mediaDetector] Fetching Instagram data for: ${igUrl}`);
       const igContext = await getInstagramContext(igUrl);
@@ -110,7 +109,12 @@ async function enrichMessageWithMedia(messageText) {
       console.error(`[mediaDetector] Instagram processing error:`, err.message);
       contextParts.push(`📸 Instagram URL detected: ${igUrl}\nNote: Data fetch failed — ${err.message}`);
     }
-  }
+  };
+
+  await Promise.all([
+    ...youtubeLinks.slice(0, 2).map(processYouTube),
+    ...instagramLinks.slice(0, 2).map(processInstagram),
+  ]);
 
   const mediaContext = contextParts.length > 0
     ? `\n━━━ 🎬 AUTO-EXTRACTED MEDIA DATA ━━━\n${contextParts.join('\n\n')}\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`

@@ -25,7 +25,7 @@ Strict JSON format: { "trait": string or null }`;
 
     const parsed = JSON.parse(text.replace(/```json|```/g, '').trim());
     if (parsed.trait) {
-      await memory.addFact(userId, `[Habit/Preference]: ${parsed.trait}`);
+      await memory.addFactUnique(userId, `[Habit/Preference]: ${parsed.trait}`);
     }
   } catch (err) {
     console.error('updateBehaviorProfile error:', err.message);

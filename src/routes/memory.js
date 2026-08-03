@@ -17,6 +17,9 @@ router.get('/facts', requireAuth, async (req, res) => {
 router.post('/facts', requireAuth, async (req, res) => {
   const { text } = req.body;
   if (!text) return res.status(400).json({ error: 'text is required' });
+  if (typeof text !== 'string' || text.length > 1000) {
+    return res.status(400).json({ error: 'text must be a string under 1000 characters' });
+  }
   try {
     const fact = await memory.addFact(req.userId, text);
     res.json({ fact });

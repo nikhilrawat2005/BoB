@@ -112,17 +112,6 @@ async function checkAndGenerateNotifications(userId) {
         }
       }
     }
-
-    // Goal / General check if no recent notification exists
-    if (existingNotifs.length === 0) {
-      await memory.addNotification(
-        userId,
-        "Welcome Goal Tracking",
-        "Master Nikhil, Bob is actively tracking your goals & secret vault reminders.",
-        "goal",
-        "Master, tell me about your main goal or priority for today!"
-      );
-    }
   } catch (err) {
     console.error('checkAndGenerateNotifications error:', err.message);
   }

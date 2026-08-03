@@ -33,15 +33,17 @@ async function createTask(userId, { title, prompt, scheduledAt, repeat = 'none' 
 }
 
 async function listTasks(userId, statusFilter = 'pending') {
-  let query = db.collection('users').doc(userId).collection('scheduledTasks')
-    .orderBy('scheduledAt', 'asc');
+  // Single-field orderBy only — no composite Firestore index required.
+  const snap = await db.collection('users').doc(userId).collection('scheduledTasks')
+    .orderBy('scheduledAt', 'asc')
+    .limit(200)
+    .get();
 
+  let tasks = snap.docs.map(d => ({ id: d.id, ...d.data() }));
   if (statusFilter !== 'all') {
-    query = query.where('status', '==', statusFilter);
+    tasks = tasks.filter(t => t.status === statusFilter);
   }
-
-  const snap = await query.get();
-  return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+  return tasks;
 }
 
 async function cancelTask(userId, taskId) {
@@ -53,8 +55,32 @@ async function cancelTask(userId, taskId) {
 // Fire a single task — generate content with LLM, push notification
 // ─────────────────────────────────────────────────────────
 
+/**
+ * Atomically claim a pending task so concurrent ticks (multiple tabs /
+ * browser polling + cron) never fire the same task twice.
+ * Returns the task data if claimed, otherwise null.
+ */
+async function claimTask(userId, taskId) {
+  const ref = db.collection('users').doc(userId).collection('scheduledTasks').doc(taskId);
+  return db.runTransaction(async t => {
+    const snap = await t.get(ref);
+    if (!snap.exists) return null;
+    const data = snap.data();
+    if (data.status !== 'pending') return null;
+    t.update(ref, { status: 'processing' });
+    return data;
+  });
+}
+
 async function fireTask(task) {
-  const { userId, title, prompt, id, repeat, scheduledAt } = task;
+  const { userId, id } = task;
+  const ref = db.collection('users').doc(userId).collection('scheduledTasks').doc(id);
+
+  // Claim first — if another tick already took it, skip silently.
+  const claim = await claimTask(userId, id);
+  if (!claim) return false;
+
+  const { title, prompt, repeat, scheduledAt } = claim;
 
   try {
     // 1. Pull user context (facts + recent summaries)
@@ -97,7 +123,6 @@ Current time: ${new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })
     );
 
     // 4. Mark task as fired in Firestore
-    const ref = db.collection('users').doc(userId).collection('scheduledTasks').doc(id);
     const nextFire = computeNextFire(scheduledAt, repeat);
 
     if (repeat !== 'none' && nextFire) {
@@ -113,7 +138,6 @@ Current time: ${new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })
   } catch (err) {
     console.error(`[Scheduler] Error firing task ${id}:`, err.message);
     // Mark as error so it doesn't retry forever
-    const ref = db.collection('users').doc(userId).collection('scheduledTasks').doc(id);
     await ref.set({ status: 'error', errorMsg: err.message }, { merge: true });
     return false;
   }
@@ -126,14 +150,15 @@ Current time: ${new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })
 
 async function tick() {
   const now = Date.now();
-  // Look back 20 min (handles cron drift) and fire tasks due in that window
-  const cutoff = now + (15 * 60 * 1000); // also fire tasks due in next 15 min buffer
+  // Fire only tasks that are actually due NOW (or were missed earlier —
+  // past-due pending tasks are picked up on the next tick). No future
+  // buffer, so tasks are never fired early.
 
   try {
-    // Query across ALL users — tasks pending and due now
+    // Single-field range query on collectionGroup — no composite index.
     const snap = await db.collectionGroup('scheduledTasks')
-      .where('status', '==', 'pending')
-      .where('scheduledAt', '<=', cutoff)
+      .where('scheduledAt', '<=', now)
+      .limit(100)
       .get();
 
     if (snap.empty) {
@@ -141,7 +166,15 @@ async function tick() {
       return { fired: 0 };
     }
 
-    const tasks = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    const tasks = snap.docs
+      .map(d => ({ id: d.id, ...d.data() }))
+      .filter(t => t.status === 'pending');
+
+    if (tasks.length === 0) {
+      console.log('[Scheduler] tick: no pending tasks due.');
+      return { fired: 0 };
+    }
+
     console.log(`[Scheduler] tick: ${tasks.length} task(s) due.`);
 
     let fired = 0;
@@ -167,16 +200,4 @@ function computeNextFire(lastScheduledAt, repeat) {
   return lastScheduledAt + ms;
 }
 
-// ─────────────────────────────────────────────────────────
-// Parse natural language time from Bob's schedule block
-// e.g. "kal subah 8 baje" → epoch ms
-// ─────────────────────────────────────────────────────────
-
-function parseScheduleTime(isoOrMs) {
-  if (typeof isoOrMs === 'number') return isoOrMs;
-  const d = new Date(isoOrMs);
-  if (!isNaN(d.getTime())) return d.getTime();
-  return null;
-}
-
-module.exports = { createTask, listTasks, cancelTask, fireTask, tick, parseScheduleTime };
+module.exports = { createTask, listTasks, cancelTask, fireTask, tick, computeNextFire };
