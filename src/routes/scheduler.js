@@ -60,12 +60,10 @@ router.delete('/:id', requireAuth, async (req, res) => {
 });
 
 // ─────────────────────────────────────────────────────────
-// POST /api/scheduler/tick  — Cron / polling endpoint
-// Real-time firing happens via browser polling (every 30s while
-// the app is open). The Vercel cron is the catch-up safety net for
-// when the app is closed. Vercel Hobby only allows daily crons, so
-// this runs once per day at 03:00 UTC (missed tasks fire late, not early).
-// Auth: if CRON_SECRET is set, Vercel Cron sends it as
+// POST /api/scheduler/tick  — Scheduled task fire endpoint
+// Called hourly by the GitHub Actions workflow (.github/workflows/tick.yml)
+// on Vercel Hobby (Vercel Cron only allows once-per-day schedules there).
+// Auth: if CRON_SECRET is set, the workflow sends it as
 // Authorization: Bearer <CRON_SECRET>; otherwise (dev mode) the
 // browser-polling path falls back to the normal Firebase auth.
 // ─────────────────────────────────────────────────────────
