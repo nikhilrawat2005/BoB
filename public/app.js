@@ -489,8 +489,8 @@ function stopBackgroundPolling() {
 
 // ── Parse Bob's message for downloadable file & schedule blocks ─
 function parseFileBlocks(text) {
-  // Match ```<lang> filename=<filename>\n<content>\n``` OR ```schedule\n{...}\n```
-  const regex = /```(?:([\w.+-]+)[ \t]+filename=([^\n\r]+)|(schedule))[\n\r]([\s\S]*?)```/g;
+  // Match ```<lang> filename=<filename>\n<content>\n```, ```schedule\n{...}\n```, or ```chart\n{...}\n```
+  const regex = /```(?:([\w.+-]+)[ \t]+filename=([^\n\r]+)|(schedule)|(chart))[\n\r]([\s\S]*?)```/g;
   const blocks = [];
   let lastIndex = 0;
   let match;
@@ -501,8 +501,15 @@ function parseFileBlocks(text) {
     }
     if (match[3] === 'schedule') {
       try {
-        const data = JSON.parse(match[4].trim());
+        const data = JSON.parse(match[5].trim());
         blocks.push({ type: 'schedule', data });
+      } catch {
+        blocks.push({ type: 'text', content: match[0] });
+      }
+    } else if (match[4] === 'chart') {
+      try {
+        const data = JSON.parse(match[5].trim());
+        blocks.push({ type: 'chart', data });
       } catch {
         blocks.push({ type: 'text', content: match[0] });
       }
@@ -511,7 +518,7 @@ function parseFileBlocks(text) {
         type:     'file',
         lang:     match[1].toLowerCase().trim(),
         filename: match[2].trim(),
-        content:  match[4],
+        content:  match[5],
       });
     }
     lastIndex = regex.lastIndex;
@@ -548,6 +555,93 @@ function createScheduleCard(data) {
     </div>
   `;
   return card;
+}
+
+// ── Create a chart card element (Chart.js inline render) ───
+function createChartCard(chartData) {
+  const card = document.createElement('div');
+  card.className = 'chart-card';
+
+  const type = (chartData.type || 'bar').toLowerCase();
+  const datasets = (chartData.data && Array.isArray(chartData.data.datasets)) ? chartData.data.datasets : [];
+
+  if (typeof Chart === 'undefined') {
+    card.innerHTML = '<div class="chart-fallback">📊 Chart.js load nahi hua — internet connection check karo.</div>';
+    return card;
+  }
+  if (!datasets.length) {
+    card.innerHTML = '<div class="chart-fallback">⚠️ Chart data invalid — Bob ka chart format galat hai.</div>';
+    return card;
+  }
+
+  if (chartData.title) {
+    const title = document.createElement('div');
+    title.className = 'chart-title';
+    title.textContent = chartData.title;
+    card.appendChild(title);
+  }
+
+  const wrap = document.createElement('div');
+  wrap.className = 'chart-wrap';
+  const canvas = document.createElement('canvas');
+  wrap.appendChild(canvas);
+  card.appendChild(wrap);
+
+  // Client-side quick stats strip for the first numeric dataset
+  const stats = computeQuickStats(datasets[0]);
+  if (stats) {
+    const strip = document.createElement('div');
+    strip.className = 'chart-stats';
+    strip.textContent = stats;
+    card.appendChild(strip);
+  }
+
+  requestAnimationFrame(() => {
+    try {
+      new Chart(canvas.getContext('2d'), chartConfig(chartData));
+    } catch (err) {
+      card.innerHTML = '<div class="chart-fallback">⚠️ Chart render error: ' + escHtml(err.message) + '</div>';
+    }
+  });
+  return card;
+}
+
+function chartConfig(chartData) {
+  const type = (chartData.type || 'bar').toLowerCase();
+  const cfg = {
+    type,
+    data: chartData.data,
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { labels: { color: '#c9d1d9' } },
+      },
+    },
+  };
+  if (chartData.title) {
+    cfg.options.plugins.title = { display: true, text: chartData.title, color: '#e2e8f0', font: { size: 13 } };
+  }
+  if (['bar', 'line', 'scatter', 'bubble'].includes(type)) {
+    cfg.options.scales = {
+      x: { ticks: { color: '#9ca3af' }, grid: { color: 'rgba(255,255,255,0.06)' } },
+      y: { ticks: { color: '#9ca3af' }, grid: { color: 'rgba(255,255,255,0.06)' } },
+    };
+  }
+  return cfg;
+}
+
+function computeQuickStats(dataset) {
+  const data = (dataset && dataset.data) || [];
+  const nums = data.filter(v => typeof v === 'number' && isFinite(v));
+  if (!nums.length) return null;
+  const sorted = [...nums].sort((a, b) => a - b);
+  const sum = nums.reduce((a, b) => a + b, 0);
+  const mean = sum / nums.length;
+  const mid = Math.floor(sorted.length / 2);
+  const median = sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+  const fmt = n => Math.round(n * 100) / 100;
+  return `📈 ${dataset.label ? dataset.label + ': ' : ''}n=${nums.length} · total=${fmt(sum)} · avg=${fmt(mean)} · min=${fmt(sorted[0])} · max=${fmt(sorted[sorted.length - 1])} · median=${fmt(median)}`;
 }
 
 // ── Create a download card element ───────────────────
@@ -679,6 +773,26 @@ function renderTextContent(text) {
   html = html.replace(/^(?:[-*] |\d+\. )(.+)$/gm, (line) => `<li>${line.replace(/^(?:[-*] |\d+\. )/, '')}</li>`);
   html = html.replace(/((?:<li>.*?<\/li>\n?)+)/g, '<ul>$1</ul>');
   html = html.replace(/<ul>([\s\S]*?)<\/ul>/g, (_, inner) => '<ul>' + inner.replace(/\n/g, '') + '</ul>');
+  // Markdown tables (| a | b |) — grouped into styled <table>
+  html = html.replace(/((?:^\|.*\|(?:\n|$))+)/gm, (tableBlock) => {
+    const lines = tableBlock.trim().split('\n').filter(l => l.trim().startsWith('|') && l.trim().endsWith('|'));
+    if (lines.length < 2) return tableBlock;
+    const parseRow = (line) => line.trim().replace(/^\||\|$/g, '').split('|').map(c => c.trim());
+    const header = parseRow(lines[0]);
+    const sep    = parseRow(lines[1]);
+    const isSep  = sep.length > 0 && sep.every(c => /^:?-{2,}:?$/.test(c));
+    if (!isSep) return tableBlock;
+    let out = '<table class="md-table"><thead><tr>';
+    header.forEach(h => { out += `<th>${h}</th>`; });
+    out += '</tr></thead><tbody>';
+    lines.slice(2).forEach(line => {
+      out += '<tr>';
+      parseRow(line).forEach(c => { out += `<td>${c}</td>`; });
+      out += '</tr>';
+    });
+    out += '</tbody></table>';
+    return out;
+  });
   // Line breaks
   html = html.replace(/\n/g, '<br>');
 
@@ -709,6 +823,8 @@ function appendMessage(role, content, animate = true) {
         bubble.appendChild(createFileCard(block.lang, block.filename, block.content));
       } else if (block.type === 'schedule') {
         bubble.appendChild(createScheduleCard(block.data));
+      } else if (block.type === 'chart') {
+        bubble.appendChild(createChartCard(block.data));
       } else if (block.content && block.content.trim()) {
         const textDiv = document.createElement('div');
         textDiv.className = 'msg-text-content';

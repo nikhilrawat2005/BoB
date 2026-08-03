@@ -9,6 +9,7 @@ const { enrichMessageWithMedia } = require('../services/mediaDetector');
 const memoryManager = require('../services/memoryManager');
 const behaviorEngine = require('../services/behaviorEngine');
 const proactiveAdvisor = require('../services/proactiveAdvisor');
+const statsService = require('../services/statsService');
 
 // GET /api/chat/proactive-greeting  - Proactively greets Master Nikhil with daily insights
 router.get('/proactive-greeting', requireAuth, async (req, res) => {
@@ -26,8 +27,34 @@ router.post('/', requireAuth, async (req, res) => {
   if (!sessionId || !message) {
     return res.status(400).json({ error: 'sessionId and message are required' });
   }
-  if (typeof message !== 'string' || message.length > 8000) {
-    return res.status(400).json({ error: 'message must be a string under 8000 characters' });
+  if (typeof message !== 'string') {
+    return res.status(400).json({ error: 'message must be a string' });
+  }
+
+  // 📊 DATA BLOCK SUPPORT — user can paste ```csv / ```data / ```table blocks.
+  // Exact statistics are computed server-side (no LLM guesswork) and injected
+  // into Bob's context, while the LLM prompt stays small via a placeholder.
+  const dataBlock = message.match(/```(?:csv|data|table)\s*\n([\s\S]*?)```/i);
+  const maxMessageLen = dataBlock ? 100000 : 8000;
+  if (message.length > maxMessageLen) {
+    return res.status(400).json({ error: dataBlock ? 'Data payload too large (max 100,000 chars)' : 'message must be a string under 8000 characters' });
+  }
+
+  let autoStats = '';
+  let promptMessage = message;
+  if (dataBlock) {
+    try {
+      const stats = statsService.analyzeCSV(dataBlock[1]);
+      if (stats.error) {
+        promptMessage = message.replace(dataBlock[0], `[Data block: ${stats.error}]`);
+      } else {
+        autoStats = statsService.summarizeForLLM(stats);
+        promptMessage = message.replace(dataBlock[0], `[Data block: ${stats.rowCount} rows x ${stats.columns.length} columns — exact computed stats are in the AUTO-ANALYSIS context above]`);
+      }
+    } catch (err) {
+      console.error('[Chat] Data analysis error:', err.message);
+      promptMessage = message.replace(dataBlock[0], '[Data block: could not parse]');
+    }
   }
 
   // Normalize image URLs from request (screenshots uploaded by user)
@@ -36,11 +63,11 @@ router.post('/', requireAuth, async (req, res) => {
   try {
     // 1. Behavior Profiler + Intent Router + Media Detection run in parallel
     //    (they are independent, so we don't serialise their latency)
-    behaviorEngine.updateBehaviorProfile(req.userId, message).catch(err => console.error(err));
+    behaviorEngine.updateBehaviorProfile(req.userId, promptMessage).catch(err => console.error(err));
 
     const [intent, mediaEnrichment] = await Promise.all([
-      memoryManager.classifyIntent(message),
-      enrichMessageWithMedia(message),
+      memoryManager.classifyIntent(promptMessage),
+      enrichMessageWithMedia(promptMessage),
     ]);
 
     // If new fact detected automatically, store it in memory facts (deduped)
@@ -65,9 +92,12 @@ router.post('/', requireAuth, async (req, res) => {
     ]);
 
     // 3. Save user's message
-    await memory.addMessage(req.userId, sessionId, 'user', message);
+    await memory.addMessage(req.userId, sessionId, 'user', promptMessage);
 
     let contextBlocks = [];
+    if (autoStats) {
+      contextBlocks.push(`📊 AUTO-ANALYSIS of the data Master Nikhil just provided (exact computed values):\n${autoStats}`);
+    }
     if (facts.length) {
       contextBlocks.push(`Known facts & habits of Master Nikhil: ${facts.map(f => f.text).join('; ')}`);
     }
@@ -129,6 +159,36 @@ Supported formats and their code block languages:
 - Offer helpful follow-up actions (transcription request, analysis, etc.)
 
 ⚠️ IMPORTANT RULE: ALWAYS include the filename= attribute in code blocks for any file you create. Without it, the download button won't appear. Generate complete, production-ready file content — never truncate or add placeholders.
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+━━━ 📊 DATA VISUALIZATION ENGINE (charts + tables) ━━━
+You can render beautiful charts DIRECTLY inside the chat and present data as clean tables!
+
+When Master Nikhil shares data (pasted rows, a \`\`\`csv block, or a table) and asks for a graph / chart / analysis:
+- Exact pre-computed statistics are always injected into your context under "📊 AUTO-ANALYSIS". USE THOSE NUMBERS — never re-calculate sums/averages in your head.
+- To render a chart in chat, wrap a JSON definition in a fenced block using this EXACT syntax (no filename=):
+
+\`\`\`chart
+{
+  "title": "Monthly Expenses",
+  "type": "bar",
+  "data": {
+    "labels": ["Jan", "Feb", "Mar"],
+    "datasets": [
+      { "label": "Expenses", "data": [5000, 7000, 6500] }
+    ]
+  }
+}
+\`\`\`
+
+SUPPORTED CHART TYPES: bar, line, pie, doughnut, radar, polarArea, scatter, bubble
+- bar / line: "labels": [...] and datasets[].data as arrays of numbers.
+- pie / doughnut / polarArea: "labels": [...] and ONE dataset with numeric data.
+- scatter / bubble: datasets[].data = [{"x": 10, "y": 20}, ...].
+- Use MULTIPLE datasets to compare series (e.g. two students, two months).
+- ALWAYS pair every chart with a short written analysis: key insight, trend, and the smart next step for Master Nikhil.
+- For tabular data, prefer Markdown tables (rows starting with |) — they render as styled tables in chat automatically.
+- When Master Nikhil's message contains a \`\`\`csv block, answer using the AUTO-ANALYSIS numbers and suggest what chart would help most.
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 ━━━ ⏰ AUTONOMOUS SCHEDULED SELF-MESSAGING ENGINE ━━━
@@ -195,7 +255,7 @@ ${memoryContext}${mediaEnrichment.mediaContext}`;
       console.log(`[Chat] Using vision LLM with ${allImageUrls.length} image(s)`);
       llmResult = await callLLMWithVision({
         messages: baseMessages,
-        userText: message,
+        userText: promptMessage,
         imageUrls: allImageUrls,
         model,
       });
@@ -206,7 +266,7 @@ ${memoryContext}${mediaEnrichment.mediaContext}`;
         model,
         messages: [
           ...baseMessages,
-          { role: 'user', content: message },
+          { role: 'user', content: promptMessage },
         ],
       });
     }
@@ -239,7 +299,7 @@ ${memoryContext}${mediaEnrichment.mediaContext}`;
           role: 'chat',
           messages: [
             { role: 'system', content: 'Generate a short, concise, descriptive 3 to 5 word title with 1 relevant emoji for this conversation. Do not use quotes or punctuation. Example: "🐍 Python Script Generator" or "📊 Expense Report Setup".' },
-            { role: 'user', content: `User: ${message}\nAssistant: ${text}` }
+            { role: 'user', content: `User: ${promptMessage}\nAssistant: ${text}` }
           ],
           temperature: 0.5,
           max_tokens: 30,

@@ -930,6 +930,55 @@ input:focus, textarea:focus, select:focus {
 }
 .msg-text-content li { margin: 2px 0; }
 
+/* Markdown tables inside Bob's messages */
+.msg-text-content table.md-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 8px 0;
+  font-size: 12px;
+  background: rgba(0, 0, 0, 0.2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.msg-text-content .md-table th {
+  background: rgba(108, 99, 255, 0.15);
+  color: #e2e8f0;
+  text-align: left;
+  padding: 6px 10px;
+  font-weight: 600;
+  border-bottom: 1px solid rgba(108, 99, 255, 0.25);
+}
+.msg-text-content .md-table td {
+  padding: 5px 10px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  color: var(--text);
+}
+.msg-text-content .md-table tr:last-child td { border-bottom: none; }
+
+/* Chart cards (inline Chart.js charts) */
+.chart-card {
+  background: rgba(13, 15, 20, 0.7);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 12px 14px;
+  margin: 8px 0;
+  max-width: 100%;
+}
+.chart-title { font-size: 13px; font-weight: 600; color: #e2e8f0; margin-bottom: 8px; }
+.chart-wrap { position: relative; height: 280px; }
+.chart-stats {
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  font-size: 11.5px;
+  color: var(--text2);
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  line-height: 1.5;
+  word-break: break-word;
+}
+.chart-fallback { color: var(--text2); font-size: 12px; padding: 8px; }
+
 /* Inline code */
 .inline-code {
   background: rgba(108,99,255,0.15);
