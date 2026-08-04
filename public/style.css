@@ -1930,3 +1930,25 @@ body.collab-on .collab-state { color: #fff; background: var(--green); }
   .hq-notif-card { flex-direction: column; align-items: flex-start; gap: 6px; }
   .hq-notif-msg { -webkit-line-clamp: 2; }
 }
+/* Weather 2x2 grid in Live Pulse */
+.live-weather-grid {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 10px;
+  margin-bottom: 10px;
+}
+.wx-box {
+  background: var(--surface);
+  border: 1px solid var(--border2);
+  border-radius: var(--radius-sm);
+  padding: 12px 14px;
+  display: flex; align-items: center; gap: 10px;
+  transition: border-color var(--transition), transform 0.15s;
+}
+.wx-box:hover { border-color: var(--accent); transform: translateY(-1px); }
+.wx-ico { font-size: 20px; }
+.wx-val { font-size: 15px; font-weight: 700; color: var(--text); }
+.wx-lbl { font-size: 11px; color: var(--text3); text-transform: uppercase; letter-spacing: 0.4px; margin-left: auto; }
+.wx-range { font-size: 12px; color: var(--text2); }
+@media (max-width: 520px) {
+  .live-weather-grid { grid-template-columns: 1fr 1fr; }
+  .wx-lbl { margin-left: 0; }
+}

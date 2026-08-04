@@ -2476,7 +2476,22 @@ async function loadLive() {
 
     if (weather.status === 'fulfilled') {
       const w = weather.value;
-      html += `<div class="live-card"><div class="live-card-title">🌤 Weather</div><div class="live-card-body">${escHtml(w.summary || '')}</div></div>`;
+      const c = w.current || {};
+      const d = w.daily || {};
+      const box = (icon, label, value) => `<div class="wx-box"><div class="wx-ico">${icon}</div><div class="wx-val">${escHtml(String(value ?? '—'))}</div><div class="wx-lbl">${escHtml(label)}</div></div>`;
+      const cond = c.weather_code != null ? (c.weather_code === 0 ? '☀️ Clear' : (String(c.weather_code).startsWith('1') ? '🌤 Partly' : (String(c.weather_code).startsWith('2') ? '⛈ Thunder' : (String(c.weather_code).startsWith('3') ? '🌧 Rain' : (String(c.weather_code).startsWith('4') ? '❄️ Snow' : '🌫 Mist'))))) : '—';
+      html += `
+        <div class="live-card"><div class="live-card-title">🌤 Weather · ${escHtml(w.city || '')}</div>
+          <div class="live-card-body">
+            <div class="live-weather-grid">
+              ${box('🌡️', 'Temp', c.temperature_2m != null ? `${c.temperature_2m}°C` : '—')}
+              ${box(cond.split(' ')[0], 'Condition', cond.split(' ')[1] || cond)}
+              ${box('💧', 'Humidity', c.relative_humidity_2m != null ? `${c.relative_humidity_2m}%` : '—')}
+              ${box('🌬️', 'Wind', c.wind_speed_10m != null ? `${c.wind_speed_10m} km/h` : '—')}
+            </div>
+            ${(d.temperature_2m_max && d.temperature_2m_min) ? `<div class="wx-range">Today: max ${escHtml(String(d.temperature_2m_max[0]))}°C · min ${escHtml(String(d.temperature_2m_min[0]))}°C</div>` : ''}
+          </div>
+        </div>`;
     }
 
     if (news.status === 'fulfilled') {
