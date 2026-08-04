@@ -103,15 +103,18 @@ const TOPIC_STOPWORDS = new Set(['github', 'git', 'repos', 'repo', 'repositories
 
 function extractTopic(m) {
   const cleaned = String(m).replace(/```[\s\S]*?```/g, ' ').replace(/\s+/g, ' ').trim();
-  const p1 = cleaned.match(/\brepos?\b[^.\n]{0,50}\b(?:for|about|on|related to)\s+([A-Za-z0-9][A-Za-z0-9 .&+_\/-]{2,60})/i);
-  const p2 = cleaned.match(/\b(?:find|search|dhoondo?|dhundho?|khojo?|suggest|recommend|best|top|popular)\s+(\d+\s+)?([A-Za-z][A-Za-z0-9 .&+_\/-]{2,60})\s+repos?\b/i);
-  const p3 = cleaned.match(/\b([A-Za-z][A-Za-z0-9 .&+_\/-]{2,60})\s+(?:related\s+)?repos?\b/i);
+  const p1 = cleaned.match(/\brepos?\b[^.\n]{0,50}\b(?:for|about|on|related to)\s+([A-Za-z0-9][A-Za-z0-9 .&+_\/-]{1,60})/i);
+  const p2 = cleaned.match(/\b(?:find|search|dhoondo?|dhundho?|khojo?|suggest|recommend|best|top|popular|do)\s+(\d+\s+)?([A-Za-z0-9][A-Za-z0-9 .&+_\/-]{1,60})\s+repos?\b/i);
+  const p3 = cleaned.match(/\b([A-Za-z0-9][A-Za-z0-9 .&+_\/-]{1,60})\s+(?:related\s+)?repos?\b/i);
   let topic = (p1 && p1[1]) || (p2 && p2[2]) || (p3 && p3[1]) || '';
-  topic = topic
-    .replace(/(?:related|repo|repos?|ke?|ka|ki|me|do|karke|batao|chahiye|dhoondo?|find|search)\s*$/i, '')
-    .trim();
   let prev;
-  do { prev = topic; topic = topic.replace(/^(github|git|pe|par|me|se|ke|ka|ki|the|a|an|some|best|top)\s+/i, ''); } while (topic !== prev);
+  do {
+    prev = topic;
+    topic = topic
+      .replace(/(?:\brelated\b|\brepo\b|\brepos?\b|\bke?\b|\bka\b|\bki\b|\bko\b|\bme\b|\bdo\b|\bkarke\b|\bbatao\b|\bbata\b|\bchahiye\b|\bdhoondo?\b|\bdhundho?\b|\bfind\b|\bsearch\b|\bhai\b|\bhain\b|\bgood\b|\bgreat\b|\bacha\b|\baccha\b|\bacche\b|\bkoi\b|\bone\b|\bany\b|\bsome\b|\bnhi\b|\bnahi\b)\s*$/i, '')
+      .trim();
+    topic = topic.replace(/^(?:github|git|pe|par|me|se|ke|ka|ki|ko|the|a|an|some|best|top|kya|koi|good|acha|accha|any|abhi|mere|mera|apne|apna|apni|sab|saare)\s+/i, '').trim();
+  } while (topic !== prev);
   return TOPIC_STOPWORDS.has(topic.toLowerCase()) ? '' : topic;
 }
 
@@ -120,7 +123,7 @@ function searchIntent(m) {
   if (!/\brepos?\b|\bprojects?\b|\bsource code\b/i.test(m)) return false;
   const topic = extractTopic(m);
   if (!topic) return false;
-  return /\b(?:find|search|dhoond|dhundh|khoj|suggest|recommend|best|top|popular|related|like|jaise|acha|acche|chahiye|do|bata)/i.test(m);
+  return /\b(?:find|search|dhoond|dhundh|khoj|suggest|recommend|best|top|popular|related|like|jaise|acha|acche|good|koi|chahiye|do|bata)/i.test(m);
 }
 
 async function fetchGitHub(message) {
@@ -498,7 +501,7 @@ HOW TO DELEGATE:
 
 3. Confirm in your reply: "🏗️ Maine Builder ko de diya — project 'title' ban gaya. Builder se baat ho rahi hai, jab ready hoga files/mil jaayegi."
 RULES:
-- builder block me title AUR instruction DONO hona chahiye (valid JSON). Bina poori instruction ke builder fail hota hai — agar tum complete instruction nahi bana sakte, to delegate MAT karo.
+- builder block me title AUR instruction DONO hona chahiye (valid JSON). "instruction" EK NON-EMPTY STRING hona chahiye — kisi bhi haalat me empty ya missing instruction wala builder block mat bhejo (wo fail hota hai). Agar tum complete instruction nahi bana sakte, to delegate MAT karo.
 - Bina complete builder block bheje "Builder ko de diya / project ban gaya" kabhi MAT bolo.
 - Repo/search/simple sawaal Builder ko mat bhejo — wo tumhare apne skills se solve hote hain.
 - instruction me POORA context do (problem, stack preference, constraints, deadline) — Builder ke paas ye nahi hai otherwise.

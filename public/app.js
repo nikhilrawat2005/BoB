@@ -520,7 +520,7 @@ function stopBackgroundPolling() {
 function parseFileBlocks(text) {
   // Match ```<lang> filename=<filename>\n<content>\n```, ```schedule\n{...}\n```,
   // ```chart\n{...}\n```, ```mermaid\n<diagram>\n```, or ```builder\n{...}\n```
-  const regex = /```(?:([\w.+-]+)[ \t]+filename=([^\n\r]+)|(schedule)|(chart)|(mermaid)|(builder))[\n\r]([\s\S]*?)```/g;
+  const regex = /```(?:([\w.+-]+)[ \t]+filename=([^\n\r]+)|(schedule)|(chart)|(mermaid)|(builder))[\n\r]?([\s\S]*?)```/g;
   const blocks = [];
   let lastIndex = 0;
   let match;
@@ -548,9 +548,13 @@ function parseFileBlocks(text) {
     } else if (match[6] === 'builder') {
       try {
         const data = JSON.parse(match[7].trim());
-        blocks.push({ type: 'builder', data });
+        if (!data.instruction || typeof data.instruction !== 'string' || !data.instruction.trim()) {
+          blocks.push({ type: 'builder-invalid', raw: match[7].trim(), error: 'instruction is required (Bob ka builder block incomplete hai ‚Äî instruction missing/empty)' });
+        } else {
+          blocks.push({ type: 'builder', data });
+        }
       } catch {
-        blocks.push({ type: 'text', content: match[0] });
+        blocks.push({ type: 'builder-invalid', raw: match[7].trim(), error: 'invalid JSON builder block' });
       }
     } else {
       blocks.push({
@@ -1033,6 +1037,8 @@ function appendMessage(role, content, animate = true, sender = null) {
         bubble.appendChild(createMermaidCard(block.source));
       } else if (block.type === 'builder') {
         bubble.appendChild(createBuilderDelegationCard(block.data));
+      } else if (block.type === 'builder-invalid') {
+        bubble.appendChild(createBuilderInvalidCard(block));
       } else if (block.content && block.content.trim()) {
         const textDiv = document.createElement('div');
         textDiv.className = 'msg-text-content';
@@ -1088,8 +1094,27 @@ function createBuilderDelegationCard(data) {
   return card;
 }
 
+function createBuilderInvalidCard(block) {
+  const card = document.createElement('div');
+  card.className = 'builder-delegation-card builder-invalid';
+  card.innerHTML = `
+    <div class="file-gen-header">
+      <div class="file-gen-icon">‚ö†Ô∏è</div>
+      <div class="file-gen-info">
+        <div class="file-gen-name">Builder delegation incomplete</div>
+        <div class="file-gen-meta">Bob ka builder block adhoora tha</div>
+      </div>
+    </div>
+    <div class="builder-delegation-body">‚ùå ${escHtml(block.error || 'invalid builder block')}. Builder ko kuch nahi bheja gaya. Bob se dobara kahna ki pura 'instruction' ke saath builder block bheje.</div>
+  `;
+  return card;
+}
+
 async function delegateToBuilder(data, card) {
   try {
+    if (!data.instruction || typeof data.instruction !== 'string' || !data.instruction.trim()) {
+      throw new Error('instruction is required');
+    }
     const res = await apiFetch('/api/builder/delegate', {
       method: 'POST',
       body: JSON.stringify({
@@ -2551,7 +2576,7 @@ async function loadSelfEdits() {
       <div class="selfedit-card ${e.status}">
         <div class="selfedit-head">
           <span class="selfedit-title">${escHtml(e.title)}</span>
-          <span class="selfedit-status status-${escHtml(e.status)}">${escHtml(e.status)}${e.type === 'manual' ? ' ∑ manual' : ''}</span>
+          <span class="selfedit-status status-${escHtml(e.status)}">${escHtml(e.status)}${e.type === 'manual' ? ' ÔøΩ manual' : ''}</span>
         </div>
         <div class="selfedit-file">?? ${escHtml(e.file)}</div>
         ${e.reason ? `<div class="selfedit-reason">${escHtml(e.reason)}</div>` : ''}
@@ -2572,7 +2597,7 @@ async function loadSelfEdits() {
       await loadSelfEdits();
     }));
     list.querySelectorAll('[data-se-apply]').forEach(b => b.addEventListener('click', async () => {
-      const btn = b; btn.disabled = true; btn.textContent = '? ApplyingÖ';
+      const btn = b; btn.disabled = true; btn.textContent = '? ApplyingÔøΩ';
       try {
         await apiFetch(`/api/self-edit/${b.dataset.seApply}/apply`, { method: 'POST' });
         await loadSelfEdits();
@@ -2596,7 +2621,7 @@ async function loadSelfEdits() {
 
 document.addEventListener('click', async (e) => {
   if (e.target && e.target.id === 'selfedit-run-btn') {
-    e.target.disabled = true; e.target.textContent = '?? Running reviewÖ';
+    e.target.disabled = true; e.target.textContent = '?? Running reviewÔøΩ';
     try {
       await apiFetch('/api/self-edit/run', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) });
     } catch (err) { console.error('self-edit run:', err.message); }
