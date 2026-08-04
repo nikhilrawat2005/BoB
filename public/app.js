@@ -1131,6 +1131,7 @@ async function delegateToBuilder(data, card) {
 // ═══════════════════════════════════════════════════════
 let isTTSEnabled = true;
 let currentUtterance = null;
+let currentSpeechBtn = null;
 
 const ttsBtn   = document.getElementById('tts-toggle-btn');
 const ttsIcon  = document.getElementById('tts-icon');
@@ -1160,6 +1161,15 @@ function cleanTextForSpeech(rawText) {
 function speakHinglishText(text, btnElement = null) {
   if (!('speechSynthesis' in window)) return;
 
+  // If this bubble is already speaking, treat the click as STOP — don't restart.
+  if (btnElement && currentSpeechBtn === btnElement && window.speechSynthesis.speaking) {
+    window.speechSynthesis.cancel();
+    currentSpeechBtn = null;
+    currentUtterance = null;
+    btnElement.innerHTML = '🔊 Listen';
+    return;
+  }
+
   const speechText = cleanTextForSpeech(text);
   if (!speechText) return;
 
@@ -1167,6 +1177,7 @@ function speakHinglishText(text, btnElement = null) {
 
   const utterance = new SpeechSynthesisUtterance(speechText);
   currentUtterance = utterance;
+  currentSpeechBtn = btnElement || null;
 
   // Rate & Pitch tuned for natural Hinglish conversational tone
   utterance.rate  = 1.05;
@@ -1191,8 +1202,8 @@ function speakHinglishText(text, btnElement = null) {
 
   if (btnElement) {
     btnElement.innerHTML = '⏹️ Stop';
-    utterance.onend = () => { btnElement.innerHTML = '🔊 Listen'; };
-    utterance.onerror = () => { btnElement.innerHTML = '🔊 Listen'; };
+    utterance.onend = () => { btnElement.innerHTML = '🔊 Listen'; if (currentSpeechBtn === btnElement) currentSpeechBtn = null; };
+    utterance.onerror = () => { btnElement.innerHTML = '🔊 Listen'; if (currentSpeechBtn === btnElement) currentSpeechBtn = null; };
   }
 
   window.speechSynthesis.speak(utterance);
