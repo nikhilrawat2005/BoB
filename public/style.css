@@ -1479,7 +1479,8 @@ body.persona-builder #model-selector { display: none !important; }
 }
 
 /* -- Views container & router ------------------------- */
-.views { position: absolute; inset: 0; display: block; z-index: 20; }
+.views { position: absolute; inset: 0; display: block; z-index: 20; pointer-events: none; }
+.views .view.active { pointer-events: auto; }
 .view {
   position: absolute; inset: 0;
   display: none;
