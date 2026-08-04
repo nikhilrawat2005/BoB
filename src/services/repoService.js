@@ -254,7 +254,7 @@ async function searchRepos(query, limit = 5) {
   const q = (query || '').trim();
   if (!q) return { error: 'empty_query', message: 'Search query empty.' };
   const per = Math.min(Math.max(parseInt(limit) || 5, 1), 10);
-  const url = `${API}/search/repositories?q=${encodeURIComponent(q)}&sort=stars&order=desc&per_page=${per}`;
+  const url = `/search/repositories?q=${encodeURIComponent(q)}&sort=stars&order=desc&per_page=${per}`;
   const { status, body } = await fetchGH(url, 15000);
   if (status === 0) return { error: 'network', message: 'GitHub se connect nahi ho paya.' };
   if (status === 403) return { error: 'rate_limit', message: 'GitHub search rate limit hit (10/min anonymous). Thodi der baad try karo, ya GITHUB_TOKEN laga do.' };

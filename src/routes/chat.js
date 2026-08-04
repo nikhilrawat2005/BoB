@@ -99,6 +99,30 @@ async function fetchWebpage(message) {
  * If a specific repo link is pasted, the ACTUAL repo code is read (analyzeRepo).
  * Never throws. Returns an array of context blocks (or null).
  */
+const TOPIC_STOPWORDS = new Set(['github', 'git', 'repos', 'repo', 'repositories', 'repository', 'projects', 'project', 'mera', 'meri', 'mere', 'apna', 'apni', 'sab', 'saare', 'kuch']);
+
+function extractTopic(m) {
+  const cleaned = String(m).replace(/```[\s\S]*?```/g, ' ').replace(/\s+/g, ' ').trim();
+  const p1 = cleaned.match(/\brepos?\b[^.\n]{0,50}\b(?:for|about|on|related to)\s+([A-Za-z0-9][A-Za-z0-9 .&+_\/-]{2,60})/i);
+  const p2 = cleaned.match(/\b(?:find|search|dhoondo?|dhundho?|khojo?|suggest|recommend|best|top|popular)\s+(\d+\s+)?([A-Za-z][A-Za-z0-9 .&+_\/-]{2,60})\s+repos?\b/i);
+  const p3 = cleaned.match(/\b([A-Za-z][A-Za-z0-9 .&+_\/-]{2,60})\s+(?:related\s+)?repos?\b/i);
+  let topic = (p1 && p1[1]) || (p2 && p2[2]) || (p3 && p3[1]) || '';
+  topic = topic
+    .replace(/(?:related|repo|repos?|ke?|ka|ki|me|do|karke|batao|chahiye|dhoondo?|find|search)\s*$/i, '')
+    .trim();
+  let prev;
+  do { prev = topic; topic = topic.replace(/^(github|git|pe|par|me|se|ke|ka|ki|the|a|an|some|best|top)\s+/i, ''); } while (topic !== prev);
+  return TOPIC_STOPWORDS.has(topic.toLowerCase()) ? '' : topic;
+}
+
+function searchIntent(m) {
+  if (/\bgithub\.com\/([A-Za-z0-9_.-]+)\b|\@[A-Za-z0-9_.-]+\b/i.test(m)) return false;
+  if (!/\brepos?\b|\bprojects?\b|\bsource code\b/i.test(m)) return false;
+  const topic = extractTopic(m);
+  if (!topic) return false;
+  return /\b(?:find|search|dhoond|dhundh|khoj|suggest|recommend|best|top|popular|related|like|jaise|acha|acche|chahiye|do|bata)/i.test(m);
+}
+
 async function fetchGitHub(message) {
   const m = String(message || '');
   if (!/\bgithub\b|\brepos?\b|\brepositories\b|profile\b/i.test(m)) return null;
@@ -122,6 +146,24 @@ async function fetchGitHub(message) {
               : (analysis && analysis.message) || 'Repo fetch fail hua.';
         blocks.push(`⚠️ GITHUB REPO CHECK for "${r.owner}/${r.repo}" (REAL API result): ${why}`);
       }
+    }
+    return blocks;
+  }
+
+  // 1b) Repo SEARCH intent (e.g. "best location tracking repos do") → REAL GitHub Search API.
+  if (searchIntent(m)) {
+    const topic = extractTopic(m);
+    const res = await repoService.searchRepos(topic, 5).catch(() => ({ error: 'network', message: 'GitHub search call failed.' }));
+    if (res.error) {
+      blocks.push(`⚠️ GITHUB SEARCH FAILED (REAL reason): ${res.message} — KABHI bhi repo/star/link invent mat karo.`);
+    } else if (res.items && res.items.length) {
+      const lines = [];
+      lines.push(`🐙 GITHUB SEARCH "${topic}" (REAL GitHub API, sorted by stars) — Sirf inki details use karo, kuch invent mat karo:`);
+      res.items.forEach((r, i) => lines.push(`${i + 1}. ${r.full_name} — ${r.language || 'N/A'} ⭐${r.stars} (${r.forks} forks)\n   🔗 ${r.html_url}\n   ${r.description ? r.description.slice(0, 160) : '(no description)'}`));
+      lines.push('- RULE: Ye hi real results hain. Koi aur repo/star/link mat banao. Repo detail ke liye kaunsi repo pasand aaye, Master usse paste kare, tab main actual code padh ke analysis doonga.');
+      blocks.push(lines.join('\n'));
+    } else {
+      blocks.push(`🐙 GITHUB SEARCH "${topic}" (REAL API): koi repo nahi mili is topic pe — honestly bolo, fake repo/link mat banao.`);
     }
     return blocks;
   }
@@ -456,6 +498,9 @@ HOW TO DELEGATE:
 
 3. Confirm in your reply: "🏗️ Maine Builder ko de diya — project 'title' ban gaya. Builder se baat ho rahi hai, jab ready hoga files/mil jaayegi."
 RULES:
+- builder block me title AUR instruction DONO hona chahiye (valid JSON). Bina poori instruction ke builder fail hota hai — agar tum complete instruction nahi bana sakte, to delegate MAT karo.
+- Bina complete builder block bheje "Builder ko de diya / project ban gaya" kabhi MAT bolo.
+- Repo/search/simple sawaal Builder ko mat bhejo — wo tumhare apne skills se solve hote hain.
 - instruction me POORA context do (problem, stack preference, constraints, deadline) — Builder ke paas ye nahi hai otherwise.
 - If a Builder project already exists for this topic, you may pass its sessionId in the block to continue it.
 - Do NOT delegate simple questions — only real project planning/execution work.
@@ -511,6 +556,7 @@ You are only allowed to promise Master Nikhil things that are ACTUALLY built. Th
 - Links hamesha sirf real full_name se: https://github.com/<owner>/<repo>. Kabhi guessed/broken link mat do — link 404 lag jayega.
 - Repo ke baare me detail (code, tech stack) batate waqt ONLY actual file content use karo jo block me hai.
 - Agar koi GitHub block nahi aaya (fetch fail / rate limit), khul ke bolo: "GitHub fetch abhi fail hua" — guess mat karo.
+- REPO DHOONDHNA TUMHARI APNI SKILL HAI: "best <topic> repos do / find repos / <topic> repos" jaise sawaal pe upar '🐙 GITHUB SEARCH' block me REAL results milte hain (GitHub Search API se). USE WOHI. Repo-finding ko Builder ko DELEGATE MAT KARO — ye khud karo.
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 ━━━ 🧠 MEMORY ENGINE (How Bob remembers Master Nikhil) ━━━
