@@ -18,7 +18,7 @@ const { callLLM } = require('./llmService');
 const news = require('./newsService');
 const stocks = require('./stocksService');
 
-const VALID_WORKSPACES = ['vault', 'hackathon', 'stalking', 'bob', 'market', 'habit', 'custom'];
+const VALID_WORKSPACES = ['vault', 'hackathon', 'stalking', 'bob', 'market', 'habit', 'custom', 'selfedit'];
 
 function coll(userId) {
   return db.collection('users').doc(userId).collection('routines');
@@ -140,6 +140,16 @@ async function buildContext(userId, routine) {
     } catch (e) { parts.push('(stocks fetch failed)'); }
   }
 
+  if (routine.workspace === 'selfedit') {
+    try {
+      const se = require('./selfEditService');
+      const files = se.listCandidateFiles();
+      parts.push(`CODE SELF-REVIEW (BoB project): editable files = ${files.length}. Scope: src/ + public/ . Safe, small improvements only; blocked files excluded.`);
+    } catch (e) {
+      parts.push('(self-edit engine unavailable)');
+    }
+  }
+
   return parts.filter(Boolean).join('\n\n') || '(no additional context available)';
 }
 
@@ -215,6 +225,27 @@ async function ensureRoutineSession(userId, routine) {
 
 // ── Run one routine now ───────────────────────────────────
 async function runRoutine(userId, routine) {
+  // Self-review routines run the real code-review engine (proposes edits as notifications).
+  if (routine.workspace === 'selfedit') {
+    const se = require('./selfEditService');
+    let text;
+    try {
+      const out = await se.runSelfReview(userId, { autoApply: false });
+      text = out.summary;
+    } catch (err) {
+      text = `🧬 Self-review could not complete: ${err.message}`;
+    }
+    const delivered = await deliverToWorkspace(userId, routine, text);
+    const now = nowTs();
+    const intervalMs = (routine.intervalHours || 72) * 3600 * 1000;
+    await coll(userId).doc(routine.id).set({
+      lastRunAt: now, lastResult: text,
+      nextRunAt: now + intervalMs, updatedAt: now,
+      chatSessionId: delivered.sessionId || routine.chatSessionId || null,
+    }, { merge: true });
+    return { routineId: routine.id, text, delivered };
+  }
+
   const context = await buildContext(userId, routine);
   const systemPrompt = `You are Bob, Master Nikhil's personal AI, running an autonomous SELF-CHECK routine titled "${routine.title}".
 This is a scheduled self-prompt — you decided it was time to check and report. Generate the result directly (no meta-commentary about being a routine). Keep it tight, specific, actionable. Use Hinglish when natural.`;

@@ -2014,6 +2014,7 @@ function renderHQ(data) {
     hqCard({ id: 'files', icon: '📁', title: 'Files', color: 'grey', badge: `${files.length}`, meta: 'uploaded files', items: files.slice(0, 3).map(f => ({ text: f.filename || f.id, sub: '', dot: 'grey' })), action: 'Open Files Workspace' }),
     hqCard({ id: 'live', icon: '📈', title: 'Live Pulse', color: 'green', badge: 'live', meta: 'weather · news · stocks', items: [], action: 'Open Live' }),
     hqCard({ id: 'builder', icon: '🏗️', title: 'Bob the Builder', color: 'amber', badge: collabMode ? 'ON' : 'off', meta: 'Builder collaboration · plan-confirm first', items: [], action: 'Start new project' }),
+    hqCard({ id: 'selfedit', icon: '🧬', title: 'Self-Edit Engine', color: (c.selfEdits && c.selfEdits.pending) > 0 ? 'green' : 'grey', badge: `${(c.selfEdits && c.selfEdits.pending) || 0} pending`, meta: `applied ${(c.selfEdits && c.selfEdits.applied) || 0} · total ${(c.selfEdits && c.selfEdits.count) || 0}`, items: (c.selfEdits && c.selfEdits.items || []).slice(0, 3).map(e => ({ text: e.title, sub: `${e.file} · ${e.status}`, dot: e.status === 'applied' ? 'green' : (e.status === 'pending' ? 'amber' : 'grey') })), action: 'Open Self-Edit Engine' }),
   ];
 
   grid.innerHTML = `<div class="hq-grid-inner">${cards.join('')}</div>`;
@@ -2029,6 +2030,7 @@ function openHqCard(id) {
   if (id === 'memory') { showView('memory'); loadFacts(); loadMonthlyFiles(); return; }
   if (id === 'files') { showView('files'); loadFiles(); return; }
   if (id === 'builder') { startBobBuilderCollab(); return; }
+  if (id === 'selfedit') { showView('selfedit'); loadSelfEdits(); return; }
   if (id === 'hackathons') { showView('hackathons'); loadHackathons(); return; }
   if (id === 'stalking') { showView('stalking'); loadStalking(); return; }
   if (id === 'routines') { showView('routines'); loadRoutines(); return; }
@@ -2536,3 +2538,71 @@ function formatBytes(bytes) {
   return (bytes / 1048576).toFixed(1) + ' MB';
 }
 
+// -------------------------------------------------------
+// SELF-EDIT ENGINE (view)
+// -------------------------------------------------------
+
+async function loadSelfEdits() {
+  const list = document.getElementById('selfedit-list');
+  try {
+    const { edits } = await apiFetch('/api/self-edit');
+    if (!edits.length) { list.innerHTML = '<div class="empty-msg">Abhi koi self-edit proposal nahi. "Bob improve yourself" bolo, ya review run karo.</div>'; return; }
+    list.innerHTML = edits.map(e => `
+      <div class="selfedit-card ${e.status}">
+        <div class="selfedit-head">
+          <span class="selfedit-title">${escHtml(e.title)}</span>
+          <span class="selfedit-status status-${escHtml(e.status)}">${escHtml(e.status)}${e.type === 'manual' ? ' � manual' : ''}</span>
+        </div>
+        <div class="selfedit-file">?? ${escHtml(e.file)}</div>
+        ${e.reason ? `<div class="selfedit-reason">${escHtml(e.reason)}</div>` : ''}
+        ${e.diff ? `<pre class="selfedit-diff">${escHtml(e.diff)}</pre>` : ''}
+        ${e.error ? `<div class="selfedit-error">Error: ${escHtml(e.error)}</div>` : ''}
+        ${e.gitLog ? `<div class="selfedit-git">${escHtml(e.gitLog)}</div>` : ''}
+        <div class="selfedit-actions">
+          ${e.status === 'pending' && e.type === 'manual' ? `<button class="btn-small" data-se-approve="${e.id}">? Approve</button>` : ''}
+          ${e.status === 'pending' || e.status === 'approved' ? `<button class="btn-small" data-se-apply="${e.id}">?? Apply</button>` : ''}
+          ${e.status === 'pending' ? `<button class="btn-small btn-danger" data-se-reject="${e.id}">? Reject</button>` : ''}
+          ${e.status === 'failed' ? `<button class="btn-small" data-se-retry="${e.id}">?? Retry apply</button>` : ''}
+        </div>
+      </div>
+    `).join('');
+
+    list.querySelectorAll('[data-se-approve]').forEach(b => b.addEventListener('click', async () => {
+      await apiFetch(`/api/self-edit/${b.dataset.seApprove}/approve`, { method: 'POST' });
+      await loadSelfEdits();
+    }));
+    list.querySelectorAll('[data-se-apply]').forEach(b => b.addEventListener('click', async () => {
+      const btn = b; btn.disabled = true; btn.textContent = '? Applying�';
+      try {
+        await apiFetch(`/api/self-edit/${b.dataset.seApply}/apply`, { method: 'POST' });
+        await loadSelfEdits();
+      } catch (err) {
+        btn.disabled = false; btn.textContent = '?? Apply';
+        alert('Apply failed: ' + err.message);
+      }
+    }));
+    list.querySelectorAll('[data-se-reject]').forEach(b => b.addEventListener('click', async () => {
+      await apiFetch(`/api/self-edit/${b.dataset.seReject}/reject`, { method: 'POST' });
+      await loadSelfEdits();
+    }));
+    list.querySelectorAll('[data-se-retry]').forEach(b => b.addEventListener('click', async () => {
+      await apiFetch(`/api/self-edit/${b.dataset.seRetry}/apply`, { method: 'POST' });
+      await loadSelfEdits();
+    }));
+  } catch (err) {
+    list.innerHTML = `<div class="empty-msg">Error: ${escHtml(err.message)}</div>`;
+  }
+}
+
+document.addEventListener('click', async (e) => {
+  if (e.target && e.target.id === 'selfedit-run-btn') {
+    e.target.disabled = true; e.target.textContent = '?? Running review�';
+    try {
+      await apiFetch('/api/self-edit/run', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) });
+    } catch (err) { console.error('self-edit run:', err.message); }
+    setTimeout(async () => {
+      e.target.disabled = false; e.target.textContent = '?? Run review now';
+      await loadSelfEdits();
+    }, 4000);
+  }
+});

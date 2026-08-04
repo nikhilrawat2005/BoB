@@ -1952,3 +1952,25 @@ body.collab-on .collab-state { color: #fff; background: var(--green); }
   .live-weather-grid { grid-template-columns: 1fr 1fr; }
   .wx-lbl { margin-left: 0; }
 }
+/* -------------------------------------------------------
+   SELF-EDIT ENGINE (view)
+------------------------------------------------------- */
+.selfedit-list { display: flex; flex-direction: column; gap: 12px; }
+.selfedit-card { background: var(--surface); border: 1px solid var(--border2); border-radius: var(--radius); padding: 14px 16px; }
+.selfedit-card.applied { border-left: 3px solid var(--green); }
+.selfedit-card.failed { border-left: 3px solid var(--red); }
+.selfedit-card.pending { border-left: 3px solid var(--accent); }
+.selfedit-card.approved { border-left: 3px solid var(--green); }
+.selfedit-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 6px; }
+.selfedit-title { font-weight: 700; font-size: 14px; color: var(--text); }
+.selfedit-status { font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.4px; padding: 2px 8px; border-radius: 99px; background: var(--bg2); color: var(--text3); }
+.selfedit-status.status-applied, .selfedit-status.status-approved { color: var(--green); }
+.selfedit-status.status-failed { color: var(--red); }
+.selfedit-status.status-pending { color: var(--accent2); }
+.selfedit-file { font-size: 12px; color: var(--accent); margin-bottom: 6px; word-break: break-all; }
+.selfedit-reason { font-size: 12px; color: var(--text2); margin-bottom: 8px; line-height: 1.5; }
+.selfedit-diff { background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 10px; font-size: 11px; font-family: 'Cascadia Code', Consolas, monospace; white-space: pre-wrap; word-break: break-word; color: var(--text2); margin-bottom: 10px; max-height: 200px; overflow-y: auto; }
+.selfedit-error { font-size: 12px; color: var(--red); margin-bottom: 8px; }
+.selfedit-git { font-size: 11px; color: var(--text3); margin-bottom: 8px; }
+.selfedit-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.btn-danger { background: var(--red) !important; }

@@ -245,6 +245,12 @@ router.post('/', requireAuth, async (req, res) => {
     if (githubBlock) {
       contextBlocks.push(githubBlock);
     }
+    const wantsSelfEdit = /improve (yourself|your code|khud)|self.?edit|self.?improve|apne aap ko|khud ko|code review karo|bug fix karo|better banao/i.test(promptMessage);
+    if (wantsSelfEdit) {
+      const selfEdit = require('../services/selfEditService');
+      selfEdit.runSelfReview(req.userId, { autoApply: false }).catch(err => console.error('Self-review error:', err.message));
+      contextBlocks.push(`🧬 SELF-EDIT MODE (Master asked you to improve yourself): a code self-review just started in the background. Tell Master it's running and that he'll get edit proposals as 🔔 notifications — he can approve/apply them in the HQ → Self-Edit workspace. Don't fabricate which edits were found yet.`);
+    }
     if (autoStats) {
       contextBlocks.push(`📊 AUTO-ANALYSIS of the data Master Nikhil just provided (exact computed values):\n${autoStats}`);
     }

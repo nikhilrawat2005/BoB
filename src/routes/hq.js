@@ -6,11 +6,12 @@ const stalk = require('../services/stalkingService');
 const routines = require('../services/routineService');
 const memory = require('../services/memoryService');
 const memoryManager = require('../services/memoryManager');
+const selfEdit = require('../services/selfEditService');
 
 // GET /api/hq/summary — aggregate dashboard data for the Bob HQ home page.
 router.get('/summary', requireAuth, async (req, res) => {
   try {
-    const [hackathons, profiles, routineList, notifications, facts, months, files] = await Promise.all([
+    const [hackathons, profiles, routineList, notifications, facts, months, files, edits] = await Promise.all([
       hacks.listHackathons(req.userId),
       stalk.listProfiles(req.userId),
       routines.listRoutines(req.userId),
@@ -18,6 +19,7 @@ router.get('/summary', requireAuth, async (req, res) => {
       memory.listFacts(req.userId),
       memory.listMonthMemory(req.userId, 6),
       memory.listMonthlyFiles(req.userId, 6),
+      selfEdit.listEdits(req.userId, 10),
     ]);
 
     const cards = {
@@ -52,6 +54,12 @@ router.get('/summary', requireAuth, async (req, res) => {
       facts: facts.map(f => ({ id: f.id, text: f.text })),
       months: months.map(m => ({ id: m.id, filename: m.filename || null, createdAt: m.createdAt || null })),
       files: files.map(f => ({ id: f.id, filename: f.filename || null, createdAt: f.createdAt || null })),
+      selfEdits: {
+        count: edits.length,
+        pending: edits.filter(e => e.status === 'pending').length,
+        applied: edits.filter(e => e.status === 'applied').length,
+        items: edits.slice(0, 5).map(e => ({ id: e.id, title: e.title, file: e.file, status: e.status, type: e.type, createdAt: e.createdAt })),
+      },
     };
 
     res.json({ cards });
