@@ -47,11 +47,11 @@ router.get('/summary', requireAuth, async (req, res) => {
       notifications: {
         count: notifications.length,
         unread: notifications.filter(n => !n.read).length,
+        items: notifications.map(n => ({ id: n.id, title: n.title, message: n.message, read: n.read, promptSnippet: n.promptSnippet, createdAt: n.createdAt })),
       },
-      facts: facts.length,
-      months: months.length,
-      files: files.length,
-      labels: { facts, months, files },
+      facts: facts.map(f => ({ id: f.id, text: f.text })),
+      months: months.map(m => ({ id: m.id, filename: m.filename || null, createdAt: m.createdAt || null })),
+      files: files.map(f => ({ id: f.id, filename: f.filename || null, createdAt: f.createdAt || null })),
     };
 
     res.json({ cards });
