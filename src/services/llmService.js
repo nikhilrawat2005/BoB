@@ -89,7 +89,7 @@ const MODEL_ROLES = {
  * @param {string} [opts.model]         - Override model explicitly (ignores role)
  * @param {Array}  opts.messages        - OpenAI-format messages array
  * @param {number} [opts.temperature]   - Defaults to TEMPERATURE env var or 0.2
- * @param {number} [opts.max_tokens]    - Defaults to MAX_TOKENS env var or 16000
+ * @param {number} [opts.max_tokens]    - Defaults to MAX_TOKENS env var or 6000
  */
 async function callLLM({ role = 'chat', messages, model, temperature, max_tokens, persona }) {
   const selectedModel = model || MODEL_ROLES[role] || MODEL_ROLES.chat;
@@ -99,7 +99,7 @@ async function callLLM({ role = 'chat', messages, model, temperature, max_tokens
     model: selectedModel,
     messages,
     temperature: temperature ?? Number(process.env.TEMPERATURE ?? 0.2),
-    max_tokens:  max_tokens  ?? Number(process.env.MAX_TOKENS  ?? 16000),
+    max_tokens:  max_tokens  ?? Number(process.env.MAX_TOKENS  ?? 6000),
   };
 
   const res = await fetch(OPENROUTER_URL, {
@@ -173,7 +173,7 @@ async function callLLMWithVision({ messages, userText, imageUrls = [], model, te
     model: selectedModel,
     messages: visionMessages,
     temperature: temperature ?? Number(process.env.TEMPERATURE ?? 0.2),
-    max_tokens:  max_tokens  ?? Number(process.env.MAX_TOKENS  ?? 16000),
+    max_tokens:  max_tokens  ?? Number(process.env.MAX_TOKENS  ?? 6000),
   };
 
   const res = await fetch(OPENROUTER_URL, {

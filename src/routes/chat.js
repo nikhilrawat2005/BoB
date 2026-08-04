@@ -616,7 +616,10 @@ ${memoryContext}${mediaEnrichment.mediaContext}`;
     res.json({ reply: text, model: usedModel, scheduledTasks: createdTasks, updatedTitle });
   } catch (err) {
     console.error('[Chat] Error:', err.message);
-    res.status(500).json({ error: 'LLM call failed', details: err.message });
+    const msg = /credits|quota|balance|afford/i.test(err.message)
+      ? 'LLM call failed — credits/balance issue (OpenRouter pe credits add karo ya max_tokens kam rakho).'
+      : 'LLM call failed';
+    res.status(500).json({ error: msg, details: err.message });
   }
 });
 
