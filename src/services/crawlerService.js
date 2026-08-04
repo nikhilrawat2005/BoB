@@ -117,6 +117,124 @@ async function scrapeURL(targetUrl) {
   }
 }
 
+// ── Deep-crawl helper ─────────────────────────────────────
+function extractLinks($, baseUrl, maxLinks) {
+  const links = [];
+  const seen = new Set();
+  try { baseUrl = new URL(baseUrl); } catch { return links; }
+  $('a[href]').each((_, el) => {
+    if (links.length >= maxLinks) return false;
+    const raw = $(el).attr('href');
+    if (!raw) return;
+    try {
+      const u = new URL(raw, baseUrl.origin);
+      if (u.protocol !== 'http:' && u.protocol !== 'https:') return;
+      const href = u.href.split('#')[0];
+      if (seen.has(href)) return;
+      seen.add(href);
+      const text = $(el).text().trim().replace(/\s+/g, ' ').slice(0, 120);
+      if (!text) return;
+      links.push({ url: href, text });
+    } catch { /* ignore bad links */ }
+  });
+  return links;
+}
+
+// Extract hackathon-style metadata: dates, prizes, deadlines, statuses
+function extractEventMeta(html) {
+  const text = String(html || '')
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/\s+/g, ' ')
+    .slice(0, 20000);
+
+  const dates = [];
+  const dateRe = /(\d{1,2}[-/ ](?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*[-/ ]\d{2,4}|\d{4}-\d{2}-\d{2}|\d{2}\/\d{2}\/\d{2,4}|\d{1,2} (?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*[, ]* \d{2,4})/gi;
+  let m;
+  while ((m = dateRe.exec(text)) !== null && dates.length < 8) {
+    const d = m[1];
+    if (!dates.some(x => x.toLowerCase() === d.toLowerCase())) dates.push(d);
+  }
+
+  const prize = [];
+  const prizeRe = /(?:prize|prizes? pool|cash (?:prize|award)|rewards?)[:\s]+(?:up to\s+)?(?:₹|Rs\.?|INR|USD|\$)\s?[\d,]+(?:\s*[kK]|\s*lakh|\s*crore)?/gi;
+  while ((m = prizeRe.exec(text)) !== null && prize.length < 5) {
+    prize.push(m[0].slice(0, 120));
+  }
+
+  const mode = /(?:fully\s+)?(online|virtual|remote|offline|on[- ]site|in[- ]person)/i.test(text)
+    ? (text.match(/(?:fully\s+)?(online|virtual|remote|offline|on[- ]site|in[- ]person)/i)[1].toLowerCase())
+    : 'unknown';
+
+  return { dates, prize, mode };
+}
+
+/**
+ * Deep-crawl a page: scrape the main URL, then scrape up to `maxLinks`
+ * internal links. Returns combined context for building rich knowledge panels.
+ */
+async function deepCrawl(targetUrl, { maxLinks = 5, sameDomain = true } = {}) {
+  const main = await scrapeURL(targetUrl);
+  let links = [];
+  try {
+    if (!targetUrl.startsWith('http://') && !targetUrl.startsWith('https://')) {
+      targetUrl = 'https://' + targetUrl;
+    }
+    await validatePublicUrl(targetUrl);
+    const res = await fetch(targetUrl, {
+      headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36' },
+      timeout: 15000,
+    });
+    if (res.ok) {
+      const html = await res.text();
+      const $ = cheerio.load(html);
+      const host = new URL(targetUrl).hostname.replace(/^www\./, '');
+      links = extractLinks($, targetUrl, maxLinks * 4).filter(l => {
+        if (!sameDomain) return true;
+        try { return new URL(l.url).hostname.replace(/^www\./, '') === host; }
+        catch { return false; }
+      });
+    }
+  } catch (e) { /* best-effort link discovery */ }
+
+  const subPages = [];
+  const scraped = [];
+  for (const l of links.slice(0, maxLinks)) {
+    try {
+      const sub = await scrapeURL(l.url);
+      subPages.push({ url: sub.url, title: sub.title, contentSnippet: sub.contentSnippet });
+      scraped.push(sub.url);
+    } catch { /* skip failed sub-page */ }
+  }
+
+  return {
+    main,
+    links: links.slice(0, maxLinks).map(l => l.url),
+    subPages,
+    scrapedCount: scraped.length,
+  };
+}
+
+/**
+ * Scrape a batch of URLs in parallel and merge readable text.
+ */
+async function scrapeAll(urls, { maxSnippets = 4000 } = {}) {
+  const list = (urls || []).slice(0, 6);
+  const results = await Promise.allSettled(list.map(u => scrapeURL(u)));
+  const ok = results.filter(r => r.status === 'fulfilled').map(r => r.value);
+  const combined = ok.map(p => `${p.title}\n${p.description}\n${p.contentSnippet}`).join('\n\n---\n\n');
+  return {
+    scraped: ok.length,
+    failed: results.length - ok.length,
+    pages: ok.map(p => ({ url: p.url, title: p.title })),
+    combinedText: combined.slice(0, maxSnippets),
+  };
+}
+
 module.exports = {
   scrapeURL,
+  deepCrawl,
+  scrapeAll,
+  extractEventMeta,
 };

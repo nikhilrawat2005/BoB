@@ -368,6 +368,7 @@ function renderSessions(sessions) {
 }
 
 async function selectSession(session) {
+  closeViews();
   currentSession = session;
   document.getElementById('chat-session-title').textContent = session.title;
   document.getElementById('welcome-screen')?.remove();
@@ -395,6 +396,7 @@ async function fetchProactiveGreeting() {
 }
 
 async function createNewSession() {
+  closeViews();
   // Builder persona: projects are created lazily on first message — just reset to welcome
   if (currentPersona === 'builder') {
     currentSession = null;
@@ -1363,7 +1365,7 @@ function setPersona(p) {
   currentPersona = p;
   document.body.classList.toggle('persona-builder', p === 'builder');
   document.querySelectorAll('.persona-btn').forEach(b => b.classList.toggle('active', b.dataset.persona === p));
-  closeAllPanels();
+  closeViews();
   currentSession = null;
   clearMessages();
   document.getElementById('chat-session-title').textContent = p === 'builder' ? 'Select a project' : 'Select a chat';
@@ -1555,32 +1557,52 @@ async function uploadImageFile(file, label) {
 // MEMORY PANEL
 // ═══════════════════════════════════════════════════════
 
-const memoryPanel = document.getElementById('memory-panel');
-const filesPanel  = document.getElementById('files-panel');
-const backdrop    = document.getElementById('panel-backdrop');
+// ═══════════════════════════════════════════════════════
+// HQ / WORKSPACE VIEW ROUTER
+// ═══════════════════════════════════════════════════════
 
-function openPanel(panel) {
-  panel.classList.remove('hidden');
-  setTimeout(() => panel.classList.add('open'), 10);
-  backdrop.classList.remove('hidden');
+function showView(name) {
+  document.querySelectorAll('.view').forEach(v => v.classList.toggle('active', v.id === 'view-' + name));
+  document.querySelectorAll('.nav-btn').forEach(b => b.classList.toggle('active', b.dataset.view === name));
 }
-function closeAllPanels() {
-  [memoryPanel, filesPanel].forEach(p => { p.classList.remove('open'); setTimeout(() => p.classList.add('hidden'), 300); });
-  backdrop.classList.add('hidden');
-}
+function closeViews() { showView(''); }
 
-backdrop.addEventListener('click', closeAllPanels);
-document.getElementById('close-memory').addEventListener('click', closeAllPanels);
-document.getElementById('close-files').addEventListener('click',  closeAllPanels);
+document.querySelectorAll('.nav-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const view = btn.dataset.view;
+    showView(view);
+    if (view === 'hq') loadHQSummary();
+    if (view === 'hackathons') loadHackathons();
+    if (view === 'stalking') loadStalking();
+    if (view === 'routines') loadRoutines();
+    if (view === 'live') loadLive();
+  });
+});
 
+document.querySelectorAll('.view-close').forEach(btn => btn.addEventListener('click', closeViews));
+document.querySelectorAll('.view .side-panel').forEach(p => p.classList.remove('hidden'));
+
+document.getElementById('sidebar-session-label').addEventListener('click', () => { closeViews(); document.getElementById('message-input').focus(); });
+document.getElementById('notif-view-all').addEventListener('click', () => { showView('notifications'); loadNotificationsFull(); });
+
+// ── Generic app modal ────────────────────────────────
+const appModal      = document.getElementById('app-modal');
+const appModalTitle = document.getElementById('app-modal-title');
+const appModalBody  = document.getElementById('app-modal-body');
+function openModal(title, html) { appModalTitle.textContent = title; appModalBody.innerHTML = html; appModal.classList.remove('hidden'); }
+function closeModal() { appModal.classList.add('hidden'); appModalBody.innerHTML = ''; }
+document.getElementById('app-modal-close').addEventListener('click', closeModal);
+appModal.addEventListener('click', (e) => { if (e.target === appModal) closeModal(); });
+
+// ── Memory & Files now open as full workspaces ───────
 document.getElementById('toggle-memory-btn').addEventListener('click', async () => {
-  openPanel(memoryPanel);
+  showView('memory');
   await loadFacts();
   await loadMonthlyFiles();
 });
 
 document.getElementById('toggle-files-btn').addEventListener('click', async () => {
-  openPanel(filesPanel);
+  showView('files');
   await loadFiles();
 });
 
@@ -1726,7 +1748,6 @@ document.getElementById('sidebar-toggle').addEventListener('click', () => {
 // SECRET VAULT
 // ═══════════════════════════════════════════════════════
 
-const vaultPanel   = document.getElementById('vault-panel');
 const vaultPinScr  = document.getElementById('vault-pin-screen');
 const vaultConScr  = document.getElementById('vault-content-screen');
 const vaultDots    = document.querySelectorAll('#vault-pin-dots span');
@@ -1736,20 +1757,14 @@ const vaultBtn     = document.getElementById('toggle-vault-btn');
 let vaultPin        = '';
 let vaultUnlocked   = false;
 
-// ── Open / close vault panel ─────────────────────────
+// ── Open / close vault workspace ─────────────────────
 function openVaultPanel() {
-  vaultPanel.classList.remove('hidden');
-  setTimeout(() => vaultPanel.classList.add('open'), 10);
-  backdrop.classList.remove('hidden');
+  showView('vault');
+  if (!vaultUnlocked) lockVault();
 }
 function closeVaultPanel() {
-  vaultPanel.classList.remove('open');
-  setTimeout(() => {
-    vaultPanel.classList.add('hidden');
-    // Reset to PIN screen after close for security
-    lockVault();
-  }, 300);
-  backdrop.classList.add('hidden');
+  closeViews();
+  lockVault();
 }
 
 function lockVault() {
@@ -1761,25 +1776,10 @@ function lockVault() {
   vaultErrEl.classList.add('hidden');
 }
 
-// Override closeAllPanels to also handle vault
-const _originalCloseAll = closeAllPanels;
-function closeAllPanelsWithVault() {
-  _originalCloseAll();
-  vaultPanel.classList.remove('open');
-  setTimeout(() => {
-    vaultPanel.classList.add('hidden');
-    lockVault();
-  }, 300);
-}
-backdrop.removeEventListener('click', closeAllPanels);
-backdrop.addEventListener('click', closeAllPanelsWithVault);
-
 vaultBtn.addEventListener('click', () => {
-  // Close other panels first
-  memoryPanel.classList.remove('open');
-  filesPanel.classList.remove('open');
-  setTimeout(() => { memoryPanel.classList.add('hidden'); filesPanel.classList.add('hidden'); }, 300);
-  openVaultPanel();
+  if (!vaultUnlocked) lockVault();
+  showView('vault');
+  if (vaultUnlocked) loadVaultChat();
 });
 
 document.getElementById('close-vault').addEventListener('click', closeVaultPanel);
@@ -1930,6 +1930,546 @@ document.getElementById('wipe-vault-chat-btn').addEventListener('click', async (
     alert('Failed to wipe secret chat: ' + err.message);
   }
 });
+
+// ═══════════════════════════════════════════════════════
+// HQ DASHBOARD
+// ═══════════════════════════════════════════════════════
+
+function fmtDate(ms) { return ms ? new Date(ms).toLocaleDateString([], { day: '2-digit', month: 'short', year: 'numeric' }) : '—'; }
+
+function hqCard(o) {
+  const items = (o.items || []).map(i => `
+    <div class="hq-item"><span class="status-dot ${i.dot || 'grey'}"></span><div class="hq-item-text"><span class="hq-item-title">${escHtml(i.text)}</span><span class="hq-item-sub">${escHtml(i.sub || '')}</span></div></div>
+  `).join('');
+  return `
+    <div class="card ${o.color ? 'card-' + o.color : ''}" data-open="${escHtml(o.id)}">
+      <div class="card-top">
+        <div class="card-icon">${o.icon}</div>
+        <span class="card-badge">${escHtml(o.badge || '')}</span>
+      </div>
+      <div class="card-title">${escHtml(o.title)}</div>
+      <div class="card-meta">${escHtml(o.meta || '')}</div>
+      ${items ? `<div class="card-items">${items}</div>` : ''}
+      <button class="card-btn">${escHtml(o.action || 'Open')} →</button>
+    </div>
+  `;
+}
+
+async function loadHQSummary() {
+  const grid = document.getElementById('hq-grid');
+  grid.innerHTML = '<div class="empty-msg">Loading HQ…</div>';
+  try {
+    const data = await apiFetch('/api/hq/summary');
+    renderHQ(data);
+  } catch (err) {
+    grid.innerHTML = `<div class="empty-msg">Error: ${escHtml(err.message)}</div>`;
+  }
+}
+
+function renderHQ(data) {
+  const c = data.cards || {};
+  const grid = document.getElementById('hq-grid');
+  const notifs = c.notifications || {};
+  const hacks = c.hackathons || {};
+  const stalks = c.stalking || {};
+  const routs = c.routines || {};
+  const facts = c.facts || [];
+  const files = c.files || [];
+  const months = c.months || [];
+
+  const cards = [
+    hqCard({ id: 'notifications', icon: '🔔', title: 'Notifications', color: (notifs.unread || 0) > 0 ? 'green' : 'grey', badge: `${notifs.unread || 0} unread`, meta: `total ${notifs.count || 0}`, items: (notifs.items || []).slice(0, 3).map(n => ({ text: n.title, sub: new Date(n.createdAt).toLocaleString(), dot: n.read ? 'grey' : 'green' })), action: 'Open Notification Center' }),
+    hqCard({ id: 'hackathons', icon: '🏆', title: 'Hackathons', color: (hacks.active || 0) > 0 ? 'green' : 'amber', badge: `${hacks.count || 0}`, meta: `active ${hacks.active || 0} · tracking ${hacks.tracking || 0} · 🟢 ${hacks.participating || 0}`, items: (hacks.items || []).slice(0, 3).map(h => ({ text: h.title, sub: `${h.status} · ${fmtDate(h.endDate)}`, dot: h.statusColor })), action: 'Open Hackathon Workspace' }),
+    hqCard({ id: 'stalking', icon: '🕵️', title: 'Stalking', color: (stalks.researching || 0) > 0 ? 'amber' : 'green', badge: `${stalks.count || 0}`, meta: `ready ${stalks.ready || 0} · researching ${stalks.researching || 0}`, items: (stalks.items || []).slice(0, 3).map(s => ({ text: s.name, sub: s.status, dot: s.status === 'ready' ? 'green' : (s.status === 'researching' ? 'amber' : 'grey') })), action: 'Open Stalking Workspace' }),
+    hqCard({ id: 'routines', icon: '⏰', title: 'Routines', color: (routs.dueSoon || 0) > 0 ? 'green' : 'amber', badge: `${routs.active || 0} active`, meta: `total ${routs.count || 0} · due soon ${routs.dueSoon || 0}`, items: (routs.items || []).slice(0, 3).map(r => ({ text: r.title, sub: `${r.workspace || ''} · every ${r.intervalHours}h`, dot: r.active ? 'green' : 'grey' })), action: 'Open Routines Engine' }),
+    hqCard({ id: 'vault', icon: '🔒', title: 'Secret Vault', color: 'amber', badge: 'private', meta: 'PIN protected · spacious workspace', items: [], action: 'Open Secret Vault' }),
+    hqCard({ id: 'memory', icon: '🧠', title: 'Memory', color: 'green', badge: `${facts.length} facts`, meta: `months ${months.length}`, items: facts.slice(0, 3).map(f => ({ text: f.text, sub: '', dot: 'green' })), action: 'Open Memory Workspace' }),
+    hqCard({ id: 'files', icon: '📁', title: 'Files', color: 'grey', badge: `${files.length}`, meta: 'uploaded files', items: files.slice(0, 3).map(f => ({ text: f.filename || f.id, sub: '', dot: 'grey' })), action: 'Open Files Workspace' }),
+    hqCard({ id: 'live', icon: '📈', title: 'Live Pulse', color: 'green', badge: 'live', meta: 'weather · news · stocks', items: [], action: 'Open Live' }),
+  ];
+
+  grid.innerHTML = `<div class="hq-grid-inner">${cards.join('')}</div>`;
+
+  grid.querySelectorAll('[data-open]').forEach(card => {
+    card.addEventListener('click', () => openHqCard(card.dataset.open));
+  });
+}
+
+function openHqCard(id) {
+  if (id === 'notifications') { showView('notifications'); loadNotificationsFull(); return; }
+  if (id === 'vault') { openVaultPanel(); return; }
+  if (id === 'memory') { showView('memory'); loadFacts(); loadMonthlyFiles(); return; }
+  if (id === 'files') { showView('files'); loadFiles(); return; }
+  const navBtn = document.querySelector(`.nav-btn[data-view="${id}"]`);
+  if (navBtn) navBtn.click();
+}
+
+// ═══════════════════════════════════════════════════════
+// NOTIFICATION CENTER (pop-out page)
+// ═══════════════════════════════════════════════════════
+
+async function loadNotificationsFull() {
+  const list = document.getElementById('notifications-full');
+  try {
+    const { notifications } = await apiFetch('/api/notifications');
+    if (!notifications.length) { list.innerHTML = '<div class="empty-msg">No notifications yet.</div>'; return; }
+    list.innerHTML = notifications.map(n => `
+      <div class="notif-card ${!n.read ? 'unread' : ''}" data-id="${n.id}">
+        <div class="notif-card-head">
+          <span class="notif-card-title">${escHtml(n.title)}</span>
+          <span class="notif-card-time">${new Date(n.createdAt).toLocaleString()}</span>
+        </div>
+        <div class="notif-card-msg">${escHtml(n.message)}</div>
+        <div class="notif-actions">
+          <button class="btn-notif-reply" data-id="${n.id}" data-snippet="${escHtml(n.promptSnippet || n.message)}">💬 Reply in Chat</button>
+          <button class="btn-notif-del" data-id="${n.id}">✕ Delete</button>
+        </div>
+      </div>
+    `).join('');
+
+    list.querySelectorAll('.btn-notif-reply').forEach(btn => btn.addEventListener('click', async () => {
+      const notifId = btn.dataset.id;
+      const snippet = btn.dataset.snippet;
+      await apiFetch(`/api/notifications/${notifId}`, { method: 'DELETE' });
+      closeViews();
+      await createNewSession();
+      const mi = document.getElementById('message-input');
+      mi.value = snippet;
+      mi.dispatchEvent(new Event('input'));
+      await sendMessage();
+      await loadNotifications();
+      await loadSessions();
+      await loadNotificationsFull();
+    }));
+
+    list.querySelectorAll('.btn-notif-del').forEach(btn => btn.addEventListener('click', async () => {
+      await apiFetch(`/api/notifications/${btn.dataset.id}`, { method: 'DELETE' });
+      await loadNotifications();
+      await loadNotificationsFull();
+    }));
+  } catch (err) {
+    list.innerHTML = `<div class="empty-msg">Error: ${escHtml(err.message)}</div>`;
+  }
+}
+
+// ═══════════════════════════════════════════════════════
+// HACKATHON WORKSPACE (3-col)
+// ═══════════════════════════════════════════════════════
+
+let hackathonsCache = [];
+let currentHack = null;
+
+async function loadHackathons() {
+  try {
+    const { hackathons } = await apiFetch('/api/hackathons');
+    hackathonsCache = hackathons || [];
+    renderHackList();
+  } catch (err) {
+    console.error('loadHackathons error:', err);
+  }
+}
+
+function renderHackList() {
+  const list = document.getElementById('hack-list');
+  if (!hackathonsCache.length) { list.innerHTML = '<div class="empty-msg">No hackathons yet. Add one to start tracking.</div>'; return; }
+  const sorted = [...hackathonsCache].sort((a, b) => (a.endDate || 0) - (b.endDate || 0));
+  list.innerHTML = sorted.map(h => {
+    const sel = currentHack?.id === h.id ? ' selected' : '';
+    return `
+      <div class="ws-item${sel}" data-id="${h.id}">
+        <div class="ws-item-row">
+          <span class="status-dot ${h.statusColor || 'grey'}"></span>
+          <span class="ws-item-title">${escHtml(h.title)}</span>
+        </div>
+        <div class="ws-item-sub">${escHtml(h.source || 'manual')} · ${fmtDate(h.endDate)} · ${h.status}</div>
+        <div class="ws-item-actions">
+          <label class="ws-toggle" title="Participating → green chat">
+            <input type="checkbox" ${h.participating ? 'checked' : ''} data-act="participating" /> <span>🟢 Participate</span>
+          </label>
+          <label class="ws-toggle" title="Auto-track → 3-day routine">
+            <input type="checkbox" ${h.tracking ? 'checked' : ''} data-act="tracking" /> <span>🔁 Track</span>
+          </label>
+          <button class="ws-del" data-id="${h.id}" title="Delete">🗑</button>
+        </div>
+      </div>`;
+  }).join('');
+
+  list.querySelectorAll('.ws-item').forEach(el => el.addEventListener('click', (e) => {
+    if (e.target.closest('button') || e.target.closest('input')) return;
+    selectHack(el.dataset.id);
+  }));
+
+  list.querySelectorAll('.ws-toggle input').forEach(inp => inp.addEventListener('change', async () => {
+    const item = inp.closest('.ws-item');
+    const body = {}; body[inp.dataset.act] = inp.checked;
+    try {
+      await apiFetch(`/api/hackathons/${item.dataset.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      await loadHackathons();
+    } catch (err) { alert(err.message); await loadHackathons(); }
+  }));
+
+  list.querySelectorAll('.ws-del').forEach(btn => btn.addEventListener('click', async () => {
+    if (!confirm('Delete this hackathon?')) return;
+    await apiFetch(`/api/hackathons/${btn.dataset.id}`, { method: 'DELETE' });
+    if (currentHack?.id === btn.dataset.id) { currentHack = null; resetHackChat(); }
+    await loadHackathons();
+  }));
+}
+
+async function selectHack(id) {
+  currentHack = hackathonsCache.find(h => h.id === id) || null;
+  renderHackList();
+  if (!currentHack) return;
+  document.getElementById('hack-chat-header').innerHTML = `<span>${escHtml(currentHack.title)}</span><span class="ws-chat-header-status ${currentHack.statusColor || 'grey'}">${currentHack.status}</span>`;
+  document.getElementById('hack-chat-input').disabled = false;
+  document.getElementById('hack-send-btn').disabled = false;
+  renderHackKnowledge(currentHack);
+  await loadHackChat(id);
+}
+
+function resetHackChat() {
+  document.getElementById('hack-chat-header').innerHTML = '<span>Select a hackathon to open its workspace chat</span>';
+  document.getElementById('hack-chat-messages').innerHTML = '<div class="empty-msg">👈 Left list me se koi hackathon chuno.</div>';
+  document.getElementById('hack-chat-input').disabled = true;
+  document.getElementById('hack-send-btn').disabled = true;
+  document.getElementById('hack-knowledge').innerHTML = '<div class="empty-msg">Right side me hackathon ka knowledge panel khulega.</div>';
+}
+
+function renderHackKnowledge(h) {
+  const el = document.getElementById('hack-knowledge');
+  const k = h.knowledge || {};
+  el.innerHTML = `
+    <div class="ws-kb-block"><div class="ws-kb-label">📝 Problem Statement</div><div>${escHtml(k.summary || h.description || '—')}</div></div>
+    <div class="ws-kb-block"><div class="ws-kb-label">🗓 Dates</div><div>${escHtml((k.dates || []).join(' · ') || (fmtDate(h.startDate) + ' → ' + fmtDate(h.endDate)))}</div></div>
+    <div class="ws-kb-block"><div class="ws-kb-label">💰 Prize</div><div>${escHtml((k.prizes || []).join(' · ') || h.prize || '—')}</div></div>
+    <div class="ws-kb-block"><div class="ws-kb-label">🏛 Mode</div><div>${escHtml(k.mode || h.mode || 'unknown')}</div></div>
+    ${(k.rules || []).length ? `<div class="ws-kb-block"><div class="ws-kb-label">📜 Rules</div><div>${k.rules.map(r => escHtml(r)).join('<br/>')}</div></div>` : ''}
+    ${(k.eligibility || []).length ? `<div class="ws-kb-block"><div class="ws-kb-label">🎓 Eligibility</div><div>${k.eligibility.map(r => escHtml(r)).join('<br/>')}</div></div>` : ''}
+    ${(k.winners || []).length ? `<div class="ws-kb-block"><div class="ws-kb-label">🏅 Past Winners</div><div>${k.winners.map(r => escHtml(r)).join('<br/>')}</div></div>` : ''}
+    ${(k.links || []).length ? `<div class="ws-kb-block"><div class="ws-kb-label">🔗 Sources</div><div>${k.links.map(l => `<a href="${escHtml(l)}" target="_blank" rel="noopener">${escHtml(l)}</a>`).join('<br/>')}</div></div>` : ''}
+    <button class="btn-small" id="re-scrape-hack" style="width:100%;">🔄 Re-scrape Knowledge</button>
+  `;
+  const rs = document.getElementById('re-scrape-hack');
+  if (rs) rs.addEventListener('click', async () => {
+    rs.disabled = true; rs.textContent = '⏳ Scraping…';
+    try {
+      await apiFetch(`/api/hackathons/${h.id}/scrape`, { method: 'POST' });
+      await loadHackathons();
+      const fresh = hackathonsCache.find(x => x.id === h.id);
+      if (fresh) selectHack(fresh.id);
+    } catch (err) { alert(err.message); }
+  });
+}
+
+async function loadHackChat(id) {
+  const el = document.getElementById('hack-chat-messages');
+  try {
+    const { messages } = await apiFetch(`/api/hackathons/${id}/chat`);
+    renderWsChat(el, messages, 'hack');
+  } catch (err) { el.innerHTML = `<div class="empty-msg">${escHtml(err.message)}</div>`; }
+}
+
+document.getElementById('hack-send-btn').addEventListener('click', sendHackMessage);
+document.getElementById('hack-chat-input').addEventListener('keydown', (e) => { if (e.key === 'Enter') sendHackMessage(); });
+
+async function sendHackMessage() {
+  if (!currentHack) return;
+  const input = document.getElementById('hack-chat-input');
+  const text = input.value.trim(); if (!text) return;
+  input.value = '';
+  const el = document.getElementById('hack-chat-messages');
+  appendWsMsg(el, 'user', 'Nikhil', text);
+  try {
+    const data = await apiFetch(`/api/hackathons/${currentHack.id}/chat`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ message: text }) });
+    appendWsMsg(el, 'assistant', 'Bob 🏆', data.reply);
+  } catch (err) { appendWsMsg(el, 'assistant', 'Bob', '⚠️ ' + err.message); }
+}
+
+document.getElementById('add-hack-btn').addEventListener('click', () => {
+  openModal('➕ Add Hackathon', `
+    <div class="modal-form">
+      <label>Title *<input id="mk-title" type="text" placeholder="Smart India Hackathon 2026" /></label>
+      <label>Link<input id="mk-link" type="url" placeholder="https://unstop.com/..." /></label>
+      <div class="modal-row">
+        <label>Start Date<input id="mk-start" type="date" /></label>
+        <label>End Date<input id="mk-end" type="date" /></label>
+      </div>
+      <div class="modal-row">
+        <label class="modal-check"><input id="mk-participating" type="checkbox" /> 🟢 Participating</label>
+        <label class="modal-check"><input id="mk-tracking" type="checkbox" checked /> 🔁 Auto-track (3-day routine)</label>
+      </div>
+      <button id="mk-save" class="btn-primary" style="width:100%;">Save Hackathon</button>
+    </div>`);
+  document.getElementById('mk-save').addEventListener('click', async () => {
+    const title = document.getElementById('mk-title').value.trim();
+    if (!title) { alert('Title required'); return; }
+    const body = {
+      title,
+      link: document.getElementById('mk-link').value.trim(),
+      startDate: document.getElementById('mk-start').value ? new Date(document.getElementById('mk-start').value).getTime() : null,
+      endDate: document.getElementById('mk-end').value ? new Date(document.getElementById('mk-end').value).getTime() : null,
+      participating: document.getElementById('mk-participating').checked,
+      tracking: document.getElementById('mk-tracking').checked,
+    };
+    try {
+      await apiFetch('/api/hackathons', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      closeModal();
+      await loadHackathons();
+    } catch (err) { alert(err.message); }
+  });
+});
+
+// ═══════════════════════════════════════════════════════
+// STALKING WORKSPACE
+// ═══════════════════════════════════════════════════════
+
+let stalkCache = [];
+let currentStalk = null;
+
+async function loadStalking() {
+  try {
+    const { profiles } = await apiFetch('/api/stalking');
+    stalkCache = profiles || [];
+    renderStalkList();
+  } catch (err) { console.error('loadStalking error:', err); }
+}
+
+function renderStalkList() {
+  const list = document.getElementById('stalk-list');
+  if (!stalkCache.length) { list.innerHTML = '<div class="empty-msg">No profiles yet. Add one to start deep-dive.</div>'; return; }
+  list.innerHTML = stalkCache.map(p => `
+    <div class="ws-item${currentStalk?.id === p.id ? ' selected' : ''}" data-id="${p.id}">
+      <div class="ws-item-row">
+        <span class="status-dot ${p.status === 'ready' ? 'green' : (p.status === 'researching' ? 'amber' : 'grey')}"></span>
+        <span class="ws-item-title">${escHtml(p.name)}</span>
+      </div>
+      <div class="ws-item-sub">${escHtml(p.link || '')} · ${p.status}</div>
+      <div class="ws-item-actions">
+        ${p.status !== 'researching' ? `<button class="ws-re-research" data-id="${p.id}">🔍 Re-Research</button>` : '<span class="ws-researching">⏳ researching…</span>'}
+        <button class="ws-del" data-id="${p.id}" title="Delete">🗑</button>
+      </div>
+    </div>`).join('');
+
+  list.querySelectorAll('.ws-item').forEach(el => el.addEventListener('click', (e) => {
+    if (e.target.closest('button')) return;
+    selectStalk(el.dataset.id);
+  }));
+
+  list.querySelectorAll('.ws-del').forEach(btn => btn.addEventListener('click', async () => {
+    if (!confirm('Delete this profile?')) return;
+    await apiFetch(`/api/stalking/${btn.dataset.id}`, { method: 'DELETE' });
+    if (currentStalk?.id === btn.dataset.id) { currentStalk = null; resetStalkChat(); }
+    await loadStalking();
+  }));
+
+  list.querySelectorAll('.ws-re-research').forEach(btn => btn.addEventListener('click', async () => {
+    btn.disabled = true; btn.textContent = '⏳…';
+    try {
+      await apiFetch(`/api/stalking/${btn.dataset.id}/research`, { method: 'POST' });
+      const p = stalkCache.find(x => x.id === btn.dataset.id);
+      if (p) p.status = 'researching';
+      renderStalkList();
+      setTimeout(loadStalking, 20000);
+    } catch (err) { alert(err.message); }
+  }));
+}
+
+async function selectStalk(id) {
+  const p = stalkCache.find(x => x.id === id) || null;
+  currentStalk = p;
+  renderStalkList();
+  if (!p) return;
+  try {
+    const { profile } = await apiFetch(`/api/stalking/${id}`);
+    const prof = profile || p;
+    currentStalk = prof;
+    renderProfileCard(prof);
+    document.getElementById('stalk-chat-input').disabled = false;
+    document.getElementById('stalk-send-btn').disabled = false;
+    const { messages } = await apiFetch(`/api/stalking/${id}/chat`);
+    renderWsChat(document.getElementById('stalk-chat-messages'), messages, 'stalk');
+  } catch (err) {
+    document.getElementById('stalk-chat-messages').innerHTML = `<div class="empty-msg">${escHtml(err.message)}</div>`;
+  }
+}
+
+function resetStalkChat() {
+  document.getElementById('stalk-profile-card').innerHTML = '<div class="empty-msg">Select a profile to see the deep-dive card.</div>';
+  document.getElementById('stalk-chat-messages').innerHTML = '';
+  document.getElementById('stalk-chat-input').disabled = true;
+  document.getElementById('stalk-send-btn').disabled = true;
+}
+
+function renderProfileCard(p) {
+  const d = p.profileData || {};
+  const el = document.getElementById('stalk-profile-card');
+  el.innerHTML = `
+    <div class="profile-card">
+      <div class="profile-head">
+        <div class="profile-avatar">${escHtml((p.name || '?')[0].toUpperCase())}</div>
+        <div>
+          <div class="profile-name">${escHtml(p.name)}</div>
+          <div class="profile-headline">${escHtml(d.headline || '')}</div>
+          <div class="profile-meta">${escHtml(d.location || '')}</div>
+        </div>
+      </div>
+      ${d.bio ? `<div class="profile-sec"><div class="profile-sec-title">Bio</div><div>${escHtml(d.bio)}</div></div>` : ''}
+      ${(d.tech || []).length ? `<div class="profile-sec"><div class="profile-sec-title">Tech Stack</div><div class="tech-chips">${d.tech.map(t => `<span class="tech-chip">${escHtml(t)}</span>`).join('')}</div></div>` : ''}
+      ${(d.summary || []).length ? `<div class="profile-sec"><div class="profile-sec-title">Deep-Dive Summary</div><div>${d.summary.map(s => `<div class="profile-bullet">• ${escHtml(s)}</div>`).join('')}</div></div>` : ''}
+      ${(d.links || []).length ? `<div class="profile-sec"><div class="profile-sec-title">Links</div><div class="profile-links">${d.links.map(l => `<a href="${escHtml(l)}" target="_blank" rel="noopener">${escHtml(l)}</a>`).join(' · ')}</div></div>` : ''}
+      ${(d.socials || []).length ? `<div class="profile-sec"><div class="profile-sec-title">Socials</div><div>${d.socials.map(s => escHtml(s)).join(' · ')}</div></div>` : ''}
+      ${(d.analyzedRepos || []).length ? `<div class="profile-sec"><div class="profile-sec-title">GitHub Repos</div><div>${d.analyzedRepos.map(r => `<div class="repo-row"><span class="repo-name">${escHtml(r.full_name || '')}</span><span class="repo-status ${escHtml(r.status || '')}">${escHtml(r.status || '')}</span></div>`).join('')}</div></div>` : ''}
+      <div class="profile-foot">Last researched: ${d.lastResearchAt ? new Date(d.lastResearchAt).toLocaleString() : 'never'}</div>
+    </div>`;
+}
+
+document.getElementById('stalk-send-btn').addEventListener('click', sendStalkMessage);
+document.getElementById('stalk-chat-input').addEventListener('keydown', (e) => { if (e.key === 'Enter') sendStalkMessage(); });
+
+async function sendStalkMessage() {
+  if (!currentStalk) return;
+  const input = document.getElementById('stalk-chat-input');
+  const text = input.value.trim(); if (!text) return;
+  input.value = '';
+  const el = document.getElementById('stalk-chat-messages');
+  appendWsMsg(el, 'user', 'Nikhil', text);
+  try {
+    const data = await apiFetch(`/api/stalking/${currentStalk.id}/chat`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ message: text }) });
+    appendWsMsg(el, 'assistant', 'Bob 🕵️', data.reply);
+  } catch (err) { appendWsMsg(el, 'assistant', 'Bob', '⚠️ ' + err.message); }
+}
+
+document.getElementById('add-stalk-btn').addEventListener('click', () => {
+  openModal('🕵️ Add Profile', `
+    <div class="modal-form">
+      <label>Name *<input id="sk-name" type="text" placeholder="Rahul Sharma" /></label>
+      <label>LinkedIn / Site Link<input id="sk-link" type="url" placeholder="https://linkedin.com/in/..." /></label>
+      <label>Notes<textarea id="sk-notes" rows="3" placeholder="Kuch bhi pehle se pata ho…"></textarea></label>
+      <button id="sk-save" class="btn-primary" style="width:100%;">Start Deep-Dive</button>
+    </div>`);
+  document.getElementById('sk-save').addEventListener('click', async () => {
+    const name = document.getElementById('sk-name').value.trim();
+    if (!name) { alert('Name required'); return; }
+    try {
+      await apiFetch('/api/stalking', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, link: document.getElementById('sk-link').value.trim(), notes: document.getElementById('sk-notes').value.trim() }) });
+      closeModal();
+      await loadStalking();
+    } catch (err) { alert(err.message); }
+  });
+});
+
+// ═══════════════════════════════════════════════════════
+// ROUTINES ENGINE
+// ═══════════════════════════════════════════════════════
+
+async function loadRoutines() {
+  const grid = document.getElementById('routines-grid');
+  try {
+    const { routines } = await apiFetch('/api/routines');
+    if (!routines.length) { grid.innerHTML = '<div class="empty-msg">No routines yet. Ek routine banao — Bob khud prompt karega aur workspace me output dega.</div>'; return; }
+    grid.innerHTML = routines.map(r => `
+      <div class="routine-item ${r.active ? '' : 'routine-off'}">
+        <div class="routine-head">
+          <span class="routine-title">${escHtml(r.title)}</span>
+          <span class="routine-ws">${escHtml(r.workspace || 'custom')}</span>
+        </div>
+        <div class="routine-prompt">${escHtml(r.prompt)}</div>
+        <div class="routine-meta">every ${r.intervalHours}h · next ${r.nextRunAt ? new Date(r.nextRunAt).toLocaleString() : '—'}</div>
+        <div class="routine-actions">
+          <button class="btn-small" data-act="run" data-id="${r.id}">▶ Run Now</button>
+          <button class="btn-small" data-act="toggle" data-id="${r.id}">${r.active ? '⏸ Pause' : '▶ Activate'}</button>
+          <button class="btn-small" data-act="del" data-id="${r.id}" style="background:rgba(239,68,68,0.15);color:var(--red);">🗑 Delete</button>
+        </div>
+      </div>`).join('');
+
+    grid.querySelectorAll('[data-act]').forEach(btn => btn.addEventListener('click', async () => {
+      const { act, id } = btn.dataset;
+      try {
+        if (act === 'run') { btn.textContent = '⏳…'; await apiFetch(`/api/routines/${id}/run`, { method: 'POST' }); }
+        if (act === 'toggle') { const r = routines.find(x => x.id === id); await apiFetch(`/api/routines/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ active: !r.active }) }); }
+        if (act === 'del') { if (!confirm('Delete routine?')) return; await apiFetch(`/api/routines/${id}`, { method: 'DELETE' }); }
+        await loadRoutines();
+      } catch (err) { alert(err.message); }
+    }));
+  } catch (err) { grid.innerHTML = `<div class="empty-msg">Error: ${escHtml(err.message)}</div>`; }
+}
+
+document.getElementById('add-routine-btn').addEventListener('click', () => {
+  openModal('⏰ New Routine', `
+    <div class="modal-form">
+      <label>Title *<input id="rt-title" type="text" placeholder="Secret Vault Review" /></label>
+      <label>Prompt (Bob khud ye krega) *<textarea id="rt-prompt" rows="4" placeholder="Secret vault me kya-changes hain, kya batana hai…"></textarea></label>
+      <div class="modal-row">
+        <label>Interval (hours)<input id="rt-interval" type="number" value="72" min="1" /></label>
+        <label>Workspace
+          <select id="rt-ws">
+            <option value="vault">🔒 Vault</option>
+            <option value="hackathon">🏆 Hackathons</option>
+            <option value="stalking">🕵️ Stalking</option>
+            <option value="market">📈 Market</option>
+            <option value="habit">📝 Habit</option>
+            <option value="bob">🧠 Bob</option>
+            <option value="custom">✨ Custom</option>
+          </select>
+        </label>
+      </div>
+      <button id="rt-save" class="btn-primary" style="width:100%;">Create Routine</button>
+    </div>`);
+  document.getElementById('rt-save').addEventListener('click', async () => {
+    const title = document.getElementById('rt-title').value.trim();
+    const prompt = document.getElementById('rt-prompt').value.trim();
+    if (!title || !prompt) { alert('Title and prompt required'); return; }
+    try {
+      await apiFetch('/api/routines', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title, prompt, intervalHours: parseInt(document.getElementById('rt-interval').value) || 72, workspace: document.getElementById('rt-ws').value }) });
+      closeModal();
+      await loadRoutines();
+    } catch (err) { alert(err.message); }
+  });
+});
+
+// ═══════════════════════════════════════════════════════
+// LIVE PULSE
+// ═══════════════════════════════════════════════════════
+
+async function loadLive() {
+  const body = document.getElementById('live-body');
+  body.innerHTML = '<div class="empty-msg">Loading live data…</div>';
+  try {
+    const [weather, news, stocks] = await Promise.allSettled([
+      apiFetch('/api/live/weather'),
+      apiFetch('/api/live/news?limit=5'),
+      apiFetch('/api/live/stocks'),
+    ]);
+    let html = '';
+
+    if (weather.status === 'fulfilled') {
+      const w = weather.value;
+      html += `<div class="live-card"><div class="live-card-title">🌤 Weather</div><div class="live-card-body">${escHtml(w.summary || '')}</div></div>`;
+    }
+
+    if (news.status === 'fulfilled') {
+      const headlines = news.value.headlines || [];
+      html += `<div class="live-card"><div class="live-card-title">📰 News</div><div class="live-card-body">${headlines.map(n => `<div class="live-news"><a href="${escHtml(n.link || '#')}" target="_blank" rel="noopener">${escHtml(n.title || '')}</a></div>`).join('') || '<div class="empty-msg">No news</div>'}</div></div>`;
+    }
+
+    if (stocks.status === 'fulfilled') {
+      const quotes = stocks.value.quotes || [];
+      html += `<div class="live-card"><div class="live-card-title">📊 Stocks</div><div class="live-card-body">${quotes.map(q => `<div class="live-stock"><span>${escHtml(q.symbol)} — ${escHtml(q.name || '')}</span><span class="${q.changePct >= 0 ? 'pos' : 'neg'}">${q.price} (${q.changePct >= 0 ? '+' : ''}${q.changePct}%)</span></div>`).join('') || '<div class="empty-msg">No quotes</div>'}</div></div>`;
+    }
+
+    if (!html) html = '<div class="empty-msg">Live data unavailable right now.</div>';
+    body.innerHTML = `<div class="live-grid-inner">${html}</div>`;
+  } catch (err) { body.innerHTML = `<div class="empty-msg">Error: ${escHtml(err.message)}</div>`; }
+}
+
+// ── Shared workspace chat helpers ─────────────────────
+function renderWsChat(el, messages, tag) {
+  if (!messages || !messages.length) { el.innerHTML = '<div class="empty-msg">Is workspace me abhi koi baat nahi hui. Pehla message bhejo — context totally isolated hai.</div>'; return; }
+  el.innerHTML = messages.map(m => wsMsgHTML(m.role, m.role === 'user' ? 'Nikhil' : (tag === 'hack' ? 'Bob 🏆' : 'Bob 🕵️'), m.content)).join('');
+  el.scrollTop = el.scrollHeight;
+}
+function wsMsgHTML(role, author, text) { return `<div class="ws-msg ${role}"><div class="ws-msg-role">${escHtml(author)}</div><div class="ws-msg-text">${escHtml(text)}</div></div>`; }
+function appendWsMsg(el, role, author, text) { el.insertAdjacentHTML('beforeend', wsMsgHTML(role, author, text)); el.scrollTop = el.scrollHeight; }
 
 
 // ═══════════════════════════════════════════════════════

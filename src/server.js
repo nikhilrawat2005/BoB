@@ -13,6 +13,10 @@ const notificationsRoute = require('./routes/notifications');
 const schedulerRoute     = require('./routes/scheduler');
 const liveRoute          = require('./routes/live');
 const builderRoute       = require('./routes/builder');
+const hackathonsRoute    = require('./routes/hackathons');
+const stalkingRoute      = require('./routes/stalking');
+const routinesRoute      = require('./routes/routines');
+const hqRoute            = require('./routes/hq');
 
 const app = express();
 
@@ -61,6 +65,10 @@ app.use('/api/notifications', notificationsRoute);
 app.use('/api/scheduler',     schedulerRoute);
 app.use('/api/live',          liveRoute);
 app.use('/api/builder',       builderRoute);
+app.use('/api/hackathons',    hackathonsRoute);
+app.use('/api/stalking',      stalkingRoute);
+app.use('/api/routines',      routinesRoute);
+app.use('/api/hq',            hqRoute);
 
 // 404 handler for unknown API routes
 app.use('/api', (req, res) => {

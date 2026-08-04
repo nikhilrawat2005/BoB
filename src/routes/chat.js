@@ -179,9 +179,28 @@ router.post('/', requireAuth, async (req, res) => {
     // 3. Save user's message
     await memory.addMessage(req.userId, sessionId, 'user', promptMessage);
 
+    // 2b. Pull HQ workspace context (hackathons, stalking profiles, routines) for proactive awareness
+    const [hacks, stalkers, routineList] = await Promise.all([
+      require('../services/hackathonService').listHackathons(req.userId).catch(() => []),
+      require('../services/stalkingService').listProfiles(req.userId).catch(() => []),
+      require('../services/routineService').listRoutines(req.userId).catch(() => []),
+    ]);
+
     let contextBlocks = [];
     if (liveBlock) {
       contextBlocks.push(liveBlock);
+    }
+    if (hacks && hacks.length) {
+      contextBlocks.push(`🏆 HACKATHON WORKSPACE (Master Nikhil ki active hackathons — proactively track, remind, suggest):\n${hacks.map(h => `- ${h.title} [${h.status}${h.participating ? ', participating ✓' : ''}${h.tracking ? ', tracking 🔄' : ''}]${h.endDate ? ` ends ${new Date(h.endDate).toLocaleDateString('en-IN')}` : ''}`).join('\n')}`);
+    }
+    if (stalkers && stalkers.length) {
+      contextBlocks.push(`🕵️ STALKING WORKSPACE (profiles Master Nikhil is researching — mention when relevant):\n${stalkers.map(s => `- ${s.name} [${s.status}]${s.link ? ` ${s.link}` : ''}`).join('\n')}`);
+    }
+    if (routineList && routineList.length) {
+      const activeRoutines = routineList.filter(r => r.active);
+      if (activeRoutines.length) {
+        contextBlocks.push(`⏰ ACTIVE SELF-CHECK ROUTINES (in-progress tracking; next run ${activeRoutines.map(r => r.title).join(', ')}):\n${activeRoutines.map(r => `- ${r.title} (${r.workspace}, every ${r.intervalHours}h, next ${r.nextRunAt ? new Date(r.nextRunAt).toLocaleString('en-IN') : 'soon'})`).join('\n')}`);
+      }
     }
     if (webpageBlock) {
       contextBlocks.push(webpageBlock);
