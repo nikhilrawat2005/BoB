@@ -220,6 +220,9 @@ router.post('/', requireAuth, async (req, res) => {
         contextBlocks.push(`📚 PAST MONTH MEMORIES (queried because Master asked about history):\n${pastBlocks.map(m => `[${m.id} ${memoryManager.monthLabel(m.id)}]:\n${m.chunks.map(c => c.points).join('\n')}`).join('\n\n')}`);
       }
     }
+    if (req.body.collab) {
+      contextBlocks.push(`🤝 BOB + BUILDER COLLAB MODE (Master Nikhil ne ise ON kiya hai): Master ne explicitly allow kiya hai ki tum Bob the Builder ke saath milke kaam kar sakte ho. Jab bhi coding/project/planning ka kaam ho aur Builder ki help useful lage, apna kaam ek chhota \`\`\`builder {title,instruction} \`\`\` block bana kar Builder ko delegate kar sakte ho. Apne reply me phir batana ki tumne Builder ko kya assign kiya aur kyun. Jab tak Master ye mode ON rakhe, Builder collaboration allowed hai.`);
+    }
 
     const memoryContext = contextBlocks.join('\n\n');
 

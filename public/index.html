@@ -121,34 +121,16 @@
         </button>
       </nav>
 
-      <div class="sidebar-section-label flex-between" id="sidebar-notif-wrap">
-        <span>Notifications 🔔</span>
-        <div class="notif-wrap-right">
-          <span id="notif-count-badge" class="notif-badge hidden">0</span>
-          <button id="notif-view-all" class="notif-view-all" title="Open notification center">All →</button>
-        </div>
-      </div>
-      <div id="notifications-list" class="notifications-list">
-        <div class="empty-sessions">No notifications right now</div>
-      </div>
-
       <div class="sidebar-section-label" id="sidebar-session-label" title="Back to chats">Chats</div>
       <div id="sessions-list" class="sessions-list">
         <div class="empty-sessions">No chats yet</div>
       </div>
 
       <div class="sidebar-bottom">
-        <button id="toggle-memory-btn" class="sidebar-icon-btn" title="Bob's Memory workspace">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 8v4l3 3"/></svg>
-          Memory
-        </button>
-        <button id="toggle-files-btn" class="sidebar-icon-btn" title="Files workspace">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
-          Files
-        </button>
-        <button id="toggle-vault-btn" class="sidebar-icon-btn vault-btn" title="Secret Vault workspace">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/><circle cx="12" cy="16" r="1" fill="currentColor"/></svg>
-          Secret Vault
+        <button id="collab-toggle" class="collab-btn" title="Bob + Builder collaboration mode">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 19c-2 0-4-1-4-3.5C4 13 6 11 8.5 11 9 8.5 11 6.5 14 7.5c1 .3 2 1.2 2 2.3 0 .5-.2.8-.5 1.1"/><circle cx="15" cy="12" r="1.5"/><path d="M18 9c.5.5 1 1.3 1 2.2 0 1.5-1 2.6-2.5 2.6"/></svg>
+          <span class="collab-label">Bob + Builder</span>
+          <span class="collab-state" id="collab-state">OFF</span>
         </button>
         <div class="sidebar-divider"></div>
         <div class="user-row">
@@ -236,6 +218,7 @@
             <button class="view-close icon-btn" title="Close (back to chat)">✕</button>
           </div>
           <div class="view-body">
+            <div id="hq-notifications" class="hq-notifications"></div>
             <div class="hq-grid" id="hq-grid">
               <div class="empty-msg">Loading HQ…</div>
             </div>

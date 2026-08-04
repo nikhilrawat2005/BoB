@@ -266,56 +266,63 @@ async function loadSessions() {
 async function loadNotifications() {
   try {
     const { notifications } = await apiFetch('/api/notifications');
-    renderNotifications(notifications || []);
+    renderHqNotifications(notifications || []);
   } catch (err) {
     console.error('loadNotifications error:', err);
   }
 }
 
-function renderNotifications(notifications) {
-  const list = document.getElementById('notifications-list');
-  const badge = document.getElementById('notif-count-badge');
-
-  const unreadCount = notifications.filter(n => !n.read).length;
-  if (unreadCount > 0) {
-    badge.textContent = unreadCount;
-    badge.classList.remove('hidden');
-  } else {
-    badge.classList.add('hidden');
-  }
-
-  if (!notifications.length) {
-    list.innerHTML = '<div class="empty-sessions">No notifications right now</div>';
+function renderHqNotifications(notifications) {
+  const strip = document.getElementById('hq-notifications');
+  if (!strip) return;
+  const recent = notifications.slice(0, 5);
+  if (!recent.length) {
+    strip.innerHTML = '';
     return;
   }
 
-  list.innerHTML = notifications.map(n => `
-    <div class="notif-item ${!n.read ? 'unread' : ''}" data-id="${n.id}">
-      <div class="notif-title">🔔 ${escHtml(n.title)}</div>
-      <div class="notif-msg">${escHtml(n.message)}</div>
-      <div class="notif-time">${new Date(n.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>
-      <div class="notif-actions">
-        <button class="btn-notif-reply" data-id="${n.id}" data-snippet="${escHtml(n.promptSnippet || n.message)}">💬 Reply in Chat</button>
-      </div>
+  strip.innerHTML = `
+    <div class="hq-notif-head">🔔 Live Updates <span class="hq-notif-count">${notifications.length}</span></div>
+    <div class="hq-notif-strip">
+      ${recent.map(n => `
+        <div class="hq-notif-card ${!n.read ? 'unread' : ''}" data-id="${n.id}">
+          <div class="hq-notif-title">${escHtml(n.title)}</div>
+          <div class="hq-notif-msg">${escHtml(n.message)}</div>
+          <div class="hq-notif-actions">
+            <button class="btn-notif-reply" data-id="${n.id}" data-snippet="${escHtml(n.promptSnippet || n.message)}">💬 Reply in Chat</button>
+            <button class="btn-notif-del" data-id="${n.id}" title="Dismiss">✕</button>
+          </div>
+        </div>
+      `).join('')}
+      ${notifications.length > 5 ? `<button class="hq-notif-all" id="hq-notif-all">View all ${notifications.length} →</button>` : ''}
     </div>
-  `).join('');
+  `;
 
-  list.querySelectorAll('.btn-notif-reply').forEach(btn => {
-    btn.addEventListener('click', async (e) => {
-      e.stopPropagation();
+  strip.querySelectorAll('.btn-notif-reply').forEach(btn => {
+    btn.addEventListener('click', async () => {
       const notifId = btn.dataset.id;
       const snippet = btn.dataset.snippet;
-      // Delete notification so it disappears immediately from notification panel once converted to chat
       await apiFetch(`/api/notifications/${notifId}`, { method: 'DELETE' });
+      closeViews();
       await createNewSession();
-      const msgInput = document.getElementById('message-input');
-      msgInput.value = snippet;
-      msgInput.dispatchEvent(new Event('input'));
+      const mi = document.getElementById('message-input');
+      mi.value = snippet;
+      mi.dispatchEvent(new Event('input'));
       await sendMessage();
       await loadNotifications();
       await loadSessions();
     });
   });
+
+  strip.querySelectorAll('.btn-notif-del').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      await apiFetch(`/api/notifications/${btn.dataset.id}`, { method: 'DELETE' });
+      await loadNotifications();
+    });
+  });
+
+  const allBtn = strip.querySelector('#hq-notif-all');
+  if (allBtn) allBtn.addEventListener('click', () => { showView('notifications'); loadNotificationsFull(); });
 }
 
 function renderSessions(sessions) {
@@ -1454,6 +1461,7 @@ async function sendMessage() {
     } else {
       const payload = { sessionId: currentSession.id, message: finalText, model };
       if (imageUrls.length) payload.imageUrls = imageUrls;
+      if (collabMode) payload.collab = true;
 
       data = await apiFetch('/api/chat', {
         method: 'POST',
@@ -1583,7 +1591,21 @@ document.querySelectorAll('.view-close').forEach(btn => btn.addEventListener('cl
 document.querySelectorAll('.view .side-panel').forEach(p => p.classList.remove('hidden'));
 
 document.getElementById('sidebar-session-label').addEventListener('click', () => { closeViews(); document.getElementById('message-input').focus(); });
-document.getElementById('notif-view-all').addEventListener('click', () => { showView('notifications'); loadNotificationsFull(); });
+
+// ── Bob + Builder collaboration toggle ───────────────
+let collabMode = localStorage.getItem('bob_collab_mode') === '1';
+const collabToggle = document.getElementById('collab-toggle');
+const collabState = document.getElementById('collab-state');
+function applyCollabUI() {
+  document.body.classList.toggle('collab-on', collabMode);
+  if (collabState) collabState.textContent = collabMode ? 'ON' : 'OFF';
+}
+applyCollabUI();
+if (collabToggle) collabToggle.addEventListener('click', () => {
+  collabMode = !collabMode;
+  localStorage.setItem('bob_collab_mode', collabMode ? '1' : '0');
+  applyCollabUI();
+});
 
 // ── Generic app modal ────────────────────────────────
 const appModal      = document.getElementById('app-modal');
@@ -1594,17 +1616,7 @@ function closeModal() { appModal.classList.add('hidden'); appModalBody.innerHTML
 document.getElementById('app-modal-close').addEventListener('click', closeModal);
 appModal.addEventListener('click', (e) => { if (e.target === appModal) closeModal(); });
 
-// ── Memory & Files now open as full workspaces ───────
-document.getElementById('toggle-memory-btn').addEventListener('click', async () => {
-  showView('memory');
-  await loadFacts();
-  await loadMonthlyFiles();
-});
-
-document.getElementById('toggle-files-btn').addEventListener('click', async () => {
-  showView('files');
-  await loadFiles();
-});
+// ── Memory & Files are opened via the HQ cards ───────
 
 // Monthly memory files
 async function loadMonthlyFiles() {
@@ -1752,7 +1764,6 @@ const vaultPinScr  = document.getElementById('vault-pin-screen');
 const vaultConScr  = document.getElementById('vault-content-screen');
 const vaultDots    = document.querySelectorAll('#vault-pin-dots span');
 const vaultErrEl   = document.getElementById('vault-pin-error');
-const vaultBtn     = document.getElementById('toggle-vault-btn');
 
 let vaultPin        = '';
 let vaultUnlocked   = false;
@@ -1767,6 +1778,10 @@ function closeVaultPanel() {
   lockVault();
 }
 
+document.getElementById('close-vault').addEventListener('click', closeVaultPanel);
+document.getElementById('close-vault-unlocked').addEventListener('click', closeVaultPanel);
+document.getElementById('relock-vault-btn').addEventListener('click', lockVault);
+
 function lockVault() {
   vaultPin = '';
   vaultUnlocked = false;
@@ -1775,16 +1790,6 @@ function lockVault() {
   resetPinDots();
   vaultErrEl.classList.add('hidden');
 }
-
-vaultBtn.addEventListener('click', () => {
-  if (!vaultUnlocked) lockVault();
-  showView('vault');
-  if (vaultUnlocked) loadVaultChat();
-});
-
-document.getElementById('close-vault').addEventListener('click', closeVaultPanel);
-document.getElementById('close-vault-unlocked').addEventListener('click', closeVaultPanel);
-document.getElementById('relock-vault-btn').addEventListener('click', lockVault);
 
 // ── PIN dots visual state ───────────────────────────
 function resetPinDots() {

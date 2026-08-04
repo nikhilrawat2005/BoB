@@ -1873,3 +1873,58 @@ body.persona-builder #model-selector { display: none !important; }
 .view#view-vault #vault-pin-screen { flex: 1; display: flex; flex-direction: column; min-height: 0; }
 .view#view-vault .vault-pin-body { height: 100%; width: 100%; }
 .view#view-vault .vault-chat-container { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+/* -------------------------------------------------------
+   HQ LIVE-UPDATES STRIP (top of Home HQ)
+------------------------------------------------------- */
+.hq-notifications { margin-bottom: 18px; }
+.hq-notif-head {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 12px; font-weight: 700; letter-spacing: 0.5px;
+  color: var(--text2); margin-bottom: 10px; text-transform: uppercase;
+}
+.hq-notif-count {
+  background: var(--accent); color: #fff; font-size: 10px;
+  padding: 1px 7px; border-radius: 99px;
+}
+.hq-notif-strip { display: flex; flex-direction: column; gap: 8px; }
+.hq-notif-card {
+  background: var(--surface);
+  border: 1px solid var(--border2);
+  border-left: 3px solid var(--text3);
+  border-radius: var(--radius-sm);
+  padding: 10px 14px;
+  display: flex; align-items: center; gap: 12px;
+}
+.hq-notif-card.unread { border-left-color: var(--accent); background: rgba(108,99,255,0.08); }
+.hq-notif-title { font-weight: 600; font-size: 13px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.hq-notif-msg { flex: 1; font-size: 12px; color: var(--text2); line-height: 1.4; display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical; overflow: hidden; }
+.hq-notif-actions { display: flex; gap: 6px; flex-shrink: 0; }
+.btn-notif-reply { padding: 5px 10px; background: var(--accent); border: none; border-radius: var(--radius-sm); color: #fff; font-size: 11px; font-weight: 600; cursor: pointer; transition: opacity var(--transition); }
+.btn-notif-reply:hover { opacity: 0.85; }
+.btn-notif-del { background: none; border: none; color: var(--text3); cursor: pointer; font-size: 14px; padding: 2px 6px; border-radius: 6px; transition: color var(--transition); }
+.btn-notif-del:hover { color: var(--red); }
+.hq-notif-all { margin-top: 10px; align-self: flex-start; background: none; border: 1px solid var(--border2); color: var(--accent); font-size: 12px; font-weight: 600; padding: 6px 12px; border-radius: 99px; cursor: pointer; transition: background var(--transition); }
+.hq-notif-all:hover { background: var(--surface); }
+
+/* -------------------------------------------------------
+   BOB + BUILDER COLLAB TOGGLE (sidebar bottom)
+------------------------------------------------------- */
+.collab-btn {
+  display: flex; align-items: center; gap: 8px;
+  width: 100%; padding: 8px 10px;
+  background: var(--surface); border: 1px solid var(--border2);
+  border-radius: var(--radius-sm); color: var(--text2);
+  cursor: pointer; font-size: 12px; font-weight: 600;
+  transition: border-color var(--transition), color var(--transition), background var(--transition);
+}
+.collab-btn svg { flex-shrink: 0; }
+.collab-label { flex: 1; text-align: left; }
+.collab-state { font-size: 10px; font-weight: 800; letter-spacing: 0.5px; color: var(--text3); padding: 2px 8px; border-radius: 99px; background: var(--bg2); }
+.collab-btn:hover { border-color: var(--border2); color: var(--text); }
+body.collab-on .collab-btn { border-color: var(--green); color: var(--green); background: rgba(34,197,94,0.08); }
+body.collab-on .collab-state { color: #fff; background: var(--green); }
+
+@media (max-width: 760px) {
+  .hq-notif-card { flex-direction: column; align-items: flex-start; gap: 6px; }
+  .hq-notif-msg { -webkit-line-clamp: 2; }
+}
