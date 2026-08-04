@@ -1570,15 +1570,21 @@ async function uploadImageFile(file, label) {
 // ═══════════════════════════════════════════════════════
 
 function showView(name) {
-  document.querySelectorAll('.view').forEach(v => v.classList.toggle('active', v.id === 'view-' + name));
-  document.querySelectorAll('.nav-btn').forEach(b => b.classList.toggle('active', b.dataset.view === name));
+  // Toggle OFF if clicking the view that is already active (back to chat so you can type)
+  const activeView = document.querySelector('.view.active');
+  const activeId = activeView ? activeView.id.replace('view-', '') : '';
+  const next = (name && name === activeId) ? '' : (name || '');
+  document.querySelectorAll('.view').forEach(v => v.classList.toggle('active', v.id === 'view-' + next));
+  document.querySelectorAll('.nav-btn').forEach(b => b.classList.toggle('active', b.dataset.view === next));
+  return next;
 }
 function closeViews() { showView(''); }
 
 document.querySelectorAll('.nav-btn').forEach(btn => {
   btn.addEventListener('click', () => {
     const view = btn.dataset.view;
-    showView(view);
+    const opened = showView(view);          // toggles off if same view re-clicked
+    if (!opened) return;                    // just closed → back to chat
     if (view === 'hq') loadHQSummary();
     if (view === 'hackathons') loadHackathons();
     if (view === 'stalking') loadStalking();
