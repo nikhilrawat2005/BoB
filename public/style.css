@@ -354,6 +354,7 @@ input:focus, textarea:focus, select:focus {
   flex-shrink: 0;
   background: rgba(13,15,20,0.6);
   backdrop-filter: blur(10px);
+  position: relative; z-index: 31;   /* keep persona switch reachable above workspace views */
 }
 .icon-btn { background: none; border: none; color: var(--text2); cursor: pointer; padding: 6px; border-radius: var(--radius-sm); display: flex; align-items: center; transition: background var(--transition), color var(--transition), transform 0.15s; }
 .icon-btn:hover { background: var(--surface); color: var(--text); }
@@ -1463,7 +1464,7 @@ body.persona-builder #model-selector { display: none !important; }
 }
 
 /* -------------------------------------------------------
-   BOB HQ — VIEW ROUTER + WORKSPACES
+   BOB HQ ï¿½ VIEW ROUTER + WORKSPACES
 ------------------------------------------------------- */
 
 /* -- Main area: chat + views side by side ------------- */

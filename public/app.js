@@ -1592,20 +1592,26 @@ document.querySelectorAll('.view .side-panel').forEach(p => p.classList.remove('
 
 document.getElementById('sidebar-session-label').addEventListener('click', () => { closeViews(); document.getElementById('message-input').focus(); });
 
-// ── Bob + Builder collaboration toggle ───────────────
+// ── Bob + Builder collaboration state ───────────────
+// (toggled from the "Bob the Builder" HQ card)
 let collabMode = localStorage.getItem('bob_collab_mode') === '1';
-const collabToggle = document.getElementById('collab-toggle');
-const collabState = document.getElementById('collab-state');
-function applyCollabUI() {
-  document.body.classList.toggle('collab-on', collabMode);
-  if (collabState) collabState.textContent = collabMode ? 'ON' : 'OFF';
-}
-applyCollabUI();
-if (collabToggle) collabToggle.addEventListener('click', () => {
-  collabMode = !collabMode;
+function setCollabMode(on) {
+  collabMode = !!on;
   localStorage.setItem('bob_collab_mode', collabMode ? '1' : '0');
-  applyCollabUI();
-});
+  document.body.classList.toggle('collab-on', collabMode);
+}
+window.setCollabMode = setCollabMode;
+
+// Start a NEW Builder collaboration session. Bob the Builder asks the Master
+// for the plan first — it won't proceed without explicit permission/input.
+async function startBobBuilderCollab() {
+  setCollabMode(true);
+  closeViews();
+  setPersona('builder');
+  await createNewSession();           // fresh Builder project
+  // Builder already has a welcome prompt that asks for the project idea;
+  // the collab flag ensures Bob may delegate to Builder when useful.
+}
 
 // ── Generic app modal ────────────────────────────────
 const appModal      = document.getElementById('app-modal');
@@ -1952,13 +1958,12 @@ function hqCard(o) {
         <div class="card-icon">${o.icon}</div>
         <span class="card-badge">${escHtml(o.badge || '')}</span>
       </div>
-      <div class="card-title">${escHtml(o.title)}</div>
+    <div class="card-title">${escHtml(o.title)}</div>
       <div class="card-meta">${escHtml(o.meta || '')}</div>
       ${items ? `<div class="card-items">${items}</div>` : ''}
-      <button class="card-btn">${escHtml(o.action || 'Open')} →</button>
     </div>
   `;
-}
+} 
 
 async function loadHQSummary() {
   const grid = document.getElementById('hq-grid');
@@ -1991,6 +1996,7 @@ function renderHQ(data) {
     hqCard({ id: 'memory', icon: '🧠', title: 'Memory', color: 'green', badge: `${facts.length} facts`, meta: `months ${months.length}`, items: facts.slice(0, 3).map(f => ({ text: f.text, sub: '', dot: 'green' })), action: 'Open Memory Workspace' }),
     hqCard({ id: 'files', icon: '📁', title: 'Files', color: 'grey', badge: `${files.length}`, meta: 'uploaded files', items: files.slice(0, 3).map(f => ({ text: f.filename || f.id, sub: '', dot: 'grey' })), action: 'Open Files Workspace' }),
     hqCard({ id: 'live', icon: '📈', title: 'Live Pulse', color: 'green', badge: 'live', meta: 'weather · news · stocks', items: [], action: 'Open Live' }),
+    hqCard({ id: 'builder', icon: '🏗️', title: 'Bob the Builder', color: 'amber', badge: collabMode ? 'ON' : 'off', meta: 'Builder collaboration · plan-confirm first', items: [], action: 'Start new project' }),
   ];
 
   grid.innerHTML = `<div class="hq-grid-inner">${cards.join('')}</div>`;
@@ -2001,10 +2007,11 @@ function renderHQ(data) {
 }
 
 function openHqCard(id) {
-  if (id === 'notifications') { showView('notifications'); loadNotificationsFull(); return; }
+  if (id === 'notifications') { showView('notifications'); loadNotificationsFull(); loadNotifications(); return; }
   if (id === 'vault') { openVaultPanel(); return; }
   if (id === 'memory') { showView('memory'); loadFacts(); loadMonthlyFiles(); return; }
   if (id === 'files') { showView('files'); loadFiles(); return; }
+  if (id === 'builder') { startBobBuilderCollab(); return; }
   const navBtn = document.querySelector(`.nav-btn[data-view="${id}"]`);
   if (navBtn) navBtn.click();
 }
