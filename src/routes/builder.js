@@ -4,6 +4,7 @@ const { requireAuth } = require('../middleware/auth');
 const { callLLM } = require('../services/llmService');
 const builder = require('../services/builderService');
 const knowledge = require('../services/builderKnowledgeService');
+const repo = require('../services/repoService');
 
 const FILE_BLOCK_RE = /```([\w.+-]+)[ \t]+filename=([^\n\r]+)[\n\r]([\s\S]*?)```/g;
 
@@ -108,7 +109,13 @@ router.post('/chat', requireAuth, async (req, res) => {
     const notes = await builder.getBuilderNotes(req.userId, session.id);
     const knowledgeContext = knowledge.buildKnowledgeContext(message);
 
-    // 5. Title from first real message
+    // 5. GitHub repo self-read: if the message contains a repo link, analyze it
+    let repoAnalysis = null;
+    if (repo.extractRepoUrls(message).length) {
+      repoAnalysis = await repo.analyzeRepo(message).catch(err => ({ status: 'error', message: err.message }));
+    }
+
+    // 5b. Title from first real message
     if (history.length <= 2 && (session.title === 'New Project' || !session.title)) {
       const title = message.replace(/\s+/g, ' ').slice(0, 45) || 'Project Plan';
       await builder.updateBuilderSessionTitle(req.userId, session.id, title);
@@ -121,6 +128,15 @@ router.post('/chat', requireAuth, async (req, res) => {
     if (knowledgeContext) systemPrompt += `\n\n${knowledgeContext}`;
     if (notes.length) {
       systemPrompt += `\n\n📌 PROJECT MEMORY (decisions you already made for this project — stay consistent):\n${notes.map(n => `- ${n}`).join('\n')}`;
+    }
+    if (repoAnalysis) {
+      if (repoAnalysis.status === 'ok') {
+        systemPrompt += `\n\n${repoAnalysis.context}\n\nINSTRUCTIONS: You just self-read this GitHub repo. Give Master Nikhil: (1) a crisp "ye project kya hai" summary (purpose, stack, architecture), (2) strengths, (3) the biggest GAPS / missing features / bugs & risks you found in the actual code, (4) a step-by-step improvement roadmap, (5) if he wants, generate the fix/new-feature files as filename blocks. Be concrete — reference actual files you read.`;
+      } else if (repoAnalysis.status === 'private') {
+        systemPrompt += `\n\n[BLOCKER] The repo "${repoAnalysis.repo.fullName}" is PRIVATE, so Bob the Builder could NOT read it. Respond kindly in Hinglish telling Master Nikhil: repo private hai — GitHub pe 'Make public' karne ko bolo (Settings → Danger Zone) aur link dobara bheje. Do NOT guess or invent anything about the codebase.`;
+      } else {
+        systemPrompt += `\n\n[BLOCKER] Repo read failed (${repoAnalysis.error || 'error'}): ${repoAnalysis.message}. Respond kindly in Hinglish: batao kya problem hai (link galat / repo private / rate limit) aur kya kare. Do NOT invent repo contents.`;
+      }
     }
 
     // 6. Build message list (trim history to last 14 messages)
@@ -169,6 +185,12 @@ router.post('/chat', requireAuth, async (req, res) => {
       projectType,
       notesSaved: newNotes.length,
       projectSaved,
+      repo: repoAnalysis ? {
+        status: repoAnalysis.status,
+        fullName: repoAnalysis.repo && repoAnalysis.repo.fullName,
+        readCount: repoAnalysis.readCount || 0,
+        totalFiles: repoAnalysis.stats ? repoAnalysis.stats.fileCount : 0,
+      } : null,
       model: result.model,
     });
   } catch (err) {
