@@ -434,7 +434,13 @@ async function loadMessages(sessionId) {
   try {
     const url = currentPersona === 'builder' ? `/api/builder/sessions/${sessionId}/messages` : `/api/sessions/${sessionId}/messages`;
     const { messages } = await apiFetch(url);
-    (messages || []).forEach(m => appendMessage(m.role, m.content, false));
+    (messages || []).forEach(m => {
+      if (currentPersona === 'builder') {
+        appendMessage(m.role, m.content, false, m.sender || m.role);
+      } else {
+        appendMessage(m.role, m.content, false);
+      }
+    });
     scrollToBottom();
   } catch (err) {
     console.error('loadMessages error:', err);
@@ -504,8 +510,8 @@ function stopBackgroundPolling() {
 // ── Parse Bob's message for downloadable file & schedule blocks ─
 function parseFileBlocks(text) {
   // Match ```<lang> filename=<filename>\n<content>\n```, ```schedule\n{...}\n```,
-  // ```chart\n{...}\n```, or ```mermaid\n<diagram>\n```
-  const regex = /```(?:([\w.+-]+)[ \t]+filename=([^\n\r]+)|(schedule)|(chart)|(mermaid))[\n\r]([\s\S]*?)```/g;
+  // ```chart\n{...}\n```, ```mermaid\n<diagram>\n```, or ```builder\n{...}\n```
+  const regex = /```(?:([\w.+-]+)[ \t]+filename=([^\n\r]+)|(schedule)|(chart)|(mermaid)|(builder))[\n\r]([\s\S]*?)```/g;
   const blocks = [];
   let lastIndex = 0;
   let match;
@@ -516,26 +522,33 @@ function parseFileBlocks(text) {
     }
     if (match[3] === 'schedule') {
       try {
-        const data = JSON.parse(match[6].trim());
+        const data = JSON.parse(match[7].trim());
         blocks.push({ type: 'schedule', data });
       } catch {
         blocks.push({ type: 'text', content: match[0] });
       }
     } else if (match[4] === 'chart') {
       try {
-        const data = JSON.parse(match[6].trim());
+        const data = JSON.parse(match[7].trim());
         blocks.push({ type: 'chart', data });
       } catch {
         blocks.push({ type: 'text', content: match[0] });
       }
     } else if (match[5] === 'mermaid') {
-      blocks.push({ type: 'mermaid', source: match[6].trim() });
+      blocks.push({ type: 'mermaid', source: match[7].trim() });
+    } else if (match[6] === 'builder') {
+      try {
+        const data = JSON.parse(match[7].trim());
+        blocks.push({ type: 'builder', data });
+      } catch {
+        blocks.push({ type: 'text', content: match[0] });
+      }
     } else {
       blocks.push({
         type:     'file',
         lang:     match[1].toLowerCase().trim(),
         filename: match[2].trim(),
-        content:  match[6],
+        content:  match[7],
       });
     }
     lastIndex = regex.lastIndex;
@@ -980,7 +993,7 @@ function renderTextContent(text) {
   return unstash(html);
 }
 
-function appendMessage(role, content, animate = true) {
+function appendMessage(role, content, animate = true, sender = null) {
   const container = document.getElementById('messages-container');
 
   // Remove welcome screen if present
@@ -993,6 +1006,7 @@ function appendMessage(role, content, animate = true) {
 
   const bubble = document.createElement('div');
   bubble.className = 'message-bubble';
+  if (sender === 'bob') bubble.classList.add('bob');
 
   if (role === 'assistant' && content) {
     // Parse for downloadable file blocks
@@ -1008,6 +1022,8 @@ function appendMessage(role, content, animate = true) {
         bubble.appendChild(createChartCard(block.data));
       } else if (block.type === 'mermaid') {
         bubble.appendChild(createMermaidCard(block.source));
+      } else if (block.type === 'builder') {
+        bubble.appendChild(createBuilderDelegationCard(block.data));
       } else if (block.content && block.content.trim()) {
         const textDiv = document.createElement('div');
         textDiv.className = 'msg-text-content';
@@ -1032,7 +1048,7 @@ function appendMessage(role, content, animate = true) {
     bubble.appendChild(speakBtn);
 
     // Auto-speak if TTS is enabled
-    if (isTTSEnabled && animate) {
+    if (isTTSEnabled && animate && sender !== 'bob') {
       speakHinglishText(content, speakBtn);
     }
   } else {
@@ -1043,6 +1059,62 @@ function appendMessage(role, content, animate = true) {
   container.appendChild(row);
   scrollToBottom();
   return row;
+}
+
+// ── Bob → Builder delegation card ───────────────────
+function createBuilderDelegationCard(data) {
+  const card = document.createElement('div');
+  card.className = 'builder-delegation-card';
+  card.innerHTML = `
+    <div class="file-gen-header">
+      <div class="file-gen-icon">🏗️</div>
+      <div class="file-gen-info">
+        <div class="file-gen-name">Bob the Builder — ${escHtml(data.title || 'Project')}</div>
+        <div class="file-gen-meta">Bob Builder ko de raha hai…</div>
+      </div>
+    </div>
+    <div class="builder-delegation-body">⏳ Builder se baat ho rahi hai — jawab ka wait karo…</div>
+  `;
+  delegateToBuilder(data, card);
+  return card;
+}
+
+async function delegateToBuilder(data, card) {
+  try {
+    const res = await apiFetch('/api/builder/delegate', {
+      method: 'POST',
+      body: JSON.stringify({
+        title: data.title,
+        instruction: data.instruction,
+        sessionId: data.sessionId || null,
+      }),
+    });
+    const out = await res.json();
+    const body = card.querySelector('.builder-delegation-body');
+    const meta = card.querySelector('.file-gen-meta');
+    if (!res.ok) throw new Error(out.error || 'delegation failed');
+
+    meta.textContent = '✅ Builder ne jawab de diya';
+    body.innerHTML = '';
+    const replyDiv = document.createElement('div');
+    replyDiv.className = 'msg-text-content';
+    const preview = out.reply.length > 700 ? out.reply.slice(0, 700) + '\n\n…' : out.reply;
+    replyDiv.innerHTML = renderTextContent(preview);
+    body.appendChild(replyDiv);
+
+    const openBtn = document.createElement('button');
+    openBtn.className = 'builder-open-btn';
+    openBtn.textContent = '🗂️ Open in Builder';
+    openBtn.addEventListener('click', () => {
+      setPersona('builder');
+      loadSessions();
+      selectSession(out.sessionId);
+    });
+    body.appendChild(openBtn);
+  } catch (err) {
+    const body = card.querySelector('.builder-delegation-body');
+    body.textContent = '⚠️ Builder delegation failed: ' + err.message;
+  }
 }
 
 // ═══════════════════════════════════════════════════════

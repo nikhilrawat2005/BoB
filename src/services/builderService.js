@@ -56,12 +56,13 @@ async function deleteBuilderSession(userId, sessionId) {
 }
 
 // ── Messages ────────────────────────────────────────────────
-async function addBuilderMessage(userId, sessionId, role, content) {
+// sender: 'user' | 'builder' | 'bob'  (bob = Bob sent this message into the Builder chat)
+async function addBuilderMessage(userId, sessionId, role, content, sender = null) {
   const ref = msgColl(userId, sessionId).doc();
   const now = Date.now();
-  await ref.set({ role, content, createdAt: now });
+  await ref.set({ role, content, sender: sender || role, createdAt: now });
   await coll(userId).doc(sessionId).set({ updatedAt: now }, { merge: true });
-  return { id: ref.id, role, content, createdAt: now };
+  return { id: ref.id, role, content, sender: sender || role, createdAt: now };
 }
 
 async function getBuilderMessages(userId, sessionId, limit = 40) {

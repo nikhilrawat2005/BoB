@@ -13,6 +13,7 @@ const statsService = require('../services/statsService');
 const weatherService = require('../services/weatherService');
 const newsService = require('../services/newsService');
 const stocksService = require('../services/stocksService');
+const crawler = require('../services/crawlerService');
 
 // ─────────────────────────────────────────────────────────
 // Live-data detection — when Master asks about weather, news, or
@@ -64,6 +65,31 @@ async function fetchLiveData(message) {
 
   if (!parts.length) return null;
   return `🌐 LIVE DATA (fetched just now — use these EXACT numbers, never invent your own):\n${parts.join('\n')}`;
+}
+
+/**
+ * 📄 WEB READING — when Master shares a link (hackathon, article, website),
+ * scrape it (SSRF-safe) and return a compact content block. Skips YouTube /
+ * Instagram (handled by mediaDetector). Never throws.
+ */
+async function fetchWebpage(message) {
+  const urlMatch = String(message || '').match(/https?:\/\/[^\s]+/);
+  if (!urlMatch) return null;
+  const url = urlMatch[0];
+  if (/(youtube\.com|youtu\.be|instagram\.com|instagr\.am)/i.test(url)) return null;
+  try {
+    const page = await crawler.scrapeURL(url);
+    if (!page || !page.contentSnippet) return null;
+    const lines = [];
+    lines.push(`📄 WEBPAGE — ${page.title || url}`);
+    if (page.description) lines.push(`Description: ${page.description}`);
+    if (page.headings && page.headings.length) lines.push(page.headings.slice(0, 12).join('\n'));
+    lines.push(page.contentSnippet.slice(0, 6000));
+    return lines.join('\n');
+  } catch (err) {
+    console.log('[Chat] Webpage scrape skipped:', err.message);
+    return null;
+  }
 }
 
 // GET /api/chat/proactive-greeting  - Proactively greets Master Nikhil with daily insights
@@ -120,10 +146,11 @@ router.post('/', requireAuth, async (req, res) => {
     //    (they are independent, so we don't serialise their latency)
     behaviorEngine.updateBehaviorProfile(req.userId, promptMessage).catch(err => console.error(err));
 
-    const [intent, mediaEnrichment, liveBlock] = await Promise.all([
+    const [intent, mediaEnrichment, liveBlock, webpageBlock] = await Promise.all([
       memoryManager.classifyIntent(promptMessage),
       enrichMessageWithMedia(promptMessage),
       fetchLiveData(promptMessage),
+      fetchWebpage(promptMessage),
     ]);
 
     // If new fact detected automatically, store it in memory facts (deduped)
@@ -155,6 +182,9 @@ router.post('/', requireAuth, async (req, res) => {
     let contextBlocks = [];
     if (liveBlock) {
       contextBlocks.push(liveBlock);
+    }
+    if (webpageBlock) {
+      contextBlocks.push(webpageBlock);
     }
     if (autoStats) {
       contextBlocks.push(`📊 AUTO-ANALYSIS of the data Master Nikhil just provided (exact computed values):\n${autoStats}`);
@@ -303,6 +333,35 @@ When Master Nikhil asks about weather, news, or the stock market, the backend fe
 - 📰 News: give the top 3–5 headlines with a crisp one-line summary for each.
 - If live data is missing/unavailable, say "live data ish samay fetch nahi hua" and give a general answer instead of making numbers up.
 - You can ALSO proactively suggest checking these when relevant (e.g. "shall I track Nifty for you?").
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+━━━ 📄 WEB READING (link self-study) ━━━
+When Master Nikhil shares a LINK (hackathon page, article, project website, PDF/landing), its CONTENT appears in your context as a "📄 WEBPAGE — <title>" block.
+- Read it thoroughly and give an intelligent summary/analysis: kya hai, key points, important details, kya useful hai.
+- For a hackathon/problem-statement page: extract the problem statement, theme, judging criteria, dates, and use them to suggest the best idea/direction.
+- NEVER invent details that are not in the scraped content — if the page was not readable, say so.
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+━━━ 🏗️ BUILDER DELEGATION (Bob the Builder teamwork) ━━━
+You work as a team with "Bob the Builder" — your separate project-planning & prompt-engineering persona. He plans, architects, writes prompt packs and generates project files in his OWN chat.
+WHEN TO DELEGATE: when Master Nikhil asks for a project plan, roadmap, app/website architecture, prompt pack, or hackathon execution plan (OR says "Builder ko bhej" / "plan banao" / wants files ready).
+HOW TO DELEGATE:
+1. First think yourself — pick a strong direction/idea (1-2 lines in your reply).
+2. Then output a builder block (NO filename=) like this:
+
+\`\`\`builder
+{
+  "title": "Hackathon Web-App Plan",
+  "instruction": "Full context for Bob the Builder: what to build, problem statement, tech stack, features, pages, deadlines, what prompt pack / files are needed. Be detailed!"
+}
+\`\`\`
+
+3. Confirm in your reply: "🏗️ Maine Builder ko de diya — project 'title' ban gaya. Builder se baat ho rahi hai, jab ready hoga files/mil jaayegi."
+RULES:
+- instruction me POORA context do (problem, stack preference, constraints, deadline) — Builder ke paas ye nahi hai otherwise.
+- If a Builder project already exists for this topic, you may pass its sessionId in the block to continue it.
+- Do NOT delegate simple questions — only real project planning/execution work.
+- If Master later asks about the Builder project, tell him to switch to the Builder persona (topbar) to see the Builder chat.
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 ━━━ ⏰ AUTONOMOUS SCHEDULED SELF-MESSAGING ENGINE ━━━
