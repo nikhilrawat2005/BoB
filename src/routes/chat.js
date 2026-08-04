@@ -96,11 +96,37 @@ async function fetchWebpage(message) {
 /**
  * 🐙 GITHUB FACTS — when Master asks about GitHub (his profile, repos, counts,
  * followers) fetch REAL data from the GitHub API so Bob never guesses.
- * Never throws.
+ * If a specific repo link is pasted, the ACTUAL repo code is read (analyzeRepo).
+ * Never throws. Returns an array of context blocks (or null).
  */
 async function fetchGitHub(message) {
   const m = String(message || '');
   if (!/\bgithub\b|\brepos?\b|\brepositories\b|profile\b/i.test(m)) return null;
+  const blocks = [];
+
+  // 1) Specific repo link(s) pasted? → read the ACTUAL code of the repo.
+  const repoUrls = repoService.extractRepoUrls(m).slice(0, 2);
+  if (repoUrls.length) {
+    for (const r of repoUrls) {
+      const analysis = await repoService.analyzeRepo(r.url).catch(err => ({ status: 'error', message: err.message }));
+      if (analysis && analysis.status === 'ok') {
+        blocks.push(analysis.context);
+        blocks.push(`⚠️ REPO RULE for "${analysis.repo.fullName}": upar wala code REAL padha gaya hai. Repo ke baare me ONLY upar diye file content/metadata use karo — kuch bhi invent mat karo.`);
+      } else {
+        const why = (analysis && (analysis.error === 'not_found' || analysis.status === 'not_found'))
+          ? `YE REPO EXIST NAHI KARTI (404) — private hai ya delete/rename ho gayi. Ye link follow mat karo, aur koi repo/link mat banao.`
+          : analysis && analysis.status === 'private'
+            ? 'Ye repo PRIVATE hai — iska content nahi dikh sakta, bina token ke. Khud se content mat banao.'
+            : (analysis && (analysis.error === 'rate_limit' || analysis.status === 'rate_limit'))
+              ? 'GitHub API rate limit hit — abhi repo verify nahi ho paya (anonymous 60/hr).'
+              : (analysis && analysis.message) || 'Repo fetch fail hua.';
+        blocks.push(`⚠️ GITHUB REPO CHECK for "${r.owner}/${r.repo}" (REAL API result): ${why}`);
+      }
+    }
+    return blocks;
+  }
+
+  // 2) No specific repo link → profile + REAL full repo list.
   let username = (m.match(/github\.com\/([A-Za-z0-9_.-]+)/) || [])[1];
   if (!username && /@([A-Za-z0-9_.-]+)\b/.test(m)) username = m.match(/@([A-Za-z0-9_.-]+)\b/)[1];
   username = username || process.env.GITHUB_USERNAME || 'nikhilrawat2005';
@@ -109,23 +135,27 @@ async function fetchGitHub(message) {
       repoService.getUserProfile(username),
       repoService.listUserRepos(username, 100),
     ]);
-    if (profile.error || repoList.error) return null;
+    if (profile.error || repoList.error) {
+      blocks.push(`⚠️ GITHUB DATA FETCH FAILED (REAL reason): ${profile.message || repoList.message}. KABHI bhi repo name, count, stars, language ya link invent mat karo — honestly batao ki fetch fail hua aur GITHUB_TOKEN laga kar fix hoga.`);
+      return blocks;
+    }
     const lines = [];
     lines.push(`🐙 GITHUB PROFILE (REAL DATA from GitHub API for @${profile.login}) — use these EXACT numbers, never invent:`);
     lines.push(`- Username: ${profile.login}${profile.name ? ' (' + profile.name + ')' : ''}`);
     lines.push(`- Public repos: ${profile.public_repos} | Followers: ${profile.followers} | Following: ${profile.following}${profile.location ? ' | Location: ' + profile.location : ''}`);
     if (profile.bio) lines.push(`- Bio: ${profile.bio}`);
+    lines.push(`- ⚠️ RULE: Sirf yehi repos exist karti hain (${repoList.count} fetched, REAL). Inke ilawa KOI repo/link/count/stars/language invent mat karo. Har repo ka real link: https://github.com/<full_name>`);
     if (repoList.repos && repoList.repos.length) {
-      lines.push(`- Recent public repos (${repoList.count} fetched):`);
-      repoList.repos.slice(0, 12).forEach(r => lines.push(`  • ${r.full_name} [${r.language || 'N/A'}, ⭐${r.stars}${r.fork ? ', fork' : ''}]${r.description ? ' — ' + r.description.slice(0, 120) : ''}`));
+      repoList.repos.forEach(r => lines.push(`  • ${r.full_name} — ${r.language || 'N/A'} ⭐${r.stars}${r.fork ? ' (fork)' : ''}${r.description ? ': ' + r.description.slice(0, 110) : ''}`));
     } else {
       lines.push('- No public repos found.');
     }
-    return lines.join('\n');
+    blocks.push(lines.join('\n'));
   } catch (err) {
     console.log('[Chat] GitHub fetch skipped:', err.message);
-    return null;
+    blocks.push('⚠️ GITHUB DATA FETCH FAILED (network). Kabhi bhi repo/count/link invent mat karo — batao ki fetch abhi fail hua.');
   }
+  return blocks;
 }
 
 // GET /api/chat/proactive-greeting  - Proactively greets Master Nikhil with daily insights
@@ -242,8 +272,8 @@ router.post('/', requireAuth, async (req, res) => {
     if (webpageBlock) {
       contextBlocks.push(webpageBlock);
     }
-    if (githubBlock) {
-      contextBlocks.push(githubBlock);
+    if (githubBlock && githubBlock.length) {
+      githubBlock.forEach(b => contextBlocks.push(b));
     }
     const wantsSelfEdit = /improve (yourself|your code|khud)|self.?edit|self.?improve|apne aap ko|khud ko|code review karo|bug fix karo|better banao/i.test(promptMessage);
     if (wantsSelfEdit) {
@@ -472,6 +502,15 @@ You are only allowed to promise Master Nikhil things that are ACTUALLY built. Th
 3. File creation (filename blocks), memory facts, monthly memory, hackathon/stalking/routines workspaces, Builder delegation (collab mode), web research, and live pulse ARE real.
 4. If Master asks to change the app's behaviour or UI (e.g. "live pulse me weather ki jagah ye dikhao", "chart kaisa banao"), DON'T promise it will happen automatically. Say honestly: "Ye feature abhi code me nahi hai, lekin main self-edit engine se ise implement kar sakta hoon" and ask if he wants you to implement it. NEVER show a fake confirmation card for an unimplemented feature.
 5. NEVER invent temperatures, prices, headlines, or data. If you don't have real data, say so.
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+━━━ 🐙 GITHUB RULE — ONLY REAL REPOS, NEVER INVENT ━━━
+- Jab bhi GitHub ka sawaal aaye (profile, "mera github study kar", repo count, repos list, followers, "ye repo kya hai", koi github link paste), upar ka "🐙 GITHUB PROFILE" ya "📦 GITHUB REPO ANALYSIS" block REAL API data hai.
+- SIRF wahi repos/languages/stars/counts/descriptions mention karo jo block me hain. Koi repo, link, count, language, ya stars apne dimaag se mat banao.
+- Koi repo block me nahi hai → wo exist nahi karti (ya private hai) → kabhi mat batao, aur uska fake link mat do.
+- Links hamesha sirf real full_name se: https://github.com/<owner>/<repo>. Kabhi guessed/broken link mat do — link 404 lag jayega.
+- Repo ke baare me detail (code, tech stack) batate waqt ONLY actual file content use karo jo block me hai.
+- Agar koi GitHub block nahi aaya (fetch fail / rate limit), khul ke bolo: "GitHub fetch abhi fail hua" — guess mat karo.
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 ━━━ 🧠 MEMORY ENGINE (How Bob remembers Master Nikhil) ━━━
