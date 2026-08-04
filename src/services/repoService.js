@@ -244,4 +244,32 @@ async function analyzeRepo(urlOrText) {
   return result;
 }
 
-module.exports = { extractRepoUrls, analyzeRepo, getRepoInfo };
+// ─────────────────────────────────────────────────────────
+// GitHub Search — find interesting repos by keyword/topic.
+// Free: 10 searches/min anonymous, 30/min with GITHUB_TOKEN.
+// Returns { items, count } or { error, message }.
+// ─────────────────────────────────────────────────────────
+
+async function searchRepos(query, limit = 5) {
+  const q = (query || '').trim();
+  if (!q) return { error: 'empty_query', message: 'Search query empty.' };
+  const per = Math.min(Math.max(parseInt(limit) || 5, 1), 10);
+  const url = `${API}/search/repositories?q=${encodeURIComponent(q)}&sort=stars&order=desc&per_page=${per}`;
+  const { status, body } = await fetchGH(url, 15000);
+  if (status === 0) return { error: 'network', message: 'GitHub se connect nahi ho paya.' };
+  if (status === 403) return { error: 'rate_limit', message: 'GitHub search rate limit hit (10/min anonymous). Thodi der baad try karo, ya GITHUB_TOKEN laga do.' };
+  if (status !== 200) return { error: 'api', status, message: `GitHub search failed (${status}).` };
+  const items = (body.items || []).map(it => ({
+    full_name: it.full_name,
+    html_url: it.html_url,
+    description: it.description,
+    language: it.language,
+    stars: it.stargazers_count,
+    forks: it.forks_count,
+    updated_at: it.updated_at,
+    topics: Array.isArray(it.topics) ? it.topics.slice(0, 5) : [],
+  }));
+  return { items, count: items.length };
+}
+
+module.exports = { extractRepoUrls, analyzeRepo, getRepoInfo, searchRepos };

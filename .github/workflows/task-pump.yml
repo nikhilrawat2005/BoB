@@ -1,0 +1,24 @@
+name: Builder Task Pump
+
+# Advances queued Bob-the-Builder background research tasks by one step.
+# A task = GitHub search → analyze top repos → generate final report → self-message.
+# Runs every 5 minutes; also manually triggerable from the Actions tab.
+
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+
+jobs:
+  pump:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Hit task pump endpoint
+        run: |
+          URL="${BOB_URL:-https://bob-backend.vercel.app}"
+          curl -sS -o /dev/null -w "task-pump HTTP %{http_code}\n" \
+            -X POST \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            "$URL/api/builder/tasks/pump"
+        env:
+          BOB_URL: ${{ secrets.BOB_URL }}
