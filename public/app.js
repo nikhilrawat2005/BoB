@@ -2012,8 +2012,11 @@ function openHqCard(id) {
   if (id === 'memory') { showView('memory'); loadFacts(); loadMonthlyFiles(); return; }
   if (id === 'files') { showView('files'); loadFiles(); return; }
   if (id === 'builder') { startBobBuilderCollab(); return; }
-  const navBtn = document.querySelector(`.nav-btn[data-view="${id}"]`);
-  if (navBtn) navBtn.click();
+  if (id === 'hackathons') { showView('hackathons'); loadHackathons(); return; }
+  if (id === 'stalking') { showView('stalking'); loadStalking(); return; }
+  if (id === 'routines') { showView('routines'); loadRoutines(); return; }
+  if (id === 'live') { showView('live'); loadLive(); return; }
+  if (id === 'hq') { showView('hq'); loadHQSummary(); return; }
 }
 
 // ═══════════════════════════════════════════════════════
