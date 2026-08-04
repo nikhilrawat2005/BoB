@@ -272,4 +272,60 @@ async function searchRepos(query, limit = 5) {
   return { items, count: items.length };
 }
 
-module.exports = { extractRepoUrls, analyzeRepo, getRepoInfo, searchRepos };
+module.exports = { extractRepoUrls, analyzeRepo, getRepoInfo, searchRepos, getUserProfile, listUserRepos };
+
+// ── GitHub user profile + repos (for accurate "mere kitne repos hain" answers) ──
+
+function cleanUsername(input) {
+  return String(input || '').trim().replace(/^@/, '').replace(/^https?:\/\/(www\.)?github\.com\//, '').replace(/\/+$/, '').split('/')[0];
+}
+
+// Returns real public profile data for a GitHub user.
+async function getUserProfile(usernameInput) {
+  const username = cleanUsername(usernameInput);
+  if (!username) return { error: 'empty_username', message: 'Username empty.' };
+  const { status, body } = await fetchGH(`/users/${encodeURIComponent(username)}`, 15000);
+  if (status === 0) return { error: 'network', message: 'GitHub se connect nahi ho paya.' };
+  if (status === 403) return { error: 'rate_limit', message: 'GitHub rate limit hit (60/hr anonymous). Thodi der baad try karo, ya GITHUB_TOKEN laga do.' };
+  if (status === 404) return { error: 'not_found', message: `GitHub pe "${username}" jaise user nahi mila.` };
+  if (status !== 200) return { error: 'api', status, message: `GitHub profile fetch failed (${status}).` };
+  return {
+    login: body.login,
+    name: body.name || body.login,
+    bio: body.bio || '',
+    location: body.location || '',
+    avatar_url: body.avatar_url || '',
+    html_url: body.html_url || `https://github.com/${username}`,
+    public_repos: body.public_repos ?? 0,
+    total_private_repos: body.total_private_repos ?? null,
+    followers: body.followers ?? 0,
+    following: body.following ?? 0,
+    created_at: body.created_at || '',
+    blog: body.blog || '',
+    company: body.company || '',
+  };
+}
+
+// Returns the actual public repos of a GitHub user (fresh from API).
+async function listUserRepos(usernameInput, limit = 30) {
+  const username = cleanUsername(usernameInput);
+  if (!username) return { error: 'empty_username', message: 'Username empty.' };
+  const per = Math.min(Math.max(parseInt(limit) || 30, 1), 100);
+  const { status, body } = await fetchGH(`/users/${encodeURIComponent(username)}/repos?sort=updated&per_page=${per}`, 15000);
+  if (status === 0) return { error: 'network', message: 'GitHub se connect nahi ho paya.' };
+  if (status === 403) return { error: 'rate_limit', message: 'GitHub rate limit hit. Thodi der baad try karo, ya GITHUB_TOKEN laga do.' };
+  if (status === 404) return { error: 'not_found', message: `GitHub pe "${username}" jaise user nahi mila.` };
+  if (status !== 200) return { error: 'api', status, message: `GitHub repos fetch failed (${status}).` };
+  const repos = (Array.isArray(body) ? body : []).map(r => ({
+    full_name: r.full_name,
+    html_url: r.html_url,
+    name: r.name,
+    description: r.description,
+    language: r.language,
+    stars: r.stargazers_count ?? 0,
+    forks: r.forks_count ?? 0,
+    fork: !!r.fork,
+    updated_at: r.updated_at,
+  }));
+  return { repos, count: repos.length };
+}

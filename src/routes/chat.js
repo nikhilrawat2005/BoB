@@ -14,6 +14,7 @@ const weatherService = require('../services/weatherService');
 const newsService = require('../services/newsService');
 const stocksService = require('../services/stocksService');
 const crawler = require('../services/crawlerService');
+const repoService = require('../services/repoService');
 
 // ─────────────────────────────────────────────────────────
 // Live-data detection — when Master asks about weather, news, or
@@ -92,6 +93,41 @@ async function fetchWebpage(message) {
   }
 }
 
+/**
+ * 🐙 GITHUB FACTS — when Master asks about GitHub (his profile, repos, counts,
+ * followers) fetch REAL data from the GitHub API so Bob never guesses.
+ * Never throws.
+ */
+async function fetchGitHub(message) {
+  const m = String(message || '');
+  if (!/\bgithub\b|\brepos?\b|\brepositories\b|profile\b/i.test(m)) return null;
+  let username = (m.match(/github\.com\/([A-Za-z0-9_.-]+)/) || [])[1];
+  if (!username && /@([A-Za-z0-9_.-]+)\b/.test(m)) username = m.match(/@([A-Za-z0-9_.-]+)\b/)[1];
+  username = username || process.env.GITHUB_USERNAME || 'nikhilrawat2005';
+  try {
+    const [profile, repoList] = await Promise.all([
+      repoService.getUserProfile(username),
+      repoService.listUserRepos(username, 100),
+    ]);
+    if (profile.error || repoList.error) return null;
+    const lines = [];
+    lines.push(`🐙 GITHUB PROFILE (REAL DATA from GitHub API for @${profile.login}) — use these EXACT numbers, never invent:`);
+    lines.push(`- Username: ${profile.login}${profile.name ? ' (' + profile.name + ')' : ''}`);
+    lines.push(`- Public repos: ${profile.public_repos} | Followers: ${profile.followers} | Following: ${profile.following}${profile.location ? ' | Location: ' + profile.location : ''}`);
+    if (profile.bio) lines.push(`- Bio: ${profile.bio}`);
+    if (repoList.repos && repoList.repos.length) {
+      lines.push(`- Recent public repos (${repoList.count} fetched):`);
+      repoList.repos.slice(0, 12).forEach(r => lines.push(`  • ${r.full_name} [${r.language || 'N/A'}, ⭐${r.stars}${r.fork ? ', fork' : ''}]${r.description ? ' — ' + r.description.slice(0, 120) : ''}`));
+    } else {
+      lines.push('- No public repos found.');
+    }
+    return lines.join('\n');
+  } catch (err) {
+    console.log('[Chat] GitHub fetch skipped:', err.message);
+    return null;
+  }
+}
+
 // GET /api/chat/proactive-greeting  - Proactively greets Master Nikhil with daily insights
 router.get('/proactive-greeting', requireAuth, async (req, res) => {
   try {
@@ -146,11 +182,12 @@ router.post('/', requireAuth, async (req, res) => {
     //    (they are independent, so we don't serialise their latency)
     behaviorEngine.updateBehaviorProfile(req.userId, promptMessage).catch(err => console.error(err));
 
-    const [intent, mediaEnrichment, liveBlock, webpageBlock] = await Promise.all([
+    const [intent, mediaEnrichment, liveBlock, webpageBlock, githubBlock] = await Promise.all([
       memoryManager.classifyIntent(promptMessage),
       enrichMessageWithMedia(promptMessage),
       fetchLiveData(promptMessage),
       fetchWebpage(promptMessage),
+      fetchGitHub(promptMessage),
     ]);
 
     // If new fact detected automatically, store it in memory facts (deduped)
@@ -204,6 +241,9 @@ router.post('/', requireAuth, async (req, res) => {
     }
     if (webpageBlock) {
       contextBlocks.push(webpageBlock);
+    }
+    if (githubBlock) {
+      contextBlocks.push(githubBlock);
     }
     if (autoStats) {
       contextBlocks.push(`📊 AUTO-ANALYSIS of the data Master Nikhil just provided (exact computed values):\n${autoStats}`);

@@ -4,6 +4,7 @@ const { requireAuth } = require('../middleware/auth');
 const crawler = require('../services/crawlerService');
 const { callLLM } = require('../services/llmService');
 const memory = require('../services/memoryService');
+const repo = require('../services/repoService');
 
 // POST /api/research/crawl  { url }  - Crawl & analyze any website URL
 router.post('/crawl', requireAuth, async (req, res) => {
@@ -79,6 +80,26 @@ Format the report into clean Markdown:
     res.json({ topic, report: text });
   } catch (err) {
     res.status(500).json({ error: 'Research report generation failed', details: err.message });
+  }
+});
+
+// POST /api/research/github  { username }  - Real GitHub profile + repos (no guessing)
+router.post('/github', requireAuth, async (req, res) => {
+  const username = (req.body.username || process.env.GITHUB_USERNAME || 'nikhilrawat2005').trim();
+  if (typeof username !== 'string' || username.length > 100) {
+    return res.status(400).json({ error: 'username must be a string under 100 characters' });
+  }
+  try {
+    const [profile, repoList] = await Promise.all([
+      repo.getUserProfile(username),
+      repo.listUserRepos(username, 100),
+    ]);
+    if (profile.error || repoList.error) {
+      return res.status(502).json({ error: profile.error || repoList.error, message: profile.message || repoList.message });
+    }
+    res.json({ profile, repos: repoList.repos, repoCount: repoList.count });
+  } catch (err) {
+    res.status(500).json({ error: 'GitHub profile fetch failed', details: err.message });
   }
 });
 
