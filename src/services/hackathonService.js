@@ -201,7 +201,7 @@ async function refreshKnowledge(userId, hackId) {
   if (!h) throw new Error('Hackathon not found');
   if (!h.link) throw new Error('Hackathon has no link to scrape');
 
-  const deep = await crawler.deepCrawl(h.link, { maxLinks: 4 });
+  const deep = await crawler.deepCrawl(h.link, { maxLinks: 2 });
   const meta = crawler.extractEventMeta(
     [deep.main.contentSnippet, ...deep.subPages.map(s => s.contentSnippet)].join('\n')
   );

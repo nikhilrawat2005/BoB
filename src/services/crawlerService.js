@@ -62,7 +62,7 @@ async function scrapeURL(targetUrl) {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
       },
-      timeout: 15000,
+      timeout: 5000,
     });
 
     if (!response.ok) {
@@ -187,7 +187,7 @@ function extractEventMeta(html) {
  * Deep-crawl a page: scrape the main URL, then scrape up to `maxLinks`
  * internal links. Returns combined context for building rich knowledge panels.
  */
-async function deepCrawl(targetUrl, { maxLinks = 5, sameDomain = true } = {}) {
+async function deepCrawl(targetUrl, { maxLinks = 3, sameDomain = true } = {}) {
   const main = await scrapeURL(targetUrl);
   let links = [];
   try {
@@ -197,13 +197,13 @@ async function deepCrawl(targetUrl, { maxLinks = 5, sameDomain = true } = {}) {
     await validatePublicUrl(targetUrl);
     const res = await fetch(targetUrl, {
       headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36' },
-      timeout: 15000,
+      timeout: 4000,
     });
     if (res.ok) {
       const html = await res.text();
       const $ = cheerio.load(html);
       const host = new URL(targetUrl).hostname.replace(/^www\./, '');
-      links = extractLinks($, targetUrl, maxLinks * 4).filter(l => {
+      links = extractLinks($, targetUrl, maxLinks * 3).filter(l => {
         if (!sameDomain) return true;
         try { return new URL(l.url).hostname.replace(/^www\./, '') === host; }
         catch { return false; }
@@ -211,19 +211,22 @@ async function deepCrawl(targetUrl, { maxLinks = 5, sameDomain = true } = {}) {
     }
   } catch (e) { /* best-effort link discovery */ }
 
+  const targetSubLinks = links.slice(0, maxLinks);
+  const subResults = await Promise.allSettled(targetSubLinks.map(l => scrapeURL(l.url)));
   const subPages = [];
   const scraped = [];
-  for (const l of links.slice(0, maxLinks)) {
-    try {
-      const sub = await scrapeURL(l.url);
+
+  subResults.forEach((res) => {
+    if (res.status === 'fulfilled') {
+      const sub = res.value;
       subPages.push({ url: sub.url, title: sub.title, contentSnippet: sub.contentSnippet });
       scraped.push(sub.url);
-    } catch { /* skip failed sub-page */ }
-  }
+    }
+  });
 
   return {
     main,
-    links: links.slice(0, maxLinks).map(l => l.url),
+    links: targetSubLinks.map(l => l.url),
     subPages,
     scrapedCount: scraped.length,
   };
