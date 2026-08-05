@@ -1335,12 +1335,32 @@ function scrollToBottom() {
 const messageInput = document.getElementById('message-input');
 const sendBtn      = document.getElementById('send-btn');
 
+function adjustTextareaHeight(el, maxH = 180) {
+  if (!el) return;
+  el.style.height = 'auto';
+  el.style.height = Math.min(el.scrollHeight, maxH) + 'px';
+}
+
+function attachAutoResizeTextarea(id, sendFn) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.addEventListener('input', () => adjustTextareaHeight(el));
+  el.addEventListener('paste', () => setTimeout(() => adjustTextareaHeight(el), 0));
+  el.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      sendFn();
+    }
+  });
+}
+
 messageInput.addEventListener('input', () => {
-  // Auto-grow textarea
-  messageInput.style.height = 'auto';
-  messageInput.style.height = Math.min(messageInput.scrollHeight, 160) + 'px';
-  // Enable send button if there's text OR a pending image/file
+  adjustTextareaHeight(messageInput);
   sendBtn.disabled = !messageInput.value.trim() && !pendingFile && !pendingPasteImage;
+});
+
+messageInput.addEventListener('paste', () => {
+  setTimeout(() => adjustTextareaHeight(messageInput), 0);
 });
 
 messageInput.addEventListener('keydown', (e) => {
@@ -2000,9 +2020,7 @@ async function loadVaultChat() {
 }
 
 document.getElementById('vault-send-btn').addEventListener('click', sendVaultMessage);
-document.getElementById('vault-chat-input').addEventListener('keydown', (e) => {
-  if (e.key === 'Enter') sendVaultMessage();
-});
+attachAutoResizeTextarea('vault-chat-input', sendVaultMessage);
 
 async function sendVaultMessage() {
   const input = document.getElementById('vault-chat-input');
@@ -2011,6 +2029,7 @@ async function sendVaultMessage() {
 
   const container = document.getElementById('vault-chat-messages');
   input.value = '';
+  input.style.height = 'auto';
 
   // Append user bubble immediately
   const userDiv = document.createElement('div');
@@ -2415,12 +2434,12 @@ async function loadHackChat(id) {
 }
 
 document.getElementById('hack-send-btn').addEventListener('click', sendHackMessage);
-document.getElementById('hack-chat-input').addEventListener('keydown', (e) => { if (e.key === 'Enter') sendHackMessage(); });
+attachAutoResizeTextarea('hack-chat-input', sendHackMessage);
 
 async function sendHackMessage() {
   const input = document.getElementById('hack-chat-input');
   const text = input.value.trim(); if (!text) return;
-  input.value = ''; input.disabled = true;
+  input.value = ''; input.style.height = 'auto'; input.disabled = true;
   const el = document.getElementById('hack-chat-messages');
   appendWsMsg(el, 'user', 'Nikhil', text);
 
@@ -2612,12 +2631,12 @@ function renderProfileCard(p) {
 }
 
 document.getElementById('stalk-send-btn').addEventListener('click', sendStalkMessage);
-document.getElementById('stalk-chat-input').addEventListener('keydown', (e) => { if (e.key === 'Enter') sendStalkMessage(); });
+attachAutoResizeTextarea('stalk-chat-input', sendStalkMessage);
 
 async function sendStalkMessage() {
   const input = document.getElementById('stalk-chat-input');
   const text = input.value.trim(); if (!text) return;
-  input.value = ''; input.disabled = true;
+  input.value = ''; input.style.height = 'auto'; input.disabled = true;
   const el = document.getElementById('stalk-chat-messages');
   appendWsMsg(el, 'user', 'Nikhil', text);
 
