@@ -309,6 +309,19 @@ async function refreshKnowledge(userId, hackId) {
 // ── Per-hackathon chat session (context-isolated) ────────
 async function ensureChatSession(userId, hack) {
   if (hack.chatSessionId) return hack.chatSessionId;
+
+  // Try to find an existing session with matching title before creating a new one
+  try {
+    const sessions = await memory.listSessions(userId);
+    const expectedTitle = `🏆 ${hack.title}`;
+    const match = sessions.find(s => s.title === expectedTitle);
+    if (match) {
+      await coll(userId).doc(hack.id).set({ chatSessionId: match.id }, { merge: true });
+      console.log(`ensureChatSession: re-linked existing session ${match.id} for hack="${hack.title}"`);
+      return match.id;
+    }
+  } catch (e) { /* best-effort */ }
+
   const s = await memory.createSession(userId, `🏆 ${hack.title}`);
   await coll(userId).doc(hack.id).set({ chatSessionId: s.id }, { merge: true });
   return s.id;
@@ -369,8 +382,35 @@ Be practical and specific. Use Hinglish when natural.`;
 async function chatList(userId, hackId) {
   const hack = await getHackathon(userId, hackId);
   if (!hack) throw new Error('Hackathon not found');
-  if (!hack.chatSessionId) return [];
-  return memory.getRecentMessages(userId, hack.chatSessionId, 100);
+
+  let sessionId = hack.chatSessionId;
+
+  // ── Auto-recover lost chatSessionId ──────────────────────
+  // If chatSessionId is missing, scan sessions for one with a matching title.
+  // This heals the case where the Firestore field was accidentally cleared.
+  if (!sessionId) {
+    try {
+      const sessions = await memory.listSessions(userId);
+      const expectedTitle = `🏆 ${hack.title}`;
+      const match = sessions.find(s => s.title === expectedTitle);
+      if (match) {
+        sessionId = match.id;
+        // Re-link so future loads don't need to scan
+        await coll(userId).doc(hackId).set({ chatSessionId: sessionId }, { merge: true });
+        console.log(`chatList: recovered lost chatSessionId=${sessionId} for hack="${hack.title}"`);
+      }
+    } catch (e) {
+      console.error('chatList: session recovery scan failed:', e.message);
+    }
+  }
+
+  if (!sessionId) return [];
+  try {
+    return await memory.getRecentMessages(userId, sessionId, 100);
+  } catch (e) {
+    console.error(`chatList: getRecentMessages failed for session ${sessionId}:`, e.message);
+    return [];
+  }
 }
 
 // ── Auto-routine (every-3-days tracking) ─────────────────
