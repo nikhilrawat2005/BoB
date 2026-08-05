@@ -2210,7 +2210,7 @@ async function loadHackathons() {
       } else {
         const fresh = hackathonsCache.find(h => String(h.id) === String(currentHack.id));
         if (fresh) {
-          currentHack = fresh;
+          selectHack(fresh.id);
         } else {
           selectHack(hackathonsCache[0].id);
         }
@@ -2431,9 +2431,11 @@ function renderHackKnowledge(h) {
     try {
       await apiFetch(`/api/hackathons/${h.id}/scrape`, { method: 'POST' });
       await loadHackathons();
-      const fresh = hackathonsCache.find(x => String(x.id) === String(h.id));
-      if (fresh) selectHack(fresh.id);
-    } catch (err) { alert(err.message); }
+    } catch (err) {
+      alert('Scrape failed: ' + err.message);
+      rs.disabled = false;
+      rs.textContent = '🔄 Re-scrape Knowledge';
+    }
   });
 }
 
