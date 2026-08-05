@@ -38,7 +38,9 @@ async function initFirebaseApp() {
     if (!res.ok) throw new Error('Failed to load server configuration');
     const firebaseConfig = await res.json();
     
-    firebase.initializeApp(firebaseConfig);
+    if (!firebase.apps.length) {
+      firebase.initializeApp(firebaseConfig);
+    }
     auth = firebase.auth();
     
     auth.onAuthStateChanged(async (user) => {
@@ -123,7 +125,8 @@ const ALLOWED_EMAILS = [
   'nikhil2005114@gmail.com',
   'nikhilrawat42005@gmail.com',
   'nikhilrawat4112005@gmail.com',
-  'nikhilrawat2005114@gmail.com'
+  'nikhilrawat2005114@gmail.com',
+  'nikhilrawat2005@gmail.com'
 ];
 
 // Google Sign-In
