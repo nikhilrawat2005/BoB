@@ -2314,7 +2314,7 @@ function renderHackList() {
 }
 
 async function selectHack(id) {
-  currentHack = hackathonsCache.find(h => h.id === id) || null;
+  currentHack = hackathonsCache.find(h => String(h.id) === String(id)) || null;
   renderHackList();
   if (!currentHack) return;
   document.getElementById('hack-chat-header').innerHTML = `<span>${escHtml(currentHack.title)}</span><span class="ws-chat-header-status ${currentHack.statusColor || 'grey'}">${currentHack.status}</span>`;
@@ -2398,7 +2398,7 @@ function renderHackKnowledge(h) {
     try {
       await apiFetch(`/api/hackathons/${h.id}/scrape`, { method: 'POST' });
       await loadHackathons();
-      const fresh = hackathonsCache.find(x => x.id === h.id);
+      const fresh = hackathonsCache.find(x => String(x.id) === String(h.id));
       if (fresh) selectHack(fresh.id);
     } catch (err) { alert(err.message); }
   });
@@ -2509,7 +2509,7 @@ function renderStalkList() {
     btn.disabled = true; btn.textContent = '⏳…';
     try {
       await apiFetch(`/api/stalking/${btn.dataset.id}/research`, { method: 'POST' });
-      const p = stalkCache.find(x => x.id === btn.dataset.id);
+      const p = stalkCache.find(x => String(x.id) === String(btn.dataset.id));
       if (p) p.status = 'researching';
       renderStalkList();
       setTimeout(loadStalking, 20000);
@@ -2518,7 +2518,7 @@ function renderStalkList() {
 }
 
 async function selectStalk(id) {
-  const p = stalkCache.find(x => x.id === id) || null;
+  const p = stalkCache.find(x => String(x.id) === String(id)) || null;
   currentStalk = p;
   renderStalkList();
   if (!p) return;
@@ -2629,7 +2629,7 @@ async function loadRoutines() {
       const { act, id } = btn.dataset;
       try {
         if (act === 'run') { btn.textContent = '⏳…'; await apiFetch(`/api/routines/${id}/run`, { method: 'POST' }); }
-        if (act === 'toggle') { const r = routines.find(x => x.id === id); await apiFetch(`/api/routines/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ active: !r.active }) }); }
+        if (act === 'toggle') { const r = routines.find(x => String(x.id) === String(id)); await apiFetch(`/api/routines/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ active: !r.active }) }); }
         if (act === 'del') { if (!confirm('Delete routine?')) return; await apiFetch(`/api/routines/${id}`, { method: 'DELETE' }); }
         await loadRoutines();
       } catch (err) { alert(err.message); }
