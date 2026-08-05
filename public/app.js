@@ -1699,7 +1699,7 @@ function showView(name) {
   document.querySelectorAll('.nav-btn').forEach(b => b.classList.toggle('active', b.dataset.view === next));
   return next;
 }
-function closeViews() { showView(''); }
+function closeViews() { showView(''); if (keysRefreshTimer) { clearInterval(keysRefreshTimer); keysRefreshTimer = null; } }
 
 document.querySelectorAll('.nav-btn').forEach(btn => {
   btn.addEventListener('click', () => {
@@ -2124,6 +2124,7 @@ function renderHQ(data) {
     hqCard({ id: 'live', icon: '📈', title: 'Live Pulse', color: 'green', badge: 'live', meta: 'weather · news · stocks', items: [], action: 'Open Live' }),
     hqCard({ id: 'builder', icon: '🏗️', title: 'Bob the Builder', color: 'amber', badge: collabMode ? 'ON' : 'off', meta: 'Builder collaboration · plan-confirm first', items: [], action: 'Start new project' }),
     hqCard({ id: 'selfedit', icon: '🧬', title: 'Self-Edit Engine', color: (c.selfEdits && c.selfEdits.pending) > 0 ? 'green' : 'grey', badge: `${(c.selfEdits && c.selfEdits.pending) || 0} pending`, meta: `applied ${(c.selfEdits && c.selfEdits.applied) || 0} · total ${(c.selfEdits && c.selfEdits.count) || 0}`, items: (c.selfEdits && c.selfEdits.items || []).slice(0, 3).map(e => ({ text: e.title, sub: `${e.file} · ${e.status}`, dot: e.status === 'applied' ? 'green' : (e.status === 'pending' ? 'amber' : 'grey') })), action: 'Open Self-Edit Engine' }),
+    hqCard({ id: 'keys', icon: '🔑', title: 'Keys Limit', color: 'amber', badge: 'OpenRouter', meta: 'key health · auto-refresh', items: [], action: 'Open Keys Management' }),
   ];
 
   grid.innerHTML = `<div class="hq-grid-inner">${cards.join('')}</div>`;
@@ -2140,6 +2141,13 @@ function openHqCard(id) {
   if (id === 'files') { showView('files'); loadFiles(); return; }
   if (id === 'builder') { startBobBuilderCollab(); return; }
   if (id === 'selfedit') { showView('selfedit'); loadSelfEdits(); return; }
+  if (id === 'keys') {
+    showView('keys');
+    loadKeys();
+    if (keysRefreshTimer) clearInterval(keysRefreshTimer);
+    keysRefreshTimer = setInterval(loadKeys, 60000);
+    return;
+  }
   if (id === 'hackathons') { showView('hackathons'); loadHackathons(); return; }
   if (id === 'stalking') { showView('stalking'); loadStalking(); return; }
   if (id === 'routines') { showView('routines'); loadRoutines(); return; }
@@ -3003,8 +3011,69 @@ document.addEventListener('click', async (e) => {
       await apiFetch('/api/self-edit/run', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) });
     } catch (err) { console.error('self-edit run:', err.message); }
     setTimeout(async () => {
-      e.target.disabled = false; e.target.textContent = '🧪 Run review now';
-      await loadSelfEdits();
-    }, 4000);
+      e.target.disabled = false; e.target.textContent = 'Refresh now';
+      await loadKeys();
+    }, 2000);
+  }
+});
+
+// ═══════════════════════════════════════════════════════
+// KEYS LIMIT ENGINE (view)
+// ═══════════════════════════════════════════════════════
+let keysRefreshTimer = null;
+
+async function loadKeys() {
+  const grid = document.getElementById('keys-grid');
+  try {
+    const data = await apiFetch('/api/keys/health');
+    const keys = data.keys || [];
+    const summary = data.summary || {};
+
+    const active = keys.filter(k => k.status === 'healthy');
+    const exhausted = keys.filter(k => k.status === 'exhausted' || k.status === 'needs-credits');
+    const usedExpired = keys.filter(k => k._archived || k.status === 'exhausted');
+
+    grid.innerHTML = `
+      <div class="keys-summary-bar">
+        <span class="ks-label">Active:</span><span class="ks-val ks-ok">${active.length}</span>
+        <span class="ks-label">Exhausted:</span><span class="ks-val ks-bad">${exhausted.length}</span>
+        <span class="ks-label">Max per key:</span><span class="ks-val">${data.maxTokensPerKey || '—'}</span>
+        ${summary.allExhausted ? '<span class="ks-bad">(sab exhausted!)</span>' : ''}
+      </div>
+      <div class="keys-section-title">🟢 Active Keys</div>
+      <div class="key-chips">${active.map(k => keyChip(k, 'ok')).join('') || '<div class="empty-msg">no active keys</div>'}</div>
+      <div class="keys-section-title">🟡 New / Replacement Keys</div>
+      <div class="key-chips">${data.newKeysLeft != null ? `<div class="ks-label">Available in pool: ${data.newKeysLeft}</div>` : '<div class="empty-msg">n/a</div>'}</div>
+      <div class="keys-section-title">🔴 Used / Expired</div>
+      <div class="key-chips">${usedExpired.map(k => keyChip(k, 'bad')).join('') || '<div class="empty-msg">none archived yet</div>'}</div>
+    `;
+  } catch (err) {
+    grid.innerHTML = `<div class="empty-msg">⚠️ Keys health load fail: ${escHtml(err.message)}</div>`;
+  }
+}
+
+function keyChip(k, variant) {
+  const cls = variant === 'ok' ? 'key-ok' : 'key-bad';
+  const bal = typeof k.balance === 'number' ? k.balance : '?';
+  const used = typeof k.tokensUsed === 'number' ? k.tokensUsed : 0;
+  const last = k.lastCheck ? new Date(k.lastCheck).toLocaleTimeString('en-IN', { hour12: false }) : '—';
+  const label = k.last4 ? `…${k.last4}` : '#';
+  return `<div class="key-chip ${cls}">
+    <span class="key-last4">${label}</span>
+    <span class="key-bal">bal ${bal}</span>
+    <span class="key-used">used ${used}</span>
+    <span class="key-status">${k.status}</span>
+    <span class="key-time">${last}</span>
+  </div>`;
+}
+
+document.addEventListener('click', async (e) => {
+  if (e.target && e.target.id === 'keys-refresh-btn') {
+    e.target.disabled = true; e.target.textContent = 'Refreshing…';
+    try { await loadKeys(); } catch (err) { console.error('keys refresh:', err.message); }
+    setTimeout(async () => {
+      e.target.disabled = false; e.target.textContent = 'Refresh now';
+      await loadKeys();
+    }, 2000);
   }
 });

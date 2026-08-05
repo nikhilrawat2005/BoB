@@ -18,6 +18,7 @@ const stalkingRoute      = require('./routes/stalking');
 const routinesRoute      = require('./routes/routines');
 const hqRoute            = require('./routes/hq');
 const selfEditRoute      = require('./routes/selfEdit');
+const keysRoute          = require('./routes/keys');
 
 const app = express();
 
@@ -71,6 +72,7 @@ app.use('/api/stalking',      stalkingRoute);
 app.use('/api/routines',      routinesRoute);
 app.use('/api/hq',            hqRoute);
 app.use('/api/self-edit',     selfEditRoute);
+app.use('/api/keys',          keysRoute);
 
 // 404 handler for unknown API routes
 app.use('/api', (req, res) => {

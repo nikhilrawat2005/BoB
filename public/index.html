@@ -351,6 +351,25 @@
           </div>
         </section>
 
+        <!-- Keys Limit workspace -->
+        <section class="view" id="view-keys">
+          <div class="view-header">
+            <div>
+              <h2 class="view-title">🔑 Keys Limit</h2>
+              <p class="view-sub">OpenRouter key health — active rotates, exhausted archived. Auto-refresh 60s.</p>
+            </div>
+            <div class="view-header-actions">
+              <button id="keys-refresh-btn" class="btn-small" title="Refresh now">🔄 Refresh</button>
+              <button class="view-close icon-btn" title="Close (back to chat)">✕</button>
+            </div>
+          </div>
+          <div class="view-body">
+            <div id="keys-grid" class="keys-grid">
+              <div class="empty-msg">Loading keys…</div>
+            </div>
+          </div>
+        </section>
+
         <!-- Memory workspace -->
         <section class="view" id="view-memory">
           <div class="side-panel workspace-panel">

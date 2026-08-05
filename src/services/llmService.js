@@ -36,14 +36,119 @@ if (_rawKeys.length === 0) {
 let _keyIndex = 0;
 
 /**
- * Returns the next API key from the pool using round-robin rotation.
- * Throws if the pool is empty.
+ * Per-key MAX token budget.
+ * The whole point: NO key is allowed to burn past this ceiling (which is what
+ * previously drove the originals into negative territory on free credits).
+ * Once a key's IN-MEMORY token usage hits MAX_TOKENS_PER_KEY (or its live
+ * balance <= 0), it is marked EXHAUSTED and skipped by _nextKey().
+ * Configurable via env so you can re-tune without a deploy.
+ */
+const MAX_TOKENS_PER_KEY = Number(process.env.MAX_TOKENS_PER_KEY || 500000);
+
+/**
+ * In-memory per-key bookkeeping.
+ *  keyUsage[fullKey] = { tokens: n, lastBalance: '$x', lastUsed: '$y', status: 'ok'|'exhausted', lastCheck: epochMs }
+ * NOTE: resets on server restart (deliberate — tokens are re-checked live
+ * via checkKeyHealth() against the OpenRouter /credits endpoint so the budget
+ * is re-evaluated against the real balance each time).
+ */
+const keyUsage = {};
+
+function _keyMeta(key) {
+  if (!keyUsage[key]) keyUsage[key] = { tokens: 0, status: 'ok', lastBalance: 0, lastUsed: 0, lastCheck: 0 };
+  return keyUsage[key];
+}
+
+/**
+ * Round-robin selector that skips exhausted keys.
+ * Throws if every key in the pool is exhausted.
  */
 function _nextKey() {
   if (_rawKeys.length === 0) throw new Error('No OpenRouter API key configured.');
-  const key = _rawKeys[_keyIndex % _rawKeys.length];
-  _keyIndex++;
+  const healthy = _rawKeys.filter(k => _keyMeta(k).status !== 'exhausted');
+  if (healthy.length === 0) throw new Error('All OpenRouter keys exhausted (MAX_TOKENS_PER_KEY reached or balance <= 0).');
+  let key;
+  for (let i = 0; i < _rawKeys.length; i++) {
+    const candidate = _rawKeys[(_keyIndex + i) % _rawKeys.length];
+    if (_keyMeta(candidate).status !== 'exhausted') { key = candidate; break; }
+  }
+  _keyIndex = (_keyIndex + 1) % _rawKeys.length;
   return key;
+}
+
+/**
+ * Mark a key exhausted in-memory (called when we observe balance<=0 or a
+ * per-key token limit hit from a live /credits check or an API credit error).
+ */
+function markKeyExhausted(key) {
+  const m = _keyMeta(key);
+  m.status = 'exhausted';
+  m.lastCheck = Date.now();
+  console.warn('[llmService] Key ...' + key.slice(-8) + ' marked EXHAUSTED.');
+}
+
+/**
+ * Returns a SAFE, ANONYMIZED snapshot of every key's health.
+ * NEVER returns full key strings — only last4 + balance/usage/status.
+ */
+function keyHealthSnapshot() {
+  return _rawKeys.map(k => {
+    const m = _keyMeta(k);
+    return {
+      last4: k.slice(-4),
+      tokensUsed: m.tokens,
+      maxTokens: MAX_TOKENS_PER_KEY,
+      status: m.status,
+      lastBalance: m.lastBalance,
+      lastUsed: m.lastUsed,
+      lastCheck: m.lastCheck,
+    };
+  });
+}
+
+/**
+ * Live health check: hits OpenRouter /credits for each key (anonymized),
+ * updates the in-memory budget, and marks keys exhausted when balance<=0 or
+ * usage>=limit. Cached per-key for `cacheMs` (default 60s) to avoid spamming.
+ */
+async function checkKeyHealth(cacheMs = 60000) {
+  const results = [];
+  const now = Date.now();
+  for (const key of _rawKeys) {
+    const m = _keyMeta(key);
+    if (now - m.lastCheck < cacheMs && m.lastCheck) {
+      results.push({ last4: key.slice(-4), status: m.status, balance: m.lastBalance, used: m.lastUsed, tokensUsed: m.tokens });
+      continue;
+    }
+    try {
+      const res = await fetch('https://openrouter.ai/api/v1/credits', { headers: { Authorization: `Bearer ${key}` } });
+      const j = await res.json();
+      const d = (j && j.data && j.data[0]) || {};
+      const balance = Number(d.total_credits) || 0;
+      const used = Number(d.total_usage) || 0;
+      m.lastBalance = balance;
+      m.lastUsed = used;
+      m.lastCheck = now;
+      if (balance <= 0 || m.tokens >= MAX_TOKENS_PER_KEY) {
+        if (balance <= 0) m.status = 'exhausted';
+      }
+      results.push({ last4: key.slice(-4), status: m.status, balance, used, tokensUsed: m.tokens });
+    } catch (e) {
+      results.push({ last4: key.slice(-4), status: m.status, balance: m.lastBalance, used: m.lastUsed, tokensUsed: m.tokens, error: e.message });
+    }
+  }
+  return results;
+}
+
+/**
+ * Call after each successful LLM response to bump the per-key token budget.
+ * Pass the key actually used and response.usage.total_tokens.
+ */
+function _recordUsage(key, usedTokens) {
+  if (!key || !usedTokens) return;
+  const m = _keyMeta(key);
+  m.tokens += usedTokens;
+  if (m.tokens >= MAX_TOKENS_PER_KEY) m.status = 'exhausted';
 }
 
 // ---------------------------------------------------------------------------
@@ -119,8 +224,18 @@ async function callLLM({ role = 'chat', messages, model, temperature, max_tokens
 
   if (data.error) {
     const msg = String(data.error.message || '');
-    if ((msg.includes('credits') || msg.includes('max_tokens') || msg.includes('afford')) && requestedMaxTokens > 1000) {
-      console.warn(`[llmService] Credit/max_tokens limit hit (${requestedMaxTokens}). Retrying with max_tokens: 1500...`);
+    const isCreditError = msg.includes('credits') || msg.includes('afford') || msg.includes('balance') || /requires more credits/.test(msg.toLowerCase());
+    if (isCreditError) {
+      // Burn-limit / balance exhausted THIS key → retire it from rotation, don't retry.
+      markKeyExhausted(apiKey);
+      const err = new Error('OpenRouter credit/balance exhausted for this key — auto-skipped. ' + msg);
+      err.details = data.error;
+      err.code = 'CREDIT_EXHAUSTED';
+      throw err;
+    }
+    // max_tokens-only error → retry once with a smaller ceiling.
+    if ((msg.includes('max_tokens')) && requestedMaxTokens > 1000) {
+      console.warn(`[llmService] max_tokens limit hit (${requestedMaxTokens}). Retrying with max_tokens: 1500...`);
       return callLLM({ role, messages, model, temperature, max_tokens: 1500, persona });
     }
     const err = new Error(msg || 'OpenRouter error');
@@ -131,6 +246,9 @@ async function callLLM({ role = 'chat', messages, model, temperature, max_tokens
   if (!data.choices || !data.choices.length || !data.choices[0].message) {
     throw new Error('OpenRouter returned an empty response');
   }
+
+  const usedTokens = (data.usage && Number(data.usage.total_tokens)) || 0;
+  _recordUsage(apiKey, usedTokens);
 
   return {
     text:  data.choices[0].message.content,
@@ -183,7 +301,7 @@ async function callLLMWithVision({ messages, userText, imageUrls = [], model, te
     max_tokens:  requestedMaxTokens,
   };
 
-  const res = await fetch(OPENROUTER_URL, {
+   const res = await fetch(OPENROUTER_URL, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -198,8 +316,16 @@ async function callLLMWithVision({ messages, userText, imageUrls = [], model, te
 
   if (data.error) {
     const msg = String(data.error.message || '');
-    if ((msg.includes('credits') || msg.includes('max_tokens') || msg.includes('afford')) && requestedMaxTokens > 1000) {
-      console.warn(`[llmService] Vision credit/max_tokens limit hit (${requestedMaxTokens}). Retrying with max_tokens: 1500...`);
+    const isCreditError = msg.includes('credits') || msg.includes('afford') || msg.includes('balance') || /requires more credits/.test(msg.toLowerCase());
+    if (isCreditError) {
+      markKeyExhausted(apiKey);
+      const err = new Error('OpenRouter credit/balance exhausted for this key — auto-skipped. ' + msg);
+      err.details = data.error;
+      err.code = 'CREDIT_EXHAUSTED';
+      throw err;
+    }
+    if (msg.includes('max_tokens') && requestedMaxTokens > 1000) {
+      console.warn(`[llmService] Vision max_tokens limit hit (${requestedMaxTokens}). Retrying with max_tokens: 1500...`);
       return callLLMWithVision({ messages, userText, imageUrls, model, temperature, max_tokens: 1500 });
     }
     const err = new Error(msg || 'OpenRouter vision error');
@@ -211,6 +337,9 @@ async function callLLMWithVision({ messages, userText, imageUrls = [], model, te
     throw new Error('OpenRouter returned an empty response');
   }
 
+  const usedTokens = (data.usage && Number(data.usage.total_tokens)) || 0;
+  _recordUsage(apiKey, usedTokens);
+
   return {
     text:  data.choices[0].message.content,
     model: selectedModel,
@@ -218,4 +347,9 @@ async function callLLMWithVision({ messages, userText, imageUrls = [], model, te
   };
 }
 
-module.exports = { callLLM, callLLMWithVision, MODEL_ROLES };
+module.exports = {
+  callLLM, callLLMWithVision, MODEL_ROLES,
+  MAX_TOKENS_PER_KEY,
+  checkKeyHealth, keyHealthSnapshot, markKeyExhausted,
+  _rawKeys, _keyMeta,
+};
