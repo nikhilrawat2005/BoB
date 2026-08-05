@@ -2490,7 +2490,7 @@ async function sendHackMessage() {
   input.disabled = false; input.focus();
 }
 
-document.getElementById('add-hack-btn').addEventListener('click', () => {
+function openAddHackathonModal() {
   openModal('➕ Add Hackathon', `
     <div class="modal-form">
       <label>Title *<input id="mk-title" type="text" placeholder="Smart India Hackathon 2026" /></label>
@@ -2522,7 +2522,10 @@ document.getElementById('add-hack-btn').addEventListener('click', () => {
       await loadHackathons();
     } catch (err) { alert(err.message); }
   });
-});
+}
+
+document.getElementById('add-hack-btn')?.addEventListener('click', openAddHackathonModal);
+document.getElementById('add-hack-btn-sidebar')?.addEventListener('click', openAddHackathonModal);
 
 // ═══════════════════════════════════════════════════════
 // STALKING WORKSPACE
