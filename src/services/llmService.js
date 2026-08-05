@@ -40,7 +40,8 @@ let _keyIndex = 0;
  * The whole point: NO key is allowed to burn past this ceiling (which is what
  * previously drove the originals into negative territory on free credits).
  * Once a key's IN-MEMORY token usage hits MAX_TOKENS_PER_KEY (or its live
- * balance <= 0), it is marked EXHAUSTED and skipped by _nextKey().
+  * balance goes NEGATIVE (boundary — free-credit keys are tried at $0 and
+  * only retired when a real call fails or they turn negative), it is marked EXHAUSTED and skipped by _nextKey().
  * Configurable via env so you can re-tune without a deploy.
  */
 const MAX_TOKENS_PER_KEY = Number(process.env.MAX_TOKENS_PER_KEY || 500000);
@@ -66,7 +67,7 @@ function _keyMeta(key) {
 function _nextKey() {
   if (_rawKeys.length === 0) throw new Error('No OpenRouter API key configured.');
   const healthy = _rawKeys.filter(k => _keyMeta(k).status !== 'exhausted');
-  if (healthy.length === 0) throw new Error('All OpenRouter keys exhausted (MAX_TOKENS_PER_KEY reached or balance <= 0).');
+  if (healthy.length === 0) throw new Error('All OpenRouter keys exhausted (MAX_TOKENS_PER_KEY reached or balance < 0).');
   let key;
   for (let i = 0; i < _rawKeys.length; i++) {
     const candidate = _rawKeys[(_keyIndex + i) % _rawKeys.length];
@@ -129,8 +130,8 @@ async function checkKeyHealth(cacheMs = 60000) {
       m.lastBalance = balance;
       m.lastUsed = used;
       m.lastCheck = now;
-      if (balance <= 0 || m.tokens >= MAX_TOKENS_PER_KEY) {
-        if (balance <= 0) m.status = 'exhausted';
+      if (balance < 0 || m.tokens >= MAX_TOKENS_PER_KEY) {
+        if (balance < 0) m.status = 'exhausted';
       }
       results.push({ last4: key.slice(-4), status: m.status, balance, used, tokensUsed: m.tokens });
     } catch (e) {
