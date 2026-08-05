@@ -201,7 +201,13 @@ async function refreshKnowledge(userId, hackId) {
   if (!h) throw new Error('Hackathon not found');
   if (!h.link) throw new Error('Hackathon has no link to scrape');
 
-  const deep = await crawler.deepCrawl(h.link, { maxLinks: 2 });
+  let deep = { main: { title: h.title, description: h.description || '', headings: [], contentSnippet: h.description || '' }, links: [h.link], subPages: [] };
+  try {
+    deep = await crawler.deepCrawl(h.link, { maxLinks: 1 });
+  } catch (e) {
+    console.error('refreshKnowledge deepCrawl fallback:', e.message);
+  }
+
   const meta = crawler.extractEventMeta(
     [deep.main.contentSnippet, ...deep.subPages.map(s => s.contentSnippet)].join('\n')
   );
@@ -212,7 +218,7 @@ async function refreshKnowledge(userId, hackId) {
     ...deep.main.headings,
     deep.main.contentSnippet,
     ...deep.subPages.map(s => `${s.title}\n${s.contentSnippet}`),
-  ].join('\n').slice(0, 14000);
+  ].join('\n').slice(0, 8000);
 
   let extracted = null;
   try {
