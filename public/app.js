@@ -2492,31 +2492,6 @@ function renderHackKnowledge(h) {
       }
     });
   });
-}🔄 Re-scrape Knowledge</button>
-  `;
-  const rs = document.getElementById('re-scrape-hack');
-  if (rs) rs.addEventListener('click', async () => {
-    rs.disabled = true; rs.textContent = '⏳ Scraping…';
-    // Client-side safety timeout — unlock button after 30s regardless
-    const safetyTimer = setTimeout(() => {
-      if (rs && rs.textContent === '⏳ Scraping…') {
-        rs.disabled = false;
-        rs.textContent = '🔄 Re-scrape Knowledge';
-      }
-    }, 30000);
-    try {
-      await apiFetch(`/api/hackathons/${h.id}/scrape`, { method: 'POST' });
-      clearTimeout(safetyTimer);
-      rs.textContent = '✅ Done!';
-      await loadHackathons();
-      // loadHackathons re-renders the section so 'rs' is detached — that's fine
-    } catch (err) {
-      clearTimeout(safetyTimer);
-      alert('Scrape failed: ' + err.message);
-      rs.disabled = false;
-      rs.textContent = '🔄 Re-scrape Knowledge';
-    }
-  });
 }
 
 async function loadHackChat(id) {
