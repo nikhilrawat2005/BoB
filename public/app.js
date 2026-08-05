@@ -2517,6 +2517,27 @@ async function sendHackMessage() {
     const data = await apiFetch(`/api/hackathons/${currentHack.id}/chat`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ message: text }) });
     try { el.removeChild(loadingMsg); } catch(_) {}
     appendWsMsg(el, 'assistant', 'Bob 🏆', data.reply);
+
+    // ── Knowledge auto-updated from pasted announcement ──────────────
+    if (data.knowledgeUpdated) {
+      // Show a flash badge on the last assistant message
+      const lastMsg = el.querySelector('.ws-msg.assistant:last-child .ws-msg-text');
+      if (lastMsg) {
+        const badge = document.createElement('div');
+        badge.style.cssText = 'margin-top:8px;padding:4px 10px;background:rgba(74,222,128,0.15);border:1px solid rgba(74,222,128,0.4);border-radius:6px;font-size:11px;color:#4ade80;display:inline-block;';
+        badge.textContent = '📚 Knowledge panel updated from your paste!';
+        lastMsg.appendChild(badge);
+      }
+      // Refresh knowledge panel without full list reload
+      try {
+        const { hackathon } = await apiFetch(`/api/hackathons/${currentHack.id}`);
+        // Update the cache entry
+        const idx = hackathonsCache.findIndex(h => String(h.id) === String(currentHack.id));
+        if (idx !== -1) hackathonsCache[idx] = hackathon;
+        currentHack = hackathon;
+        renderHackKnowledge(hackathon);
+      } catch(_) {}
+    }
   } catch (err) {
     try { el.removeChild(loadingMsg); } catch(_) {}
     appendWsMsg(el, 'assistant', 'Bob 🏆', '⚠️ ' + err.message);

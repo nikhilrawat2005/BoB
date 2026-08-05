@@ -79,6 +79,18 @@ router.post('/:id/scrape', requireAuth, async (req, res) => {
   }
 });
 
+// POST /api/hackathons/:id/knowledge-from-text  { text } — update knowledge from pasted announcement
+router.post('/:id/knowledge-from-text', requireAuth, async (req, res) => {
+  const { text } = req.body || {};
+  if (!text || typeof text !== 'string') return res.status(400).json({ error: 'text is required' });
+  try {
+    const hackathon = await hacks.refreshKnowledgeFromText(req.userId, req.params.id, text);
+    res.json({ hackathon });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // GET /api/hackathons/:id/chat
 router.get('/:id/chat', requireAuth, async (req, res) => {
   try {

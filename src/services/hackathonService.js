@@ -337,6 +337,103 @@ TODAY'S DATE: ${todayStr}. If the page shows multiple years (e.g. 2024, 2025, 20
   return getHackathon(userId, hackId);
 }
 
+// ── Knowledge: update from user-pasted text ─────────────
+/**
+ * Detects if a chat message looks like a pasted hackathon announcement
+ * (has enough hackathon signals: prize, dates, mode, etc.)
+ */
+function looksLikeHackathonAnnouncement(text) {
+  if (!text || text.length < 80) return false;
+  let score = 0;
+  if (/prize|₹|\$|reward pool|winning/i.test(text)) score++;
+  if (/deadline|register|registration|submit/i.test(text)) score++;
+  if (/\d+\s*hour|48h|24h|36h/i.test(text)) score++;
+  if (/hackathon|coding challenge|buildathon|codat/i.test(text)) score++;
+  if (/aug|sep|oct|nov|dec|jan|feb|mar|apr|may|jun|jul|2025|2026/i.test(text)) score++;
+  if (/online|offline|virtual|in.person/i.test(text)) score++;
+  if (/solo|team|members|participants/i.test(text)) score++;
+  if (/certificate|internship|hiring|opportunity/i.test(text)) score++;
+  return score >= 3;
+}
+
+/**
+ * Update knowledge panel from user-pasted raw text instead of scraping.
+ * Used when the site is behind login / scraping fails.
+ */
+async function refreshKnowledgeFromText(userId, hackId, rawText) {
+  const h = await getHackathon(userId, hackId);
+  if (!h) throw new Error('Hackathon not found');
+
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const res = await callLLM({
+    role: 'review',
+    messages: [
+      {
+        role: 'system',
+        content: `You are a structured data extractor for hackathons. Analyze the pasted text and return clean JSON only (no markdown fences).
+TODAY'S DATE: ${todayStr}. Prefer upcoming/current edition dates over past ones.
+Extract: title, startDate (timestamp ms or null), endDate (timestamp ms or null), registrationDeadline (timestamp ms or null), prize (string), mode ("online"/"offline"/"unknown"), description (2-3 sentences), rules (array of strings, max 8), eligibility (string), teamSize (string).`
+      },
+      { role: 'user', content: `Extract hackathon details from this announcement:\n\n${rawText}` }
+    ],
+    temperature: 0.2,
+    max_tokens: 900,
+  });
+
+  let parsed = {};
+  try { parsed = JSON.parse(res.text.replace(/```json|```/g, '').trim()); }
+  catch (e) { parsed = {}; }
+
+  const nowMs = Date.now();
+
+  // Build knowledge object
+  const dateStrings = [];
+  if (parsed.startDate) dateStrings.push(new Date(parsed.startDate).toISOString().slice(0, 10));
+  if (parsed.endDate)   dateStrings.push(new Date(parsed.endDate).toISOString().slice(0, 10));
+  if (parsed.registrationDeadline) dateStrings.push('Reg deadline: ' + new Date(parsed.registrationDeadline).toISOString().slice(0, 10));
+
+  const knowledge = {
+    summary: parsed.description || h.description || rawText.slice(0, 600),
+    title: parsed.title || h.title,
+    dates: dateStrings,
+    prizes: parsed.prize ? [parsed.prize] : (h.knowledge?.prizes || []),
+    mode: parsed.mode || h.mode || 'unknown',
+    rules: (Array.isArray(parsed.rules) && parsed.rules.length) ? parsed.rules : (h.knowledge?.rules || []),
+    eligibility: parsed.eligibility || h.knowledge?.eligibility || '',
+    teamSize: parsed.teamSize || '',
+    winners: h.knowledge?.winners || '',
+    links: h.knowledge?.links || (h.link ? [h.link] : []),
+    scrapedAt: nowMs,
+    fromText: true,
+  };
+
+  const patch = {
+    knowledge,
+    mode: knowledge.mode,
+    prize: knowledge.prizes[0] || h.prize || '',
+    description: knowledge.summary || h.description || '',
+    updatedAt: nowMs,
+  };
+
+  // Date guard — only overwrite with future dates
+  if (parsed.startDate) {
+    const ts = Number(parsed.startDate);
+    if (ts >= nowMs - 24 * 60 * 60 * 1000) patch.startDate = ts;
+  }
+  if (parsed.endDate) {
+    const ts = Number(parsed.endDate);
+    if (ts >= nowMs) patch.endDate = ts;
+  }
+
+  patch.status = statusFromDates(
+    patch.startDate !== undefined ? patch.startDate : h.startDate,
+    patch.endDate !== undefined ? patch.endDate : h.endDate
+  );
+
+  await coll(userId).doc(hackId).set(patch, { merge: true });
+  return getHackathon(userId, hackId);
+}
+
 // ── Per-hackathon chat session (context-isolated) ────────
 async function ensureChatSession(userId, hack) {
   if (hack.chatSessionId) return hack.chatSessionId;
@@ -387,8 +484,21 @@ async function chatSend(userId, hackId, message) {
   const sid = await ensureChatSession(userId, hack);
   await memory.addMessage(userId, sid, 'user', message);
 
+  // ── Auto-detect pasted hackathon announcement → update knowledge ──
+  let knowledgeUpdated = false;
+  let updatedHack = hack;
+  if (looksLikeHackathonAnnouncement(message)) {
+    try {
+      updatedHack = await refreshKnowledgeFromText(userId, hackId, message);
+      knowledgeUpdated = true;
+      console.log(`chatSend: auto-updated knowledge from pasted text for hack="${hack.title}"`);
+    } catch (e) {
+      console.error('chatSend: knowledge-from-text failed:', e.message);
+    }
+  }
+
   const recent = await memory.getRecentMessages(userId, sid, 20);
-  const context = await buildHackContext(userId, hack);
+  const context = await buildHackContext(userId, updatedHack);
 
   const systemPrompt = `You are Bob, Master Nikhil's personal AI, inside the "${hack.title}" HACKATHON WORKSPACE.
 This chat is STRICTLY about this hackathon only. Never bring up vault, stalking, other hackathons, or other chats.
@@ -396,8 +506,14 @@ Help with ideation, planning, team formation, tech stack, implementation, submis
 
 HACKATHON KNOWLEDGE:
 ${context}
+${
+  knowledgeUpdated
+    ? '\n[SYSTEM: Master ne abhi hackathon announcement paste kiya. Knowledge panel update ho gaya. Confirm karo aur key highlights mention karo — dates, prize, mode. Fir poocho kya help chahiye.]'
+    : ''
+}
 
 Be practical and specific. Use Hinglish when natural.`;
+
   const { text, model } = await callLLM({
     role: 'chat',
     messages: [
@@ -407,7 +523,7 @@ Be practical and specific. Use Hinglish when natural.`;
   });
 
   await memory.addMessage(userId, sid, 'assistant', text);
-  return { reply: text, model, sessionId: sid };
+  return { reply: text, model, sessionId: sid, knowledgeUpdated };
 }
 
 async function chatList(userId, hackId) {
@@ -525,5 +641,6 @@ async function autoExpireAndRemind() {
 
 module.exports = {
   createHackathon, getHackathon, listHackathons, updateHackathon, deleteHackathon,
-  refreshKnowledge, chatSend, chatList, ensureAutoRoutine, autoExpireAndRemind, statusFromDates, parseFromText,
+  refreshKnowledge, refreshKnowledgeFromText, chatSend, chatList,
+  ensureAutoRoutine, autoExpireAndRemind, statusFromDates, parseFromText,
 };
