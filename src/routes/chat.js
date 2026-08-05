@@ -99,36 +99,52 @@ async function fetchWebpage(message) {
  * If a specific repo link is pasted, the ACTUAL repo code is read (analyzeRepo).
  * Never throws. Returns an array of context blocks (or null).
  */
-const TOPIC_STOPWORDS = new Set(['github', 'git', 'repos', 'repo', 'repositories', 'repository', 'projects', 'project', 'mera', 'meri', 'mere', 'apna', 'apni', 'sab', 'saare', 'kuch']);
+const TOPIC_STOPWORDS = new Set(['github', 'git', 'repos', 'repo', 'repositories', 'repository', 'projects', 'project', 'mera', 'meri', 'mere', 'apna', 'apni', 'sab', 'saare', 'kuch', 'regarding']);
 
 function extractTopic(m) {
-  const cleaned = String(m).replace(/```[\s\S]*?```/g, ' ').replace(/\s+/g, ' ').trim();
-  const p1 = cleaned.match(/\brepos?\b[^.\n]{0,50}\b(?:for|about|on|related to)\s+([A-Za-z0-9][A-Za-z0-9 .&+_\/-]{1,60})/i);
-  const p2 = cleaned.match(/\b(?:find|search|dhoondo?|dhundho?|khojo?|suggest|recommend|best|top|popular|do)\s+(\d+\s+)?([A-Za-z0-9][A-Za-z0-9 .&+_\/-]{1,60})\s+repos?\b/i);
-  const p3 = cleaned.match(/\b([A-Za-z0-9][A-Za-z0-9 .&+_\/-]{1,60})\s+(?:related\s+)?repos?\b/i);
-  let topic = (p1 && p1[1]) || (p2 && p2[2]) || (p3 && p3[1]) || '';
+  let cleaned = String(m || '').replace(/```[\s\S]*?```/g, ' ').replace(/\s+/g, ' ').trim();
+
+  // Pattern 1: Topic BEFORE "ke regarding / related / pe / par / ke liye / ke baare me" (e.g. "location tracking ke regarding repos find karo")
+  const pHinglishBefore = cleaned.match(/([A-Za-z0-9][A-Za-z0-9 .&+_\/-]{1,50})\s+(?:ke\s+(?:regarding|related|liye|baare\s+me|par|pe)|pe|par|related\s+to)/i);
+
+  // Pattern 2: Topic AFTER "repos for/about/on/related to" (e.g. "repos for location tracking")
+  const pEnglishAfter = cleaned.match(/(?:repos?|projects?|repositories)\s+(?:for|about|on|related\s+to|ke\s+liye|ke\s+baare\s+me)\s+([A-Za-z0-9][A-Za-z0-9 .&+_\/-]{1,50})/i);
+
+  // Pattern 3: Direct search verbs (e.g. "find location tracking repos" or "dhundo location tracking projects")
+  const pVerbs = cleaned.match(/(?:find|search|dhundh[o]?|dhoond[o]?|khoj[o]?|suggest|recommend)\s+(\d+\s+)?([A-Za-z0-9][A-Za-z0-9 .&+_\/-]{1,50})\s*(?:repos?|projects?|code|repositories)?/i);
+
+  // Pattern 4: Direct noun phrase (e.g. "location tracking repos")
+  const pNoun = cleaned.match(/([A-Za-z0-9][A-Za-z0-9 .&+_\/-]{1,50})\s+(?:repos?|projects?|repositories)/i);
+
+  let topic = (pHinglishBefore && pHinglishBefore[1]) ||
+              (pEnglishAfter && pEnglishAfter[1]) ||
+              (pVerbs && (pVerbs[2] || pVerbs[1])) ||
+              (pNoun && pNoun[1]) ||
+              cleaned;
+
   let prev;
   do {
     prev = topic;
     topic = topic
-      .replace(/(?:\brelated\b|\brepo\b|\brepos?\b|\bke?\b|\bka\b|\bki\b|\bko\b|\bme\b|\bdo\b|\bkarke\b|\bbatao\b|\bbata\b|\bchahiye\b|\bdhoondo?\b|\bdhundho?\b|\bfind\b|\bsearch\b|\bhai\b|\bhain\b|\bgood\b|\bgreat\b|\bacha\b|\baccha\b|\bacche\b|\bkoi\b|\bone\b|\bany\b|\bsome\b|\bnhi\b|\bnahi\b)\s*$/i, '')
+      .replace(/(?:\brelated\b|\brepo\b|\brepos?\b|\bprojects?\b|\bregarding\b|\bke?\b|\bka\b|\bki\b|\bko\b|\bme\b|\bpe\b|\bpar\b|\bdo\b|\bkarke\b|\bbatao\b|\bbata\b|\bchahiye\b|\bdhoondo?\b|\bdhundho?\b|\bfind\b|\bsearch\b|\bkaro\b|\bhai\b|\bhain\b|\bgood\b|\bgreat\b|\bacha\b|\baccha\b|\bacche\b|\bkoi\b|\bone\b|\bany\b|\bsome\b|\bnhi\b|\bnahi\b)\s*$/i, '')
+      .replace(/^(?:github|git|pe|par|me|se|ke|ka|ki|ko|the|a|an|some|best|top|kya|koi|good|acha|accha|any|abhi|mere|mera|apne|apna|apni|sab|saare|find|search|dhundh|dhoond|khoj)\s+/i, '')
       .trim();
-    topic = topic.replace(/^(?:github|git|pe|par|me|se|ke|ka|ki|ko|the|a|an|some|best|top|kya|koi|good|acha|accha|any|abhi|mere|mera|apne|apna|apni|sab|saare)\s+/i, '').trim();
   } while (topic !== prev);
+
   return TOPIC_STOPWORDS.has(topic.toLowerCase()) ? '' : topic;
 }
 
 function searchIntent(m) {
   if (/\bgithub\.com\/([A-Za-z0-9_.-]+)\b|\@[A-Za-z0-9_.-]+\b/i.test(m)) return false;
-  if (!/\brepos?\b|\bprojects?\b|\bsource code\b/i.test(m)) return false;
+  const hasKeyword = /\b(?:repos?|projects?|repositories|source code|github|dhundh[oa]?|dhoond[oa]?|khoj[oa]?|search|find|suggest|recommend)\b/i.test(m);
+  if (!hasKeyword) return false;
   const topic = extractTopic(m);
-  if (!topic) return false;
-  return /\b(?:find|search|dhoond|dhundh|khoj|suggest|recommend|best|top|popular|related|like|jaise|acha|acche|good|koi|chahiye|do|bata)/i.test(m);
+  return !!topic;
 }
 
 async function fetchGitHub(message) {
   const m = String(message || '');
-  if (!/\bgithub\b|\brepos?\b|\brepositories\b|profile\b/i.test(m)) return null;
+  if (!/\bgithub\b|\brepos?\b|\brepositories\b|\bprojects?\b|\bprofile\b|\bdhoond\b|\bdhundh\b|\bkhoj\b|\bsearch\b|\bfind\b/i.test(m)) return null;
   const blocks = [];
 
   // 1) Specific repo link(s) pasted? → read the ACTUAL code of the repo.

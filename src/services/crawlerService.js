@@ -73,8 +73,20 @@ async function scrapeURL(targetUrl) {
     const $ = cheerio.load(html);
 
     // Extract metadata
-    const title = $('title').text().trim() || $('meta[property="og:title"]').attr('content') || '';
-    const description = $('meta[name="description"]').attr('content') || $('meta[property="og:description"]').attr('content') || '';
+    const title = $('title').text().trim() || $('meta[property="og:title"]').attr('content') || $('meta[name="twitter:title"]').attr('content') || '';
+    const description = $('meta[name="description"]').attr('content') || $('meta[property="og:description"]').attr('content') || $('meta[name="twitter:description"]').attr('content') || '';
+
+    // Extract JSON-LD structured data (often embedded in Unstop / Devpost / Event pages for SEO)
+    const jsonLdBlocks = [];
+    $('script[type="application/ld+json"]').each((_, el) => {
+      try {
+        const text = $(el).html();
+        if (text) {
+          const json = JSON.parse(text);
+          jsonLdBlocks.push(json);
+        }
+      } catch (e) { /* ignore invalid JSON-LD */ }
+    });
 
     // Extract clean body text (removing script/style tags)
     $('script, style, noscript, svg, iframe').remove();
@@ -106,9 +118,10 @@ async function scrapeURL(targetUrl) {
       title,
       description,
       headings,
+      jsonLd: jsonLdBlocks,
       scripts: scripts.slice(0, 10),
       stylesheets: stylesheets.slice(0, 10),
-      contentSnippet: cleanText.slice(0, 4000), // First 4000 chars for context
+      contentSnippet: cleanText.slice(0, 5000), // First 5000 chars for context
       fullTextLength: cleanText.length,
     };
   } catch (err) {
@@ -147,18 +160,19 @@ function extractEventMeta(html) {
     .replace(/<style[\s\S]*?<\/style>/gi, ' ')
     .replace(/<[^>]+>/g, ' ')
     .replace(/\s+/g, ' ')
-    .slice(0, 20000);
+    .slice(0, 25000);
 
   const dates = [];
-  const dateRe = /(\d{1,2}[-/ ](?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*[-/ ]\d{2,4}|\d{4}-\d{2}-\d{2}|\d{2}\/\d{2}\/\d{2,4}|\d{1,2} (?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*[, ]* \d{2,4})/gi;
+  // Flexible regex for dates, date-ranges (e.g. 7-9 August 2026, 6th Aug 2026, 2026-08-06, Deadline: 6 August)
+  const dateRe = /(\d{1,2}(?:\s*[-–—to\s]+\s*\d{1,2})?\s*(?:st|nd|rd|th)?\s+(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*[,\s]*\d{2,4}|\d{4}-\d{2}-\d{2}|\d{1,2}\/\d{1,2}\/\d{2,4})/gi;
   let m;
   while ((m = dateRe.exec(text)) !== null && dates.length < 8) {
-    const d = m[1];
+    const d = m[1].trim();
     if (!dates.some(x => x.toLowerCase() === d.toLowerCase())) dates.push(d);
   }
 
   const prize = [];
-  const prizeRe = /(?:prize|prizes? pool|cash (?:prize|award)|rewards?)[:\s]+(?:up to\s+)?(?:₹|Rs\.?|INR|USD|\$)\s?[\d,]+(?:\s*[kK]|\s*lakh|\s*crore)?/gi;
+  const prizeRe = /(?:prize|prizes? pool|cash (?:prize|award)|rewards?|prize money)[:\s]+(?:up to\s+)?(?:₹|Rs\.?|INR|USD|\$)\s?[\d,]+(?:\s*[kK]|\s*lakh|\s*crore)?/gi;
   while ((m = prizeRe.exec(text)) !== null && prize.length < 5) {
     prize.push(m[0].slice(0, 120));
   }
