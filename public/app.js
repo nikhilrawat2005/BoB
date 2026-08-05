@@ -2420,10 +2420,76 @@ function renderHackKnowledge(h) {
     <div class="ws-kb-block"><div class="ws-kb-label">💰 Prize</div><div>${escHtml((k.prizes || []).join(' · ') || h.prize || '—')}</div></div>
     <div class="ws-kb-block"><div class="ws-kb-label">🏛 Mode</div><div>${escHtml(k.mode || h.mode || 'unknown')}</div></div>
     ${(k.rules || []).length ? `<div class="ws-kb-block"><div class="ws-kb-label">📜 Rules</div><div>${k.rules.map(r => escHtml(r)).join('<br/>')}</div></div>` : ''}
-    ${(k.eligibility || []).length ? `<div class="ws-kb-block"><div class="ws-kb-label">🎓 Eligibility</div><div>${k.eligibility.map(r => escHtml(r)).join('<br/>')}</div></div>` : ''}
-    ${(k.winners || []).length ? `<div class="ws-kb-block"><div class="ws-kb-label">🏅 Past Winners</div><div>${k.winners.map(r => escHtml(r)).join('<br/>')}</div></div>` : ''}
+    ${k.eligibility && String(k.eligibility).trim() ? `<div class="ws-kb-block"><div class="ws-kb-label">🎓 Eligibility</div><div>${escHtml(Array.isArray(k.eligibility) ? k.eligibility.join(', ') : k.eligibility)}</div></div>` : ''}
+    ${k.teamSize ? `<div class="ws-kb-block"><div class="ws-kb-label">👥 Team Size</div><div>${escHtml(k.teamSize)}</div></div>` : ''}
+    ${k.winners && String(k.winners).trim() ? `<div class="ws-kb-block"><div class="ws-kb-label">🏅 Past Winners</div><div>${escHtml(Array.isArray(k.winners) ? k.winners.join(', ') : k.winners)}</div></div>` : ''}
     ${(k.links || []).length ? `<div class="ws-kb-block"><div class="ws-kb-label">🔗 Sources</div><div>${k.links.map(l => `<a href="${escHtml(l)}" target="_blank" rel="noopener">${escHtml(l)}</a>`).join('<br/>')}</div></div>` : ''}
-    <button class="btn-small" id="re-scrape-hack" style="width:100%;">🔄 Re-scrape Knowledge</button>
+    ${k.fromText ? `<div style="font-size:11px;color:var(--text3);margin-top:4px;">📋 Updated from pasted text</div>` : ''}
+    ${k.scrapedAt ? `<div style="font-size:11px;color:var(--text3);">🕐 Last updated: ${new Date(k.scrapedAt).toLocaleString('en-IN',{timeZone:'Asia/Kolkata'})}</div>` : ''}
+    <button class="btn-small" id="re-scrape-hack" style="width:100%;margin-top:8px;">🔄 Re-scrape Knowledge</button>
+    <button class="btn-small" id="paste-knowledge-btn" style="width:100%;margin-top:4px;opacity:0.85;">📋 Paste Announcement → Update</button>
+  `;
+
+  // ── Re-scrape button ──────────────────────────────────────────
+  const rs = document.getElementById('re-scrape-hack');
+  if (rs) rs.addEventListener('click', async () => {
+    const hackId = h.id;
+    rs.disabled = true; rs.textContent = '⏳ Scraping…';
+    const safetyTimer = setTimeout(() => {
+      const btn = document.getElementById('re-scrape-hack');
+      if (btn) { btn.disabled = false; btn.textContent = '🔄 Re-scrape Knowledge'; }
+    }, 30000);
+    try {
+      // Use the response directly — no need to reload everything
+      const { hackathon: updated } = await apiFetch(`/api/hackathons/${hackId}/scrape`, { method: 'POST' });
+      clearTimeout(safetyTimer);
+      // Update cache + currentHack + re-render panel in-place
+      const idx = hackathonsCache.findIndex(x => String(x.id) === String(hackId));
+      if (idx !== -1) hackathonsCache[idx] = updated;
+      if (currentHack && String(currentHack.id) === String(hackId)) currentHack = updated;
+      renderHackKnowledge(updated); // ← re-render panel immediately with fresh data
+    } catch (err) {
+      clearTimeout(safetyTimer);
+      alert('Scrape failed: ' + err.message);
+      const btn = document.getElementById('re-scrape-hack');
+      if (btn) { btn.disabled = false; btn.textContent = '🔄 Re-scrape Knowledge'; }
+    }
+  });
+
+  // ── Paste-text → knowledge button ────────────────────────────
+  const pb = document.getElementById('paste-knowledge-btn');
+  if (pb) pb.addEventListener('click', () => {
+    const hackId = h.id;
+    openModal('📋 Paste Announcement → Update Knowledge', `
+      <div class="modal-form">
+        <p style="font-size:12px;color:var(--text2);margin:0 0 8px;">WhatsApp / LinkedIn / website se hackathon announcement paste karo — Bob knowledge panel update kar dega bina scraping ke!</p>
+        <textarea id="paste-kb-text" rows="8" placeholder="🚀 ViCodathon 2026...&#10;Prize ₹20,000&#10;Aug 7-9 2026..."></textarea>
+        <button id="paste-kb-submit" class="btn-primary" style="width:100%;">⚡ Update Knowledge</button>
+      </div>
+    `);
+    document.getElementById('paste-kb-submit').addEventListener('click', async () => {
+      const rawText = document.getElementById('paste-kb-text').value.trim();
+      if (!rawText) { alert('Kuch paste karo pehle!'); return; }
+      const btn = document.getElementById('paste-kb-submit');
+      btn.disabled = true; btn.textContent = '⏳ Parsing…';
+      try {
+        const { hackathon: updated } = await apiFetch(`/api/hackathons/${hackId}/knowledge-from-text`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text: rawText })
+        });
+        closeModal();
+        const idx = hackathonsCache.findIndex(x => String(x.id) === String(hackId));
+        if (idx !== -1) hackathonsCache[idx] = updated;
+        if (currentHack && String(currentHack.id) === String(hackId)) currentHack = updated;
+        renderHackKnowledge(updated);
+      } catch (err) {
+        alert('Failed: ' + err.message);
+        btn.disabled = false; btn.textContent = '⚡ Update Knowledge';
+      }
+    });
+  });
+}🔄 Re-scrape Knowledge</button>
   `;
   const rs = document.getElementById('re-scrape-hack');
   if (rs) rs.addEventListener('click', async () => {
