@@ -196,15 +196,54 @@ async function deleteHackathon(userId, hackId) {
 }
 
 // ── Knowledge: scrape link + LLM extraction ──────────────
+
+/**
+ * Resolve a stored hackathon link to the actual content URL.
+ * Handles login-redirect patterns like:
+ *   https://www.abtalks.in/login?from=/hackathon/register
+ * → https://www.abtalks.in/hackathon/register
+ */
+function resolveHackathonUrl(rawLink) {
+  try {
+    const u = new URL(rawLink);
+    // Pattern: /login?from=<path>  (abtalks, hackerearth, etc.)
+    if ((u.pathname === '/login' || u.pathname.endsWith('/login')) && u.searchParams.has('from')) {
+      const fromPath = u.searchParams.get('from'); // e.g. "/hackathon/register"
+      return `${u.origin}${fromPath}`;
+    }
+    // Pattern: /signin?redirect=<url> or /auth?next=<url>
+    for (const param of ['redirect', 'redirect_uri', 'next', 'returnUrl', 'return_to']) {
+      if (u.searchParams.has(param)) {
+        const val = u.searchParams.get(param);
+        try {
+          // If it's a full URL
+          const redir = new URL(val);
+          return redir.href;
+        } catch {
+          // Relative path
+          return `${u.origin}${val.startsWith('/') ? '' : '/'}${val}`;
+        }
+      }
+    }
+  } catch (e) { /* not a valid URL, return as-is */ }
+  return rawLink;
+}
+
 async function refreshKnowledge(userId, hackId) {
   const h = await getHackathon(userId, hackId);
   if (!h) throw new Error('Hackathon not found');
   if (!h.link) throw new Error('Hackathon has no link to scrape');
 
+  // Resolve login-redirect URLs before scraping
+  const scrapeUrl = resolveHackathonUrl(h.link);
+  if (scrapeUrl !== h.link) {
+    console.log(`refreshKnowledge: resolved login-redirect\n  from: ${h.link}\n  to:   ${scrapeUrl}`);
+  }
+
   // Step 1: Scrape ONLY the main hackathon page (single fetch, hard timeout)
   let scraped = { title: h.title, description: h.description || '', headings: [], contentSnippet: h.description || '' };
   try {
-    scraped = await crawler.scrapeURL(h.link, 12000); // 12s hard timeout
+    scraped = await crawler.scrapeURL(scrapeUrl, 12000); // 12s hard timeout
   } catch (e) {
     console.error('refreshKnowledge scrape fallback:', e.message);
     // Continue with existing data — don't crash
@@ -247,7 +286,8 @@ async function refreshKnowledge(userId, hackId) {
     rules: extracted?.rules || h.rules || [],
     eligibility: extracted?.eligibility || '',
     winners: extracted?.winners || h.winners || '',
-    links: [h.link],
+    links: [...new Set([h.link, scrapeUrl])], // original + resolved (deduped)
+    scrapedUrl: scrapeUrl,
     scrapedAt: nowTs(),
   };
 
