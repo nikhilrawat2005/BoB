@@ -49,7 +49,38 @@ async function validatePublicUrl(targetUrl) {
   }
 }
 
-async function scrapeURL(targetUrl) {
+/**
+ * Fetch with a hard AbortController timeout (kills the request completely).
+ * node-fetch's `timeout` option only covers initial connection, NOT full response.
+ */
+function fetchWithTimeout(url, options = {}, timeoutMs = 8000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  return fetch(url, { ...options, signal: controller.signal })
+    .then(async (res) => {
+      // Also abort if body takes too long — read text with a race
+      const bodyPromise = res.text();
+      const bodyTimer = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('Body read timeout')), timeoutMs)
+      );
+      const text = await Promise.race([bodyPromise, bodyTimer]);
+      clearTimeout(timer);
+      return { ok: res.ok, status: res.status, statusText: res.statusText, text };
+    })
+    .catch((err) => {
+      clearTimeout(timer);
+      if (err.name === 'AbortError') throw new Error(`Fetch timed out after ${timeoutMs}ms`);
+      throw err;
+    });
+}
+
+// Skip URLs that are login/auth/register pages (they hang or return no useful content)
+function isUselessUrl(url) {
+  const lower = String(url).toLowerCase();
+  return /\/(login|signin|sign-in|auth|oauth|register|signup|sign-up|logout|callback)\b/.test(lower);
+}
+
+async function scrapeURL(targetUrl, timeoutMs = 8000) {
   try {
     if (!targetUrl.startsWith('http://') && !targetUrl.startsWith('https://')) {
       targetUrl = 'https://' + targetUrl;
@@ -57,19 +88,17 @@ async function scrapeURL(targetUrl) {
 
     await validatePublicUrl(targetUrl);
 
-    const response = await fetch(targetUrl, {
+    const { ok, status, statusText, text: html } = await fetchWithTimeout(targetUrl, {
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
       },
-      timeout: 8000,
-    });
+    }, timeoutMs);
 
-    if (!response.ok) {
-      throw new Error(`HTTP error ${response.status}: ${response.statusText}`);
+    if (!ok) {
+      throw new Error(`HTTP error ${status}: ${statusText}`);
     }
 
-    const html = await response.text();
     const $ = cheerio.load(html);
 
     // Extract metadata
@@ -144,6 +173,8 @@ function extractLinks($, baseUrl, maxLinks) {
       if (u.protocol !== 'http:' && u.protocol !== 'https:') return;
       const href = u.href.split('#')[0];
       if (seen.has(href)) return;
+      // Skip login/register/auth pages
+      if (isUselessUrl(href)) return;
       seen.add(href);
       const text = $(el).text().trim().replace(/\s+/g, ' ').slice(0, 120);
       if (!text) return;
@@ -184,51 +215,27 @@ function extractEventMeta(html) {
 }
 
 /**
- * Deep-crawl a page: scrape the main URL, then scrape up to `maxLinks`
- * internal links. Returns combined context for building rich knowledge panels.
+ * Deep-crawl a page: scrape the main URL only (no sub-pages for speed).
+ * Sub-page crawling removed to stay within Vercel serverless time limits.
  */
-async function deepCrawl(targetUrl, { maxLinks = 3, sameDomain = true } = {}) {
-  const main = await scrapeURL(targetUrl);
+async function deepCrawl(targetUrl, { maxLinks = 2, sameDomain = true } = {}) {
+  const main = await scrapeURL(targetUrl, 10000);
+
+  // Collect links from already-fetched content (no extra fetch)
   let links = [];
   try {
-    if (!targetUrl.startsWith('http://') && !targetUrl.startsWith('https://')) {
-      targetUrl = 'https://' + targetUrl;
-    }
-    await validatePublicUrl(targetUrl);
-    const res = await fetch(targetUrl, {
-      headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36' },
-      timeout: 4000,
-    });
-    if (res.ok) {
-      const html = await res.text();
-      const $ = cheerio.load(html);
-      const host = new URL(targetUrl).hostname.replace(/^www\./, '');
-      links = extractLinks($, targetUrl, maxLinks * 3).filter(l => {
-        if (!sameDomain) return true;
-        try { return new URL(l.url).hostname.replace(/^www\./, '') === host; }
-        catch { return false; }
-      });
-    }
-  } catch (e) { /* best-effort link discovery */ }
-
-  const targetSubLinks = links.slice(0, maxLinks);
-  const subResults = await Promise.allSettled(targetSubLinks.map(l => scrapeURL(l.url)));
-  const subPages = [];
-  const scraped = [];
-
-  subResults.forEach((res) => {
-    if (res.status === 'fulfilled') {
-      const sub = res.value;
-      subPages.push({ url: sub.url, title: sub.title, contentSnippet: sub.contentSnippet });
-      scraped.push(sub.url);
-    }
-  });
+    const $ = cheerio.load(main.contentSnippet || '');
+    // We already have the parsed page — just extract links from headings/content
+    // But we need the raw HTML for link extraction; re-fetch is expensive.
+    // Instead, just return the main URL as the only link.
+    links = [targetUrl];
+  } catch { /* ignore */ }
 
   return {
     main,
-    links: targetSubLinks.map(l => l.url),
-    subPages,
-    scrapedCount: scraped.length,
+    links: links.slice(0, maxLinks),
+    subPages: [],      // No sub-page crawling — keeps it fast
+    scrapedCount: 0,
   };
 }
 

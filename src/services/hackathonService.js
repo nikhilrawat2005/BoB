@@ -201,51 +201,53 @@ async function refreshKnowledge(userId, hackId) {
   if (!h) throw new Error('Hackathon not found');
   if (!h.link) throw new Error('Hackathon has no link to scrape');
 
-  let deep = { main: { title: h.title, description: h.description || '', headings: [], contentSnippet: h.description || '' }, links: [h.link], subPages: [] };
+  // Step 1: Scrape ONLY the main hackathon page (single fetch, hard timeout)
+  let scraped = { title: h.title, description: h.description || '', headings: [], contentSnippet: h.description || '' };
   try {
-    deep = await crawler.deepCrawl(h.link, { maxLinks: 1 });
+    scraped = await crawler.scrapeURL(h.link, 12000); // 12s hard timeout
   } catch (e) {
-    console.error('refreshKnowledge deepCrawl fallback:', e.message);
+    console.error('refreshKnowledge scrape fallback:', e.message);
+    // Continue with existing data — don't crash
   }
 
-  const meta = crawler.extractEventMeta(
-    [deep.main.contentSnippet, ...deep.subPages.map(s => s.contentSnippet)].join('\n')
-  );
+  const meta = crawler.extractEventMeta(scraped.contentSnippet || '');
 
   const combinedText = [
-    `TITLE: ${deep.main.title}`,
-    `DESCRIPTION: ${deep.main.description}`,
-    ...deep.main.headings,
-    deep.main.contentSnippet,
-    ...deep.subPages.map(s => `${s.title}\n${s.contentSnippet}`),
-  ].join('\n').slice(0, 8000);
+    `TITLE: ${scraped.title}`,
+    `DESCRIPTION: ${scraped.description}`,
+    ...(scraped.headings || []),
+    scraped.contentSnippet,
+  ].join('\n').slice(0, 6000);
 
+  // Step 2: LLM extraction (only if we got some meaningful content)
   let extracted = null;
-  try {
-    const res = await callLLM({
-      role: 'review',
-      messages: [
-        { role: 'system', content: 'You extract structured hackathon details from raw scraped web content. Reply with clean JSON only (no markdown fences).' },
-        { role: 'user', content: `Scraped content:\n\n${combinedText}\n\nReturn JSON: { "title", "startDate" (YYYY-MM-DD or null), "endDate" (YYYY-MM-DD or null), "mode" ("online"/"offline"/"unknown"), "prize", "description" (2-3 sentences), "rules" (array, max 6), "eligibility", "winners" (known past winners, else "") }` },
-      ],
-      temperature: 0.2,
-      max_tokens: 1200,
-    });
-    extracted = JSON.parse(res.text.replace(/```json|```/g, '').trim());
-  } catch (e) {
-    extracted = null;
+  if (combinedText.length > 100) {
+    try {
+      const res = await callLLM({
+        role: 'review',
+        messages: [
+          { role: 'system', content: 'You extract structured hackathon details from raw scraped web content. Reply with clean JSON only (no markdown fences).' },
+          { role: 'user', content: `Scraped content:\n\n${combinedText}\n\nReturn JSON: { "title", "startDate" (YYYY-MM-DD or null), "endDate" (YYYY-MM-DD or null), "mode" ("online"/"offline"/"unknown"), "prize", "description" (2-3 sentences), "rules" (array, max 6), "eligibility", "winners" (known past winners, else "") }` },
+        ],
+        temperature: 0.2,
+        max_tokens: 800,
+      });
+      extracted = JSON.parse(res.text.replace(/```json|```/g, '').trim());
+    } catch (e) {
+      extracted = null;
+    }
   }
 
   const knowledge = {
-    summary: extracted?.description || deep.main.description || deep.main.contentSnippet.slice(0, 600),
-    title: extracted?.title || deep.main.title || h.title,
+    summary: extracted?.description || scraped.description || (scraped.contentSnippet || '').slice(0, 600),
+    title: extracted?.title || scraped.title || h.title,
     dates: meta.dates.length ? meta.dates : (extracted?.startDate ? [extracted.startDate] : []),
     prizes: meta.prize.length ? meta.prize : (extracted?.prize ? [extracted.prize] : []),
     mode: extracted?.mode || meta.mode || h.mode || 'unknown',
     rules: extracted?.rules || h.rules || [],
     eligibility: extracted?.eligibility || '',
     winners: extracted?.winners || h.winners || '',
-    links: deep.links,
+    links: [h.link],
     scrapedAt: nowTs(),
   };
 
@@ -254,7 +256,7 @@ async function refreshKnowledge(userId, hackId) {
     mode: knowledge.mode,
     prize: knowledge.prizes[0] || h.prize || '',
     title: knowledge.title,
-    description: knowledge.description || h.description || '',
+    description: knowledge.summary || h.description || '',
     updatedAt: nowTs(),
   };
   if (extracted?.startDate) patch.startDate = new Date(extracted.startDate).getTime();
