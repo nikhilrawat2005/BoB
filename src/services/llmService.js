@@ -89,17 +89,18 @@ const MODEL_ROLES = {
  * @param {string} [opts.model]         - Override model explicitly (ignores role)
  * @param {Array}  opts.messages        - OpenAI-format messages array
  * @param {number} [opts.temperature]   - Defaults to TEMPERATURE env var or 0.2
- * @param {number} [opts.max_tokens]    - Defaults to MAX_TOKENS env var or 6000
+ * @param {number} [opts.max_tokens]    - Defaults to MAX_TOKENS env var or 2000
  */
 async function callLLM({ role = 'chat', messages, model, temperature, max_tokens, persona }) {
   const selectedModel = model || MODEL_ROLES[role] || MODEL_ROLES.chat;
   const apiKey = persona === 'builder' ? _builderKeyOrPool() : _nextKey();
+  const requestedMaxTokens = max_tokens ?? Number(process.env.MAX_TOKENS ?? 2000);
 
   const body = {
     model: selectedModel,
     messages,
     temperature: temperature ?? Number(process.env.TEMPERATURE ?? 0.2),
-    max_tokens:  max_tokens  ?? Number(process.env.MAX_TOKENS  ?? 6000),
+    max_tokens:  requestedMaxTokens,
   };
 
   const res = await fetch(OPENROUTER_URL, {
@@ -117,7 +118,12 @@ async function callLLM({ role = 'chat', messages, model, temperature, max_tokens
   const data = await res.json();
 
   if (data.error) {
-    const err = new Error(data.error.message || 'OpenRouter error');
+    const msg = String(data.error.message || '');
+    if ((msg.includes('credits') || msg.includes('max_tokens') || msg.includes('afford')) && requestedMaxTokens > 1000) {
+      console.warn(`[llmService] Credit/max_tokens limit hit (${requestedMaxTokens}). Retrying with max_tokens: 1500...`);
+      return callLLM({ role, messages, model, temperature, max_tokens: 1500, persona });
+    }
+    const err = new Error(msg || 'OpenRouter error');
     err.details = data.error;
     throw err;
   }
@@ -152,6 +158,7 @@ async function callLLM({ role = 'chat', messages, model, temperature, max_tokens
 async function callLLMWithVision({ messages, userText, imageUrls = [], model, temperature, max_tokens }) {
   const selectedModel = model || MODEL_ROLES.vision;
   const apiKey = _nextKey();
+  const requestedMaxTokens = max_tokens ?? Number(process.env.MAX_TOKENS ?? 2000);
 
   // Build multimodal user content: text + images
   const userContent = [
@@ -173,7 +180,7 @@ async function callLLMWithVision({ messages, userText, imageUrls = [], model, te
     model: selectedModel,
     messages: visionMessages,
     temperature: temperature ?? Number(process.env.TEMPERATURE ?? 0.2),
-    max_tokens:  max_tokens  ?? Number(process.env.MAX_TOKENS  ?? 6000),
+    max_tokens:  requestedMaxTokens,
   };
 
   const res = await fetch(OPENROUTER_URL, {
@@ -190,7 +197,12 @@ async function callLLMWithVision({ messages, userText, imageUrls = [], model, te
   const data = await res.json();
 
   if (data.error) {
-    const err = new Error(data.error.message || 'OpenRouter vision error');
+    const msg = String(data.error.message || '');
+    if ((msg.includes('credits') || msg.includes('max_tokens') || msg.includes('afford')) && requestedMaxTokens > 1000) {
+      console.warn(`[llmService] Vision credit/max_tokens limit hit (${requestedMaxTokens}). Retrying with max_tokens: 1500...`);
+      return callLLMWithVision({ messages, userText, imageUrls, model, temperature, max_tokens: 1500 });
+    }
+    const err = new Error(msg || 'OpenRouter vision error');
     err.details = data.error;
     throw err;
   }
