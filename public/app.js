@@ -2319,6 +2319,7 @@ async function selectHack(id) {
   if (!currentHack) return;
   document.getElementById('hack-chat-header').innerHTML = `<span>${escHtml(currentHack.title)}</span><span class="ws-chat-header-status ${currentHack.statusColor || 'grey'}">${currentHack.status}</span>`;
   document.getElementById('hack-chat-input').disabled = false;
+  document.getElementById('hack-chat-input').placeholder = `${escHtml(currentHack.title)} ke baare me kuch pucho…`;
   document.getElementById('hack-send-btn').disabled = false;
   const hint = document.getElementById('hack-chat-hint');
   if (hint) hint.classList.add('hidden');
@@ -2328,10 +2329,11 @@ async function selectHack(id) {
 }
 
 function resetHackChat() {
-  document.getElementById('hack-chat-header').innerHTML = '<span>Select a hackathon to open its workspace chat</span>';
-  document.getElementById('hack-chat-messages').innerHTML = '<div class="empty-msg">👈 Left list me se koi hackathon chuno.</div>';
-  document.getElementById('hack-chat-input').disabled = true;
-  document.getElementById('hack-send-btn').disabled = true;
+  document.getElementById('hack-chat-header').innerHTML = '<span>Select a hackathon or describe a new one below</span>';
+  document.getElementById('hack-chat-messages').innerHTML = '<div class="empty-msg">💬 Koi hackathon describe karo — Bob list me add kar dega. Ya left me se select karo.</div>';
+  document.getElementById('hack-chat-input').disabled = false;
+  document.getElementById('hack-chat-input').placeholder = 'Hackathon describe karo ya left me se select karo…';
+  document.getElementById('hack-send-btn').disabled = false;
   const hint = document.getElementById('hack-chat-hint');
   if (hint) hint.classList.remove('hidden');
   document.getElementById('hack-knowledge').innerHTML = '<div class="empty-msg">Right side me hackathon ka knowledge panel khulega.</div>';
@@ -2416,16 +2418,42 @@ document.getElementById('hack-send-btn').addEventListener('click', sendHackMessa
 document.getElementById('hack-chat-input').addEventListener('keydown', (e) => { if (e.key === 'Enter') sendHackMessage(); });
 
 async function sendHackMessage() {
-  if (!currentHack) return;
   const input = document.getElementById('hack-chat-input');
   const text = input.value.trim(); if (!text) return;
-  input.value = '';
+  input.value = ''; input.disabled = true;
   const el = document.getElementById('hack-chat-messages');
   appendWsMsg(el, 'user', 'Nikhil', text);
+
+  if (!currentHack) {
+    // No hackathon selected → treat as "add new hackathon" via AI parse
+    const loadingMsg = document.createElement('div');
+    loadingMsg.className = 'ws-msg assistant';
+    loadingMsg.innerHTML = '<div class="ws-msg-role">Bob 🏆</div><div class="ws-msg-text">⏳ Hackathon details parse kar raha hu…</div>';
+    el.appendChild(loadingMsg); el.scrollTop = el.scrollHeight;
+    try {
+      const { parsed } = await apiFetch('/api/hackathons/parse', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ rawText: text }) });
+      el.removeChild(loadingMsg);
+      if (parsed && parsed.id) {
+        await loadHackathons();
+        await selectHack(String(parsed.id));
+        appendWsMsg(el, 'assistant', 'Bob 🏆', `✅ "${parsed.title}" list me add ho gaya! Ab tum directly iske baare me chat kar sakte ho.`);
+      } else {
+        appendWsMsg(el, 'assistant', 'Bob 🏆', '⚠️ Hackathon details samajh nahi aaya. Thoda aur detail do — title, link, dates, prizes wagera.');
+      }
+    } catch (err) {
+      try { el.removeChild(loadingMsg); } catch(_) {}
+      appendWsMsg(el, 'assistant', 'Bob 🏆', '⚠️ ' + err.message);
+    }
+    input.disabled = false; input.focus();
+    return;
+  }
+
+  // Hackathon selected → normal workspace chat
   try {
     const data = await apiFetch(`/api/hackathons/${currentHack.id}/chat`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ message: text }) });
     appendWsMsg(el, 'assistant', 'Bob 🏆', data.reply);
   } catch (err) { appendWsMsg(el, 'assistant', 'Bob', '⚠️ ' + err.message); }
+  input.disabled = false; input.focus();
 }
 
 document.getElementById('add-hack-btn').addEventListener('click', () => {
@@ -2528,6 +2556,7 @@ async function selectStalk(id) {
     currentStalk = prof;
     renderProfileCard(prof);
     document.getElementById('stalk-chat-input').disabled = false;
+    document.getElementById('stalk-chat-input').placeholder = `${escHtml(prof.name)} ke baare me kuch pucho…`;
     document.getElementById('stalk-send-btn').disabled = false;
     const { messages } = await apiFetch(`/api/stalking/${id}/chat`);
     renderWsChat(document.getElementById('stalk-chat-messages'), messages, 'stalk');
@@ -2537,10 +2566,11 @@ async function selectStalk(id) {
 }
 
 function resetStalkChat() {
-  document.getElementById('stalk-profile-card').innerHTML = '<div class="empty-msg">Select a profile to see the deep-dive card.</div>';
+  document.getElementById('stalk-profile-card').innerHTML = '<div class="empty-msg">Kisi person ka naam + LinkedIn/GitHub URL do ya left me se select karo.</div>';
   document.getElementById('stalk-chat-messages').innerHTML = '';
-  document.getElementById('stalk-chat-input').disabled = true;
-  document.getElementById('stalk-send-btn').disabled = true;
+  document.getElementById('stalk-chat-input').disabled = false;
+  document.getElementById('stalk-chat-input').placeholder = 'Person ka naam aur LinkedIn/GitHub URL do, ya left me se select karo…';
+  document.getElementById('stalk-send-btn').disabled = false;
 }
 
 function renderProfileCard(p) {
@@ -2570,16 +2600,43 @@ document.getElementById('stalk-send-btn').addEventListener('click', sendStalkMes
 document.getElementById('stalk-chat-input').addEventListener('keydown', (e) => { if (e.key === 'Enter') sendStalkMessage(); });
 
 async function sendStalkMessage() {
-  if (!currentStalk) return;
   const input = document.getElementById('stalk-chat-input');
   const text = input.value.trim(); if (!text) return;
-  input.value = '';
+  input.value = ''; input.disabled = true;
   const el = document.getElementById('stalk-chat-messages');
   appendWsMsg(el, 'user', 'Nikhil', text);
+
+  if (!currentStalk) {
+    // No profile selected → treat as "add new person" via description
+    const loadingMsg = document.createElement('div');
+    loadingMsg.className = 'ws-msg assistant';
+    loadingMsg.innerHTML = '<div class="ws-msg-role">Bob 🕵️</div><div class="ws-msg-text">⏳ Profile create kar raha hu…</div>';
+    el.appendChild(loadingMsg); el.scrollTop = el.scrollHeight;
+    try {
+      // Extract name and link from the text using a simple heuristic
+      const urlMatch = text.match(/https?:\/\/[^\s]+/);
+      const link = urlMatch ? urlMatch[0] : null;
+      // Name: first words before URL or whole text (max 60 chars)
+      const name = text.replace(link || '', '').replace(/[\-–:|,]/g, ' ').trim().split('\n')[0].substring(0, 60) || 'Unknown';
+      const { profile } = await apiFetch('/api/stalking', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: name || text.substring(0,60), link, notes: text }) });
+      el.removeChild(loadingMsg);
+      await loadStalking();
+      await selectStalk(String(profile.id));
+      appendWsMsg(el, 'assistant', 'Bob 🕵️', `✅ "${profile.name}" profile list me add ho gaya! Research background me chal raha hai. Ab tum directly iske baare me chat kar sakte ho.`);
+    } catch (err) {
+      try { el.removeChild(loadingMsg); } catch(_) {}
+      appendWsMsg(el, 'assistant', 'Bob 🕵️', '⚠️ ' + err.message + '\n\nTip: Name aur LinkedIn/GitHub URL dena zaroori hai, jaise: "Rahul Sharma - https://linkedin.com/in/rahul"');
+    }
+    input.disabled = false; input.focus();
+    return;
+  }
+
+  // Profile selected → normal workspace chat
   try {
     const data = await apiFetch(`/api/stalking/${currentStalk.id}/chat`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ message: text }) });
     appendWsMsg(el, 'assistant', 'Bob 🕵️', data.reply);
   } catch (err) { appendWsMsg(el, 'assistant', 'Bob', '⚠️ ' + err.message); }
+  input.disabled = false; input.focus();
 }
 
 document.getElementById('add-stalk-btn').addEventListener('click', () => {
