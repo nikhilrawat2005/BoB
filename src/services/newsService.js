@@ -105,8 +105,8 @@ async function getNews(category = 'top', limit = 5) {
     const seen = new Set();
     const unique = [];
     for (const it of collected) {
-      const key = it.title.toLowerCase();
-      if (!seen.has(key)) {
+      const key = String((it && it.title) || '').toLowerCase();
+      if (key && !seen.has(key)) {
         seen.add(key);
         unique.push(it);
       }

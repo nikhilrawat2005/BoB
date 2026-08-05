@@ -96,7 +96,7 @@ async function getTree(owner, repo, branch) {
 }
 
 function isTextFile(path) {
-  const lower = path.toLowerCase();
+  const lower = String(path || '').toLowerCase();
   if (SKIP_FILES.includes(lower.split('/').pop())) return false;
   if (SKIP_EXT.some(ext => lower.endsWith(ext))) return false;
   if (SKIP_DIRS.some(dir => path.startsWith(dir + '/') || path.split('/').includes(dir))) return false;
@@ -107,7 +107,7 @@ function isTextFile(path) {
 function prioritize(tree) {
   const blobs = (tree || []).filter(b => b.type === 'blob' && typeof b.size === 'number' && b.size > 0 && b.size <= MAX_FILE_BYTES && isTextFile(b.path));
   const score = (p, size) => {
-    const name = p.split('/').pop().toLowerCase();
+    const name = String(p || '').split('/').pop().toLowerCase();
     let s = 0;
     if (name === 'readme.md') s += 1000;
     if (name === 'package.json') s += 600;
@@ -152,13 +152,13 @@ function treeStats(tree) {
   const extCount = {};
   let files = 0;
   (tree || []).forEach(b => {
-    if (b.type !== 'blob') return;
+    if (b.type !== 'blob' || !b.path) return;
     files++;
     const parts = b.path.split('/');
     if (parts.length > 1) dirs.add(parts[0]);
     const dot = parts[parts.length - 1].lastIndexOf('.');
     if (dot > 0) {
-      const ext = parts[parts.length - 1].slice(dot).toLowerCase();
+      const ext = String(parts[parts.length - 1] || '').slice(dot).toLowerCase();
       extCount[ext] = (extCount[ext] || 0) + 1;
     }
   });

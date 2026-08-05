@@ -131,7 +131,7 @@ function extractTopic(m) {
       .trim();
   } while (topic !== prev);
 
-  return TOPIC_STOPWORDS.has(topic.toLowerCase()) ? '' : topic;
+  return TOPIC_STOPWORDS.has(String(topic || '').toLowerCase()) ? '' : topic;
 }
 
 function searchIntent(m) {

@@ -167,8 +167,8 @@ function extractEventMeta(html) {
   const dateRe = /(\d{1,2}(?:\s*[-–—to\s]+\s*\d{1,2})?\s*(?:st|nd|rd|th)?\s+(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*[,\s]*\d{2,4}|\d{4}-\d{2}-\d{2}|\d{1,2}\/\d{1,2}\/\d{2,4})/gi;
   let m;
   while ((m = dateRe.exec(text)) !== null && dates.length < 8) {
-    const d = m[1].trim();
-    if (!dates.some(x => x.toLowerCase() === d.toLowerCase())) dates.push(d);
+    const d = (m[1] || m[0] || '').trim();
+    if (d && !dates.some(x => String(x || '').toLowerCase() === d.toLowerCase())) dates.push(d);
   }
 
   const prize = [];
@@ -177,9 +177,8 @@ function extractEventMeta(html) {
     prize.push(m[0].slice(0, 120));
   }
 
-  const mode = /(?:fully\s+)?(online|virtual|remote|offline|on[- ]site|in[- ]person)/i.test(text)
-    ? (text.match(/(?:fully\s+)?(online|virtual|remote|offline|on[- ]site|in[- ]person)/i)[1].toLowerCase())
-    : 'unknown';
+  const modeMatch = text.match(/(?:fully\s+)?(online|virtual|remote|offline|on[- ]site|in[- ]person)/i);
+  const mode = modeMatch && modeMatch[1] ? modeMatch[1].toLowerCase() : 'unknown';
 
   return { dates, prize, mode };
 }

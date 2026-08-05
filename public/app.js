@@ -2425,21 +2425,36 @@ async function sendHackMessage() {
   appendWsMsg(el, 'user', 'Nikhil', text);
 
   if (!currentHack) {
-    // No hackathon selected → treat as "add new hackathon" via AI parse
+    // No hackathon selected → parse text with AI, then create in DB, then select
     const loadingMsg = document.createElement('div');
     loadingMsg.className = 'ws-msg assistant';
     loadingMsg.innerHTML = '<div class="ws-msg-role">Bob 🏆</div><div class="ws-msg-text">⏳ Hackathon details parse kar raha hu…</div>';
     el.appendChild(loadingMsg); el.scrollTop = el.scrollHeight;
     try {
+      // Step 1: AI extracts structured fields from raw text
       const { parsed } = await apiFetch('/api/hackathons/parse', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ rawText: text }) });
+
+      // Step 2: Save to DB (parse only extracts, doesn't save)
+      const { hackathon } = await apiFetch('/api/hackathons', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: parsed.title || 'Untitled Hackathon',
+          link: parsed.link || '',
+          startDate: parsed.startDate || null,
+          endDate: parsed.endDate || null,
+          prize: parsed.prize || '',
+          mode: parsed.mode || 'online',
+          description: parsed.description || text.slice(0, 300),
+          rules: parsed.rules || [],
+          tracking: true
+        })
+      });
+
       el.removeChild(loadingMsg);
-      if (parsed && parsed.id) {
-        await loadHackathons();
-        await selectHack(String(parsed.id));
-        appendWsMsg(el, 'assistant', 'Bob 🏆', `✅ "${parsed.title}" list me add ho gaya! Ab tum directly iske baare me chat kar sakte ho.`);
-      } else {
-        appendWsMsg(el, 'assistant', 'Bob 🏆', '⚠️ Hackathon details samajh nahi aaya. Thoda aur detail do — title, link, dates, prizes wagera.');
-      }
+      await loadHackathons();
+      await selectHack(String(hackathon.id));
+      appendWsMsg(el, 'assistant', 'Bob 🏆', `✅ "${hackathon.title}" list me add ho gaya! Ab tum directly iske baare me chat kar sakte ho. Left me dikhe ga.\n\n📅 Dates: ${hackathon.startDate ? new Date(hackathon.startDate).toLocaleDateString() : '?'} → ${hackathon.endDate ? new Date(hackathon.endDate).toLocaleDateString() : '?'}\n💰 Prize: ${hackathon.prize || '—'}`);
     } catch (err) {
       try { el.removeChild(loadingMsg); } catch(_) {}
       appendWsMsg(el, 'assistant', 'Bob 🏆', '⚠️ ' + err.message);
