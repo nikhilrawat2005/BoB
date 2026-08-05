@@ -3029,23 +3029,30 @@ async function loadKeys() {
     const keys = data.keys || [];
     const summary = data.summary || {};
 
+    // A key is usable only if healthy. Everything else (exhausted / needs-credits / archived)
+    // counts as "not active" — list must match the summary counts exactly.
     const active = keys.filter(k => k.status === 'healthy');
-    const exhausted = keys.filter(k => k.status === 'exhausted' || k.status === 'needs-credits');
-    const usedExpired = keys.filter(k => k._archived || k.status === 'exhausted');
+    const notActive = keys.filter(k => k.status !== 'healthy');
 
     grid.innerHTML = `
       <div class="keys-summary-bar">
         <span class="ks-label">Active:</span><span class="ks-val ks-ok">${active.length}</span>
-        <span class="ks-label">Exhausted:</span><span class="ks-val ks-bad">${exhausted.length}</span>
-        <span class="ks-label">Max per key:</span><span class="ks-val">${data.maxTokensPerKey || '—'}</span>
-        ${summary.allExhausted ? '<span class="ks-bad">(sab exhausted!)</span>' : ''}
+        <span class="ks-label">Exhausted / needs credits:</span><span class="ks-val ks-bad">${notActive.length}</span>
+        <span class="ks-label">Max per key:</span><span class="ks-val">${(data.maxTokensPerKey || '—')}</span>
       </div>
-      <div class="keys-section-title">🟢 Active Keys</div>
-      <div class="key-chips">${active.map(k => keyChip(k, 'ok')).join('') || '<div class="empty-msg">no active keys</div>'}</div>
-      <div class="keys-section-title">🟡 New / Replacement Keys</div>
-      <div class="key-chips">${data.newKeysLeft != null ? `<div class="ks-label">Available in pool: ${data.newKeysLeft}</div>` : '<div class="empty-msg">n/a</div>'}</div>
-      <div class="keys-section-title">🔴 Used / Expired</div>
-      <div class="key-chips">${usedExpired.map(k => keyChip(k, 'bad')).join('') || '<div class="empty-msg">none archived yet</div>'}</div>
+
+      <div class="keys-section-title">🟢 Active Keys <span class="ks-note">Healthy keys in rotation</span></div>
+      <div class="key-chips">${active.map(k => keyChip(k, 'ok')).join('') || '<div class="empty-msg">no active keys right now</div>'}</div>
+
+      <div class="keys-section-title">🟡 New / Replacement Keys <span class="ks-note">Ready pool — add credits to activate</span></div>
+      <div class="key-chips">${data.newKeysLeft != null ? `<div class="ks-label">Available in pool: ${data.newKeysLeft} key(s)</div>` : '<div class="empty-msg">n/a</div>'}</div>
+
+      <div class="keys-section-title">🔴 Used / Expired <span class="ks-note">Exhausted or out of credits</span></div>
+      <div class="key-chips">${notActive.map(k => keyChip(k, 'bad')).join('') || '<div class="empty-msg">none archived yet</div>'}</div>
+
+      ${summary.allExhausted || active.length === 0
+        ? '<div class="keys-empty-state">All active keys exhausted — add credits to a replacement key (or ask me to load the new keys), then hit Refresh.</div>'
+        : ''}
     `;
   } catch (err) {
     grid.innerHTML = `<div class="empty-msg">⚠️ Keys health load fail: ${escHtml(err.message)}</div>`;

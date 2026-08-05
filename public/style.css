@@ -2114,3 +2114,9 @@ body.collab-on .collab-state { color: #fff; background: var(--green); }
 .key-status { text-transform: uppercase; font-size: 9px; letter-spacing: 0.3px; }
 .key-ok .key-status { color: var(--green); }
 .key-bad .key-status { color: var(--red); }
+
+/* -------------------------------------------------------
+   KEYS LIMIT — notes + empty states
+------------------------------------------------------- */
+.keys-empty-state { text-align: center; padding: 40px 16px; color: var(--text3); font-size: 13px; }
+.ks-note { font-size: 11px; color: var(--text3); font-style: italic; margin-top: 6px; }
