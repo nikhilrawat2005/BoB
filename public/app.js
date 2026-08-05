@@ -2182,8 +2182,11 @@ async function selectHack(id) {
   document.getElementById('hack-chat-header').innerHTML = `<span>${escHtml(currentHack.title)}</span><span class="ws-chat-header-status ${currentHack.statusColor || 'grey'}">${currentHack.status}</span>`;
   document.getElementById('hack-chat-input').disabled = false;
   document.getElementById('hack-send-btn').disabled = false;
+  const hint = document.getElementById('hack-chat-hint');
+  if (hint) hint.classList.add('hidden');
   renderHackKnowledge(currentHack);
   await loadHackChat(id);
+  document.getElementById('hack-chat-input').focus();
 }
 
 function resetHackChat() {
@@ -2191,6 +2194,8 @@ function resetHackChat() {
   document.getElementById('hack-chat-messages').innerHTML = '<div class="empty-msg">👈 Left list me se koi hackathon chuno.</div>';
   document.getElementById('hack-chat-input').disabled = true;
   document.getElementById('hack-send-btn').disabled = true;
+  const hint = document.getElementById('hack-chat-hint');
+  if (hint) hint.classList.remove('hidden');
   document.getElementById('hack-knowledge').innerHTML = '<div class="empty-msg">Right side me hackathon ka knowledge panel khulega.</div>';
 }
 
