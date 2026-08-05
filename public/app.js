@@ -2204,6 +2204,18 @@ async function loadHackathons() {
     const { hackathons } = await apiFetch('/api/hackathons');
     hackathonsCache = hackathons || [];
     renderHackList();
+    if (hackathonsCache.length) {
+      if (!currentHack) {
+        selectHack(hackathonsCache[0].id);
+      } else {
+        const fresh = hackathonsCache.find(h => String(h.id) === String(currentHack.id));
+        if (fresh) {
+          currentHack = fresh;
+        } else {
+          selectHack(hackathonsCache[0].id);
+        }
+      }
+    }
   } catch (err) {
     console.error('loadHackathons error:', err);
   }
@@ -2483,10 +2495,19 @@ async function sendHackMessage() {
   }
 
   // Hackathon selected → normal workspace chat
+  const loadingMsg = document.createElement('div');
+  loadingMsg.className = 'ws-msg assistant';
+  loadingMsg.innerHTML = '<div class="ws-msg-role">Bob 🏆</div><div class="ws-msg-text">⏳ Thinking…</div>';
+  el.appendChild(loadingMsg); el.scrollTop = el.scrollHeight;
+
   try {
     const data = await apiFetch(`/api/hackathons/${currentHack.id}/chat`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ message: text }) });
+    try { el.removeChild(loadingMsg); } catch(_) {}
     appendWsMsg(el, 'assistant', 'Bob 🏆', data.reply);
-  } catch (err) { appendWsMsg(el, 'assistant', 'Bob', '⚠️ ' + err.message); }
+  } catch (err) {
+    try { el.removeChild(loadingMsg); } catch(_) {}
+    appendWsMsg(el, 'assistant', 'Bob 🏆', '⚠️ ' + err.message);
+  }
   input.disabled = false; input.focus();
 }
 
