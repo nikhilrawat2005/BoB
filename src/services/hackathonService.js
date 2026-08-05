@@ -260,12 +260,17 @@ async function refreshKnowledge(userId, hackId) {
 
   // Step 2: LLM extraction (only if we got some meaningful content)
   let extracted = null;
+  const todayStr = new Date().toISOString().slice(0, 10); // e.g. "2026-08-05"
   if (combinedText.length > 100) {
     try {
       const res = await callLLM({
         role: 'review',
         messages: [
-          { role: 'system', content: 'You extract structured hackathon details from raw scraped web content. Reply with clean JSON only (no markdown fences).' },
+          {
+            role: 'system',
+            content: `You extract structured hackathon details from raw scraped web content. Reply with clean JSON only (no markdown fences).
+TODAY'S DATE: ${todayStr}. If the page shows multiple years (e.g. 2024, 2025, 2026), always prefer the UPCOMING or CURRENT edition (closest to today or in the future). Never return a date from a past edition if a future/current edition exists on the page.`
+          },
           { role: 'user', content: `Scraped content:\n\n${combinedText}\n\nReturn JSON: { "title", "startDate" (YYYY-MM-DD or null), "endDate" (YYYY-MM-DD or null), "mode" ("online"/"offline"/"unknown"), "prize", "description" (2-3 sentences), "rules" (array, max 6), "eligibility", "winners" (known past winners, else "") }` },
         ],
         temperature: 0.2,
@@ -299,9 +304,35 @@ async function refreshKnowledge(userId, hackId) {
     description: knowledge.summary || h.description || '',
     updatedAt: nowTs(),
   };
-  if (extracted?.startDate) patch.startDate = new Date(extracted.startDate).getTime();
-  if (extracted?.endDate) patch.endDate = new Date(extracted.endDate).getTime();
-  patch.status = statusFromDates(patch.startDate !== undefined ? patch.startDate : h.startDate, patch.endDate !== undefined ? patch.endDate : h.endDate);
+
+  // ── Guard: only overwrite dates if scraped date is NOT in the past ──────────
+  // Prevents a 2025 historical edition from overwriting the user's 2026 dates.
+  const nowMs = Date.now();
+  if (extracted?.startDate) {
+    const scrapedStart = new Date(extracted.startDate).getTime();
+    const userStart = h.startDate || 0;
+    // Accept scraped date only if it's upcoming/today OR user had no date set
+    if (!userStart || scrapedStart >= nowMs - 24 * 60 * 60 * 1000) {
+      patch.startDate = scrapedStart;
+    } else {
+      console.log(`refreshKnowledge: ignoring stale scraped startDate ${extracted.startDate} (user has ${new Date(userStart).toISOString().slice(0,10)})`);
+    }
+  }
+  if (extracted?.endDate) {
+    const scrapedEnd = new Date(extracted.endDate).getTime();
+    const userEnd = h.endDate || 0;
+    // Accept scraped end date only if it's in the future OR user had none
+    if (!userEnd || scrapedEnd >= nowMs) {
+      patch.endDate = scrapedEnd;
+    } else {
+      console.log(`refreshKnowledge: ignoring stale scraped endDate ${extracted.endDate} (user has ${new Date(userEnd).toISOString().slice(0,10)})`);
+    }
+  }
+
+  patch.status = statusFromDates(
+    patch.startDate !== undefined ? patch.startDate : h.startDate,
+    patch.endDate !== undefined ? patch.endDate : h.endDate
+  );
   await coll(userId).doc(hackId).set(patch, { merge: true });
   return getHackathon(userId, hackId);
 }
