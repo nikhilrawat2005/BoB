@@ -2576,18 +2576,18 @@ async function loadSelfEdits() {
       <div class="selfedit-card ${e.status}">
         <div class="selfedit-head">
           <span class="selfedit-title">${escHtml(e.title)}</span>
-          <span class="selfedit-status status-${escHtml(e.status)}">${escHtml(e.status)}${e.type === 'manual' ? ' � manual' : ''}</span>
+          <span class="selfedit-status status-${escHtml(e.status)}">${escHtml(e.status)}${e.type === 'manual' ? ' · manual' : ''}</span>
         </div>
-        <div class="selfedit-file">?? ${escHtml(e.file)}</div>
+        <div class="selfedit-file">📄 ${escHtml(e.file)}</div>
         ${e.reason ? `<div class="selfedit-reason">${escHtml(e.reason)}</div>` : ''}
         ${e.diff ? `<pre class="selfedit-diff">${escHtml(e.diff)}</pre>` : ''}
         ${e.error ? `<div class="selfedit-error">Error: ${escHtml(e.error)}</div>` : ''}
         ${e.gitLog ? `<div class="selfedit-git">${escHtml(e.gitLog)}</div>` : ''}
         <div class="selfedit-actions">
-          ${e.status === 'pending' && e.type === 'manual' ? `<button class="btn-small" data-se-approve="${e.id}">? Approve</button>` : ''}
-          ${e.status === 'pending' || e.status === 'approved' ? `<button class="btn-small" data-se-apply="${e.id}">?? Apply</button>` : ''}
-          ${e.status === 'pending' ? `<button class="btn-small btn-danger" data-se-reject="${e.id}">? Reject</button>` : ''}
-          ${e.status === 'failed' ? `<button class="btn-small" data-se-retry="${e.id}">?? Retry apply</button>` : ''}
+          ${e.status === 'pending' && e.type === 'manual' ? `<button class="btn-small" data-se-approve="${e.id}">✔ Approve</button>` : ''}
+          ${e.status === 'pending' || e.status === 'approved' ? `<button class="btn-small" data-se-apply="${e.id}">🚀 Apply</button>` : ''}
+          ${e.status === 'pending' ? `<button class="btn-small btn-danger" data-se-reject="${e.id}">✕ Reject</button>` : ''}
+          ${e.status === 'failed' ? `<button class="btn-small" data-se-retry="${e.id}">🔁 Retry apply</button>` : ''}
         </div>
       </div>
     `).join('');
@@ -2597,12 +2597,12 @@ async function loadSelfEdits() {
       await loadSelfEdits();
     }));
     list.querySelectorAll('[data-se-apply]').forEach(b => b.addEventListener('click', async () => {
-      const btn = b; btn.disabled = true; btn.textContent = '? Applying�';
+      const btn = b; btn.disabled = true; btn.textContent = '⏳ Applying…';
       try {
         await apiFetch(`/api/self-edit/${b.dataset.seApply}/apply`, { method: 'POST' });
         await loadSelfEdits();
       } catch (err) {
-        btn.disabled = false; btn.textContent = '?? Apply';
+        btn.disabled = false; btn.textContent = '🚀 Apply';
         alert('Apply failed: ' + err.message);
       }
     }));
@@ -2621,12 +2621,12 @@ async function loadSelfEdits() {
 
 document.addEventListener('click', async (e) => {
   if (e.target && e.target.id === 'selfedit-run-btn') {
-    e.target.disabled = true; e.target.textContent = '?? Running review�';
+    e.target.disabled = true; e.target.textContent = '🧪 Running review…';
     try {
       await apiFetch('/api/self-edit/run', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) });
     } catch (err) { console.error('self-edit run:', err.message); }
     setTimeout(async () => {
-      e.target.disabled = false; e.target.textContent = '?? Run review now';
+      e.target.disabled = false; e.target.textContent = '🧪 Run review now';
       await loadSelfEdits();
     }, 4000);
   }
