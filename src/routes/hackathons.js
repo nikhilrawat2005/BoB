@@ -13,12 +13,24 @@ router.get('/', requireAuth, async (req, res) => {
   }
 });
 
-// POST /api/hackathons  { title?, link, source?, startDate?, endDate?, participating?, tracking? }
+// POST /api/hackathons/parse  { rawText }
+router.post('/parse', requireAuth, async (req, res) => {
+  const { rawText } = req.body || {};
+  if (!rawText) return res.status(400).json({ error: 'rawText is required' });
+  try {
+    const parsed = await hacks.parseFromText(req.userId, rawText);
+    res.json({ parsed });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/hackathons  { title?, link, source?, startDate?, endDate?, mode?, prize?, description?, rules?, participating?, tracking? }
 router.post('/', requireAuth, async (req, res) => {
-  const { title, link, source, startDate, endDate, participating, tracking } = req.body || {};
+  const { title, link, source, startDate, endDate, mode, prize, description, rules, participating, tracking } = req.body || {};
   if (!link && !title) return res.status(400).json({ error: 'Provide a hackathon link or title.' });
   try {
-    const hackathon = await hacks.createHackathon(req.userId, { title, link, source, startDate, endDate, participating, tracking });
+    const hackathon = await hacks.createHackathon(req.userId, { title, link, source, startDate, endDate, mode, prize, description, rules, participating, tracking });
     res.json({ hackathon });
   } catch (err) {
     res.status(500).json({ error: err.message });

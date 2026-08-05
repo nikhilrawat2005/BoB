@@ -519,8 +519,8 @@ function stopBackgroundPolling() {
 // ── Parse Bob's message for downloadable file & schedule blocks ─
 function parseFileBlocks(text) {
   // Match ```<lang> filename=<filename>\n<content>\n```, ```schedule\n{...}\n```,
-  // ```chart\n{...}\n```, ```mermaid\n<diagram>\n```, or ```builder\n{...}\n```
-  const regex = /```(?:([\w.+-]+)[ \t]+filename=([^\n\r]+)|(schedule)|(chart)|(mermaid)|(builder))[\n\r]?([\s\S]*?)```/g;
+  // ```chart\n{...}\n```, ```mermaid\n<diagram>\n```, ```builder\n{...}\n```, or ```hackathon\n{...}\n```
+  const regex = /```(?:([\w.+-]+)[ \t]+filename=([^\n\r]+)|(schedule)|(chart)|(mermaid)|(builder)|(hackathon))[\n\r]?([\s\S]*?)```/g;
   const blocks = [];
   let lastIndex = 0;
   let match;
@@ -597,6 +597,66 @@ function createScheduleCard(data) {
       </div>
     </div>
   `;
+  return card;
+}
+
+// ── Create an interactive Hackathon detection card element ─
+function createHackathonDetectedCard(data) {
+  const card = document.createElement('div');
+  card.className = 'hack-detected-card';
+  const title = data.title || 'Untitled Hackathon';
+  const prize = data.prize || 'Prize Pool specified';
+  const link = data.link || '';
+  const desc = data.description || '';
+
+  card.innerHTML = `
+    <div class="hack-detected-header">
+      <div class="hack-detected-badge">🏆 HACKATHON DETECTED</div>
+      <div class="hack-detected-title">${escHtml(title)}</div>
+    </div>
+    <div class="hack-detected-body">
+      ${prize ? `<div class="hack-detected-meta">💰 <strong>Prize:</strong> ${escHtml(prize)}</div>` : ''}
+      ${data.mode ? `<div class="hack-detected-meta">🏛 <strong>Mode:</strong> ${escHtml(data.mode)}</div>` : ''}
+      ${desc ? `<div class="hack-detected-desc">${escHtml(desc)}</div>` : ''}
+    </div>
+    <div class="hack-detected-actions">
+      <button class="btn-primary add-to-workspace-btn">➕ Add to Hackathon Workspace</button>
+      ${link ? `<a href="${escHtml(link)}" target="_blank" rel="noopener" class="btn-secondary link-btn">🔗 Official Link</a>` : ''}
+    </div>
+  `;
+
+  const btn = card.querySelector('.add-to-workspace-btn');
+  btn.addEventListener('click', async () => {
+    btn.disabled = true;
+    btn.textContent = '⏳ Adding to Workspace…';
+    try {
+      await apiFetch('/api/hackathons', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: data.title,
+          link: data.link,
+          startDate: data.startDate,
+          endDate: data.endDate,
+          prize: data.prize,
+          mode: data.mode,
+          description: data.description,
+          rules: data.rules,
+          participating: true, // auto turn on participate so Bob remembers!
+          tracking: true
+        })
+      });
+      btn.textContent = '✅ Added to Workspace!';
+      btn.style.background = 'var(--green)';
+      btn.style.color = '#000';
+      await loadHackathons();
+    } catch (err) {
+      alert('Error adding hackathon: ' + err.message);
+      btn.disabled = false;
+      btn.textContent = '➕ Add to Hackathon Workspace';
+    }
+  });
+
   return card;
 }
 
@@ -1039,6 +1099,8 @@ function appendMessage(role, content, animate = true, sender = null) {
         bubble.appendChild(createBuilderDelegationCard(block.data));
       } else if (block.type === 'builder-invalid') {
         bubble.appendChild(createBuilderInvalidCard(block));
+      } else if (block.type === 'hackathon') {
+        bubble.appendChild(createHackathonDetectedCard(block.data));
       } else if (block.content && block.content.trim()) {
         const textDiv = document.createElement('div');
         textDiv.className = 'msg-text-content';
@@ -2128,30 +2190,106 @@ async function loadHackathons() {
   }
 }
 
+function getCountdownBadge(h) {
+  const now = Date.now();
+  if (h.status === 'ended' || (h.endDate && h.endDate < now)) {
+    if (!h.endDate) return `<span class="hack-countdown ended">🏁 Ended</span>`;
+    const daysAgo = Math.floor((now - h.endDate) / (1000 * 60 * 60 * 24));
+    return `<span class="hack-countdown ended">🏁 Ended ${daysAgo > 0 ? daysAgo + 'd ago' : 'today'}</span>`;
+  }
+
+  // Live hackathon
+  if (h.status === 'live' || (h.startDate && h.startDate <= now && h.endDate && h.endDate >= now)) {
+    const msLeft = h.endDate - now;
+    const days = Math.floor(msLeft / (1000 * 60 * 60 * 24));
+    const hrs = Math.floor((msLeft % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+    return `<span class="hack-countdown live">🟢 Live! Ends in ${days > 0 ? days + 'd ' : ''}${hrs}h</span>`;
+  }
+
+  // Upcoming hackathon
+  if (h.startDate && h.startDate > now) {
+    const msToStart = h.startDate - now;
+    const days = Math.floor(msToStart / (1000 * 60 * 60 * 24));
+    const hrs = Math.floor((msToStart % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+    return `<span class="hack-countdown upcoming">⏳ Starts in ${days > 0 ? days + 'd ' : ''}${hrs}h</span>`;
+  }
+
+  if (h.endDate) {
+    const msLeft = h.endDate - now;
+    const days = Math.floor(msLeft / (1000 * 60 * 60 * 24));
+    return `<span class="hack-countdown active">🗓 ${days}d left</span>`;
+  }
+
+  return `<span class="hack-countdown active">🟢 Active</span>`;
+}
+
 function renderHackList() {
   const list = document.getElementById('hack-list');
-  if (!hackathonsCache.length) { list.innerHTML = '<div class="empty-msg">No hackathons yet. Add one to start tracking.</div>'; return; }
-  const sorted = [...hackathonsCache].sort((a, b) => (a.endDate || 0) - (b.endDate || 0));
-  list.innerHTML = sorted.map(h => {
+  if (!hackathonsCache.length) {
+    list.innerHTML = `
+      <div class="empty-msg">
+        <p>🏆 No hackathons yet.</p>
+        <p style="font-size:12px; opacity:0.8; margin-top:4px;">Main Bob chat me hackathon details paste karo ya "＋ Add Hackathon" button use karo!</p>
+      </div>`;
+    return;
+  }
+
+  // Smart sort: Live/Active Participating -> Upcoming -> Ended (bottom)
+  const sorted = [...hackathonsCache].sort((a, b) => {
+    const score = (item) => {
+      const isEnded = item.status === 'ended' || (item.endDate && item.endDate < Date.now());
+      if (isEnded) return 1000;
+      if (item.status === 'live' && item.participating) return 1;
+      if (item.participating) return 2;
+      if (item.status === 'live') return 3;
+      return 10;
+    };
+    const diff = score(a) - score(b);
+    if (diff !== 0) return diff;
+    return (a.endDate || 0) - (b.endDate || 0);
+  });
+
+  const activeHacks = sorted.filter(h => h.status !== 'ended' && (!h.endDate || h.endDate >= Date.now()));
+  const endedHacks = sorted.filter(h => h.status === 'ended' || (h.endDate && h.endDate < Date.now()));
+
+  const renderItem = (h) => {
     const sel = currentHack?.id === h.id ? ' selected' : '';
+    const countdown = getCountdownBadge(h);
+    const isEnded = h.status === 'ended' || (h.endDate && h.endDate < Date.now());
     return `
-      <div class="ws-item${sel}" data-id="${h.id}">
+      <div class="ws-item${sel}${isEnded ? ' item-ended' : ''}" data-id="${h.id}">
         <div class="ws-item-row">
           <span class="status-dot ${h.statusColor || 'grey'}"></span>
           <span class="ws-item-title">${escHtml(h.title)}</span>
         </div>
-        <div class="ws-item-sub">${escHtml(h.source || 'manual')} · ${fmtDate(h.endDate)} · ${h.status}</div>
+        <div class="ws-item-meta-row">
+          ${countdown}
+          <span class="ws-item-sub">${escHtml(h.source || 'manual')}${h.prize ? ' · 💰 ' + escHtml(h.prize) : ''}</span>
+        </div>
         <div class="ws-item-actions">
-          <label class="ws-toggle" title="Participating → green chat">
+          <label class="ws-toggle" title="Participating → Bob AI Chat Context">
             <input type="checkbox" ${h.participating ? 'checked' : ''} data-act="participating" /> <span>🟢 Participate</span>
           </label>
-          <label class="ws-toggle" title="Auto-track → 3-day routine">
+          <label class="ws-toggle" title="Auto-track routine">
             <input type="checkbox" ${h.tracking ? 'checked' : ''} data-act="tracking" /> <span>🔁 Track</span>
           </label>
           <button class="ws-del" data-id="${h.id}" title="Delete">🗑</button>
         </div>
       </div>`;
-  }).join('');
+  };
+
+  let html = activeHacks.map(renderItem).join('');
+
+  if (endedHacks.length) {
+    html += `
+      <div class="ws-section-divider">
+        <span>🏁 Attempted / Past Hackathons (${endedHacks.length})</span>
+      </div>
+      ${endedHacks.map(renderItem).join('')}
+    `;
+  }
+
+  list.innerHTML = html;
 
   list.querySelectorAll('.ws-item').forEach(el => el.addEventListener('click', (e) => {
     if (e.target.closest('button') || e.target.closest('input')) return;
@@ -2198,6 +2336,47 @@ function resetHackChat() {
   if (hint) hint.classList.remove('hidden');
   document.getElementById('hack-knowledge').innerHTML = '<div class="empty-msg">Right side me hackathon ka knowledge panel khulega.</div>';
 }
+
+// 📋 Paste complete hackathon info / announcement button handler
+document.getElementById('paste-hack-btn')?.addEventListener('click', () => {
+  openModal('📋 Paste Hackathon Announcement / Info', `
+    <div class="modal-form">
+      <p style="font-size:12px; color:var(--text2); margin:0;">WhatsApp, LinkedIn ya website se poora hackathon text paste karo — Bob khud dates, prizes, rules parse kar lega!</p>
+      <textarea id="paste-hack-text" rows="8" placeholder="Example:\n🚀 ViCodathon 2026 – India's AI-First Vibe Coding Hackathon\n🏆 Prize Pool up to ₹20,000\n📅 Deadline: 6 August 2026\n🔗 Register Now: https://www.abtalks.in/..."></textarea>
+      <button id="paste-hack-submit" class="btn-primary" style="width:100%;">⚡ Auto-Parse & Add Hackathon</button>
+    </div>
+  `);
+
+  document.getElementById('paste-hack-submit').addEventListener('click', async () => {
+    const rawText = document.getElementById('paste-hack-text').value.trim();
+    if (!rawText) { alert('Please paste hackathon details text first.'); return; }
+    const submitBtn = document.getElementById('paste-hack-submit');
+    submitBtn.disabled = true;
+    submitBtn.textContent = '⏳ Parsing with AI…';
+    try {
+      const { parsed } = await apiFetch('/api/hackathons/parse', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ rawText })
+      });
+      await apiFetch('/api/hackathons', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ...parsed,
+          participating: true,
+          tracking: true
+        })
+      });
+      closeModal();
+      await loadHackathons();
+    } catch (err) {
+      alert('Parse failed: ' + err.message);
+      submitBtn.disabled = false;
+      submitBtn.textContent = '⚡ Auto-Parse & Add Hackathon';
+    }
+  });
+});
 
 function renderHackKnowledge(h) {
   const el = document.getElementById('hack-knowledge');

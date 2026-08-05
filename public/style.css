@@ -1681,6 +1681,64 @@ body.persona-builder #model-selector { display: none !important; }
 .ws-re-research:hover { background: var(--accent); color: #fff; }
 .ws-researching { font-size: 11px; color: #f59e0b; }
 
+/* Hackathon Card in Main Chat */
+.hack-detected-card {
+  background: linear-gradient(135deg, rgba(16, 20, 30, 0.95), rgba(25, 30, 48, 0.95));
+  border: 1px solid var(--accent);
+  border-radius: var(--radius);
+  padding: 16px;
+  margin: 10px 0;
+  display: flex; flex-direction: column; gap: 10px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+  animation: appFade 0.3s ease both;
+}
+.hack-detected-header { display: flex; flex-direction: column; gap: 4px; }
+.hack-detected-badge {
+  font-size: 10px; font-weight: 800; letter-spacing: 0.8px; text-transform: uppercase;
+  color: var(--accent); background: rgba(108,99,255,0.15);
+  padding: 3px 8px; border-radius: 4px; width: fit-content;
+}
+.hack-detected-title { font-size: 15px; font-weight: 700; color: #fff; }
+.hack-detected-body { font-size: 12px; color: var(--text2); display: flex; flex-direction: column; gap: 5px; }
+.hack-detected-desc { font-size: 12px; color: var(--text3); line-height: 1.45; margin-top: 2px; }
+.hack-detected-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 4px; }
+.hack-detected-actions .btn-primary { flex: 1; min-width: 180px; text-align: center; }
+.hack-detected-actions .btn-secondary { font-size: 12px; padding: 6px 12px; }
+
+/* Hackathon Workspace Timers & Badges */
+.ws-item-meta-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.hack-countdown {
+  font-size: 10.5px; font-weight: 700; padding: 2px 7px; border-radius: 4px; display: inline-flex; align-items: center; gap: 3px;
+}
+.hack-countdown.live {
+  background: rgba(34,197,94,0.18); color: #4ade80; border: 1px solid rgba(34,197,94,0.3);
+  animation: pulseGreen 2s infinite;
+}
+.hack-countdown.upcoming { background: rgba(245,158,11,0.18); color: #fbbf24; border: 1px solid rgba(245,158,11,0.3); }
+.hack-countdown.active { background: rgba(108,99,255,0.18); color: #a78bfa; border: 1px solid rgba(108,99,255,0.3); }
+.hack-countdown.ended { background: rgba(255,255,255,0.06); color: var(--text3); border: 1px solid var(--border); }
+
+@keyframes pulseGreen {
+  0% { box-shadow: 0 0 0 0 rgba(34,197,94,0.4); }
+  70% { box-shadow: 0 0 0 6px rgba(34,197,94,0); }
+  100% { box-shadow: 0 0 0 0 rgba(34,197,94,0); }
+}
+
+.ws-item.item-ended { opacity: 0.65; background: rgba(0,0,0,0.2); }
+.ws-section-divider {
+  font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px;
+  color: var(--text3); padding: 12px 4px 6px; margin-top: 10px;
+  border-top: 1px dashed var(--border); display: flex; align-items: center; justify-content: space-between;
+}
+
+.btn-secondary {
+  background: var(--surface); border: 1px solid var(--border2); color: var(--text2);
+  cursor: pointer; border-radius: var(--radius-sm); transition: background 0.2s, color 0.2s;
+}
+.btn-secondary:hover { background: var(--bg3); color: var(--text); }
+.btn-accent { background: var(--accent); color: #fff; border: none; border-radius: var(--radius-sm); font-weight: 600; }
+.btn-accent:hover { opacity: 0.9; }
+
 /* Workspace chat column */
 .ws-chat-col, .ws-stalk-main { background: var(--bg); }
 .ws-chat-header {

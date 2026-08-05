@@ -40,12 +40,55 @@ function detectSource(link, title) {
 function statusFromDates(startDate, endDate) {
   const now = Date.now();
   if (endDate && endDate < now) return 'ended';
+  if (startDate && startDate <= now && (!endDate || endDate >= now)) return 'live';
   if (startDate && startDate > now) return 'upcoming';
   return 'active';
 }
 
+async function parseFromText(userId, rawText) {
+  if (!rawText || typeof rawText !== 'string') throw new Error('Raw text is required');
+  const res = await callLLM({
+    role: 'review',
+    messages: [
+      {
+        role: 'system',
+        content: 'You are a structured data extractor for hackathons. Analyze the user text and return clean JSON only (no markdown code fences). Extract title, link, startDate (timestamp ms or null), endDate (timestamp ms or null), prize, mode ("online"|"offline"|"unknown"), description (2-3 sentences max), rules (array of strings).'
+      },
+      {
+        role: 'user',
+        content: `Extract hackathon details from this text:\n\n${rawText}`
+      }
+    ],
+    temperature: 0.2,
+    max_tokens: 800
+  });
+
+  let parsed = {};
+  try {
+    parsed = JSON.parse(res.text.replace(/```json|```/g, '').trim());
+  } catch (e) {
+    parsed = {};
+  }
+
+  // Fallbacks if LLM output missed timestamps
+  const linkMatch = rawText.match(/https?:\/\/[^\s]+/i);
+  const link = parsed.link || (linkMatch ? linkMatch[0] : '');
+  const title = parsed.title || 'Untitled Hackathon';
+
+  return {
+    title,
+    link,
+    startDate: parsed.startDate || null,
+    endDate: parsed.endDate || null,
+    prize: parsed.prize || '',
+    mode: parsed.mode || 'online',
+    description: parsed.description || rawText.slice(0, 300),
+    rules: Array.isArray(parsed.rules) ? parsed.rules : []
+  };
+}
+
 // ── CRUD ─────────────────────────────────────────────────
-async function createHackathon(userId, { title, link, source, startDate, endDate, participating = false, tracking = true }) {
+async function createHackathon(userId, { title, link, source, startDate, endDate, mode = 'unknown', prize = '', description = '', rules = [], participating = false, tracking = true }) {
   const cleanLink = String(link || '').trim();
   const name = (title || '').trim() || (cleanLink ? new URL(cleanLink).hostname.replace(/^www\./, '') : 'Untitled Hackathon');
   const ref = coll(userId).doc();
@@ -57,10 +100,10 @@ async function createHackathon(userId, { title, link, source, startDate, endDate
     source: source || detectSource(cleanLink, name),
     startDate: startDate ? Number(startDate) : null,
     endDate: endDate ? Number(endDate) : null,
-    mode: 'unknown',
-    prize: '',
-    description: '',
-    rules: [],
+    mode: mode || 'unknown',
+    prize: prize || '',
+    description: description || '',
+    rules: Array.isArray(rules) ? rules : [],
     winners: '',
     notes: '',
     status: statusFromDates(startDate ? Number(startDate) : null, endDate ? Number(endDate) : null),
@@ -69,7 +112,18 @@ async function createHackathon(userId, { title, link, source, startDate, endDate
     pastParticipation: false,
     chatSessionId: null,
     autoRoutineId: null,
-    knowledge: null,
+    knowledge: (description || prize || rules.length) ? {
+      summary: description,
+      title: name,
+      dates: [],
+      prizes: prize ? [prize] : [],
+      mode: mode || 'online',
+      rules: Array.isArray(rules) ? rules : [],
+      eligibility: '',
+      winners: '',
+      links: cleanLink ? [cleanLink] : [],
+      scrapedAt: now,
+    } : null,
     createdAt: now,
     updatedAt: now,
   };
@@ -352,5 +406,5 @@ async function autoExpireAndRemind() {
 
 module.exports = {
   createHackathon, getHackathon, listHackathons, updateHackathon, deleteHackathon,
-  refreshKnowledge, chatSend, chatList, ensureAutoRoutine, autoExpireAndRemind, statusFromDates,
+  refreshKnowledge, chatSend, chatList, ensureAutoRoutine, autoExpireAndRemind, statusFromDates, parseFromText,
 };
