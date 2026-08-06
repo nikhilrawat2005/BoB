@@ -35,8 +35,16 @@ const _roles = {
   BUILDER: (process.env.BUILDER_API_KEY || '').trim(),
 };
 function _roleOf(key) {
+  // Current holder wins — this makes the label FOLLOW promotions across cold starts.
+  for (const role of Object.keys(_roleHolders)) {
+    if (key === _holderKey(role)) return role;
+  }
+  // Initial assignment from env, but only while that key is still usable.
   for (const [role, rk] of Object.entries(_roles)) {
-    if (rk && rk === key) return role;
+    if (rk && rk === key) {
+      const m = _keyMeta(key);
+      if (m.status !== 'exhausted' && (m.lastBalance ?? 0) >= 0) return role;
+    }
   }
   return 'REPLACEMENT';
 }
@@ -101,6 +109,110 @@ async function _persistKey(keyId, data) {
 
 // Eagerly begin loading persisted state (non-blocking); awaited again in checkKeyHealth.
 _loadState();
+
+// ---------------------------------------------------------------------------
+// Role-holders cursor (Firestore): tracks which KEY# is currently "Bob"/"Center".
+// Env seeds it on first run (BOB_API_KEY / CENTER_API_KEY); promoteReplacement()
+// moves a role to a fresh key when its current holder exhausts, so the dashboard
+// label follows the live key. BUILDER is fixed (excluded from pool by design).
+// Mirrored in-memory; persisted in collection `keyHolders` doc `roleHolders`.
+// ---------------------------------------------------------------------------
+const _roleHolders = { BOB: null, CENTER: null };
+
+async function _initRoleHolders() {
+  const visible = _allVisibleKeys();
+  if (visible.length === 0) return;
+  _roleHolders.BOB = _roleHolders.BOB || _keyIdOf(_roles.BOB) || `KEY1`;
+  _roleHolders.CENTER = _roleHolders.CENTER || _keyIdOf(_roles.CENTER) || null;
+  const db = _firestore();
+  if (!db) return;
+  try {
+    const ref = db.collection('keyHolders').doc('roleHolders');
+    const snap = await ref.get();
+    if (snap.exists) {
+      const d = snap.data() || {};
+      if (d.BOB) _roleHolders.BOB = d.BOB;
+      if (d.CENTER != null) _roleHolders.CENTER = d.CENTER;
+    } else {
+      await ref.set(_roleHolders);
+    }
+  } catch (e) {
+    console.warn('[llmService] roleHolders init failed:', e.message);
+  }
+}
+_initRoleHolders();
+
+function _holderKey(role) {
+  const kid = _roleHolders[role];
+  if (!kid) return null;
+  const visible = _allVisibleKeys();
+  const idx = parseInt(String(kid).replace('KEY', ''), 10) - 1;
+  return visible[idx] || null;
+}
+
+// Healthy keys not currently held by another role, NEW-priority first.
+function _freeReplacements(forRole) {
+  const visible = _allVisibleKeys();
+  const held = new Set();
+  Object.entries(_roleHolders).forEach(([r, kid]) => {
+    if (r === forRole || !kid) return;
+    const idx = parseInt(String(kid).replace('KEY', ''), 10) - 1;
+    if (visible[idx]) held.add(visible[idx]);
+  });
+  // builder key is never a replacement
+  if (_builderKey) held.add(_builderKey);
+  return visible.filter(k => {
+    const m = _keyMeta(k);
+    return m.status !== 'exhausted' && (m.lastBalance ?? 0) >= 0 && !held.has(k);
+  }).sort((a, b) => {
+    const na = _poolOf(_keyMeta(a)) === 'NEW' ? 1 : 0;
+    const nb = _poolOf(_keyMeta(b)) === 'NEW' ? 1 : 0;
+    return nb - na;
+  });
+}
+
+// Atomic (Firestore transaction when available) promotion of a role to a fresh key.
+async function promoteReplacement(role) {
+  const db = _firestore();
+  const current = _holderKey(role);
+  const replacements = _freeReplacements(role);
+  if (!replacements.length) {
+    // no swap possible; keep current holder (may be exhausted) so we stop retrying it
+    if (!current) _roleHolders[role] = null;
+    return current;
+  }
+  const next = replacements[0];
+  const nextId = _keyIdOf(next);
+  if (db) {
+    try {
+      await db.runTransaction(async (t) => {
+        const snap = await t.get(db.collection('keyHolders').doc('roleHolders'));
+        const d = snap.exists ? (snap.data() || {}) : {};
+        d[role] = nextId;
+        t.set(db.collection('keyHolders').doc('roleHolders'), d, { merge: true });
+      });
+    } catch (e) {
+      console.warn('[llmService] roleHolders promote failed:', e.message);
+    }
+  }
+  _roleHolders[role] = nextId;
+  console.log(`[llmService] ${role} promoted from ${_keyIdOf(current) || 'none'} -> ${nextId} (swap-in).`);
+  return next;
+}
+
+// Resolve the live key for a role from the Firestore-backed cursor every call.
+// If the holder is exhausted/not fundable, atomically promote to a fresh key;
+// if no fresh key exists, fall back to the shared pool so calls never break.
+async function _resolveRoleKey(role) {
+  const held = _holderKey(role);
+  if (held) {
+    const m = _keyMeta(held);
+    if (m.status !== 'exhausted' && (m.lastBalance ?? 0) >= 0) return held;
+  }
+  const promoted = await promoteReplacement(role);
+  if (promoted) return promoted;
+  return _nextKey();
+}
 
 let _keyIndex = 0;
 
@@ -169,6 +281,12 @@ function markKeyExhausted(key) {
   m.lastCheck = Date.now();
   console.warn('[llmService] Key ...' + key.slice(-8) + ' marked EXHAUSTED.');
   _persistKey(_keyIdOf(key), { status: 'exhausted', lastCheck: m.lastCheck, lastBalance: m.lastBalance, lastUsed: m.lastUsed, tokens: m.tokens });
+  // Auto-swap: if this key held a role (Bob/Center), promote that role to a
+  // fresh replacement key immediately so the live-label follows the active key.
+  const role = _roleOf(key);
+  if (role === 'BOB' || role === 'CENTER') {
+    promoteReplacement(role).catch(e => console.warn('[llmService] auto-promote failed:', e.message));
+  }
 }
 
 /**
@@ -292,7 +410,7 @@ const MODEL_ROLES = {
  */
 async function callLLM({ role = 'chat', messages, model, temperature, max_tokens, persona }) {
   const selectedModel = model || MODEL_ROLES[role] || MODEL_ROLES.chat;
-  const apiKey = persona === 'builder' ? _builderKeyOrPool() : _nextKey();
+  const apiKey = persona === 'builder' ? _builderKeyOrPool() : await _resolveRoleKey('BOB');
   const requestedMaxTokens = max_tokens ?? Number(process.env.MAX_TOKENS ?? 2000);
 
   const body = {
