@@ -147,7 +147,9 @@ async function checkKeyHealth(cacheMs = 60000) {
       m.lastUsed = used;
       m.lastCheck = now;
       if (balance < 0 || m.tokens >= MAX_TOKENS_PER_KEY) {
-        if (balance < 0) m.status = 'exhausted';
+        m.status = 'exhausted';
+      } else {
+        m.status = 'healthy';
       }
       results.push({ keyId: `KEY${_rawKeys.indexOf(key) + 1}`, pool: _poolOf(m), last4: key.slice(-4), status: m.status, balance, used, tokensUsed: m.tokens });
     } catch (e) {

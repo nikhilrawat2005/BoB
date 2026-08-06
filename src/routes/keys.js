@@ -13,8 +13,8 @@ router.get('/health', requireAuth, async (req, res) => {
   try {
     const keys = await llm.checkKeyHealth();
     const snapshot = llm.keyHealthSnapshot();
-    const active = keys.filter(k => k.status === 'healthy');
-    const exhausted = keys.filter(k => k.status === 'exhausted' || k.status === 'over-limit');
+    const active = keys.filter(k => k.pool === 'NEW' || k.pool === 'ACTIVE');
+    const exhausted = keys.filter(k => k.pool === 'EXHAUSTED');
     res.json({
       keys,                         // [{ last4, balance, used, status, tokensUsed, maxTokens, lastCheck }]
       newKeysLeft: NEW_KEYS_POOL,   // count of fresh replacement keys available
