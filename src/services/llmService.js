@@ -48,6 +48,14 @@ if (_rawKeys.length === 0) {
   );
 }
 
+// All keys visible in the HQ "Keys" card. Rotation pool (_rawKeys) EXCLUDES the
+// Builder key; the Builder key is shown separately so you can see its status
+// without letting Bob ever borrow it. KEY1..KEY9 ordering: env rotation keys
+// first, Builder last (KEY9).
+function _allVisibleKeys() {
+  return _builderKey ? [..._rawKeys, _builderKey] : _rawKeys.slice();
+}
+
 let _keyIndex = 0;
 
 /**
@@ -121,7 +129,7 @@ function markKeyExhausted(key) {
  * NEVER returns full key strings — only last4 + balance/usage/status.
  */
 function keyHealthSnapshot() {
-  return _rawKeys.map((k, i) => {
+  return _allVisibleKeys().map((k, i) => {
     const m = _keyMeta(k);
     const pool = _poolOf(m);
     return {
@@ -147,7 +155,7 @@ function keyHealthSnapshot() {
 async function checkKeyHealth(cacheMs = 60000) {
   const results = [];
   const now = Date.now();
-  for (const key of _rawKeys) {
+  for (const key of _allVisibleKeys()) {
     const m = _keyMeta(key);
     if (now - m.lastCheck < cacheMs && m.lastCheck) {
       results.push({ keyId: `KEY${_rawKeys.indexOf(key) + 1}`, role: _roleOf(key), pool: _poolOf(m), last4: key.slice(-4), status: m.status, balance: m.lastBalance, used: m.lastUsed, tokensUsed: m.tokens });

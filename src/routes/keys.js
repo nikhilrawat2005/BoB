@@ -13,7 +13,7 @@ router.get('/health', requireAuth, async (req, res) => {
     const exhausted = keys.filter(k => k.pool === 'EXHAUSTED');
     res.json({
       keys,                         // [{ last4, balance, used, status, tokensUsed, maxTokens, lastCheck }]
-      newKeysLeft: keys.filter(k => k.pool === 'NEW').length,
+      newKeysLeft: keys.filter(k => k.pool === 'NEW' && k.role !== 'BUILDER').length,
       summary: {
         activeCount: active.length,
         totalKeys: keys.length,
