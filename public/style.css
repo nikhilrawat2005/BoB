@@ -2110,11 +2110,12 @@ body.collab-on .collab-state { color: #fff; background: var(--green); }
 .key-chip.key-bad { border-left: 3px solid var(--red); background: rgba(239,68,68,0.06); }
 .key-chip.key-new { border-left: 3px solid var(--amber); background: rgba(245,158,11,0.06); }
 .key-last4 { font-weight: 800; color: var(--text2); }
+.key-role { color: var(--amber); font-size: 9px; text-transform: uppercase; letter-spacing: 0.4px; }
 .key-bal { color: var(--amber); }
 .key-used { color: var(--text3); }
 .key-status { text-transform: uppercase; font-size: 9px; letter-spacing: 0.3px; }
 .key-ok .key-status { color: var(--green); }
-.key-bad .key-status { color: var(--red); }
+.key-pool { color: var(--text3); font-size: 9px; }
 
 /* -------------------------------------------------------
    KEYS LIMIT � notes + empty states

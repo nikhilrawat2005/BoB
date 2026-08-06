@@ -26,6 +26,21 @@ if (_builderKey) {
   }
 }
 
+// Role assignment (env-driven, stable across cold starts): each role uses a FIXED key.
+// BOB = Bob's main rotation, CENTER = center-work, BUILDER = builder (excluded above).
+// Any configured key with no role is a REPLACEMENT (swap-in when a role key exhausts).
+const _roles = {
+  BOB: (process.env.BOB_API_KEY || '').trim(),
+  CENTER: (process.env.CENTER_API_KEY || '').trim(),
+  BUILDER: (process.env.BUILDER_API_KEY || '').trim(),
+};
+function _roleOf(key) {
+  for (const [role, rk] of Object.entries(_roles)) {
+    if (rk && rk === key) return role;
+  }
+  return 'REPLACEMENT';
+}
+
 if (_rawKeys.length === 0) {
   console.warn(
     '[llmService] WARNING: No OpenRouter API key found. ' +
@@ -111,6 +126,7 @@ function keyHealthSnapshot() {
     const pool = _poolOf(m);
     return {
       keyId: `KEY${i + 1}`,
+      role: _roleOf(k),
       pool,
       last4: k.slice(-4),
       tokensUsed: m.tokens,
@@ -134,7 +150,7 @@ async function checkKeyHealth(cacheMs = 60000) {
   for (const key of _rawKeys) {
     const m = _keyMeta(key);
     if (now - m.lastCheck < cacheMs && m.lastCheck) {
-      results.push({ keyId: `KEY${_rawKeys.indexOf(key) + 1}`, pool: _poolOf(m), last4: key.slice(-4), status: m.status, balance: m.lastBalance, used: m.lastUsed, tokensUsed: m.tokens });
+      results.push({ keyId: `KEY${_rawKeys.indexOf(key) + 1}`, role: _roleOf(key), pool: _poolOf(m), last4: key.slice(-4), status: m.status, balance: m.lastBalance, used: m.lastUsed, tokensUsed: m.tokens });
       continue;
     }
     try {
@@ -151,9 +167,9 @@ async function checkKeyHealth(cacheMs = 60000) {
       } else {
         m.status = 'healthy';
       }
-      results.push({ keyId: `KEY${_rawKeys.indexOf(key) + 1}`, pool: _poolOf(m), last4: key.slice(-4), status: m.status, balance, used, tokensUsed: m.tokens });
+      results.push({ keyId: `KEY${_rawKeys.indexOf(key) + 1}`, role: _roleOf(key), pool: _poolOf(m), last4: key.slice(-4), status: m.status, balance, used, tokensUsed: m.tokens });
     } catch (e) {
-      results.push({ keyId: `KEY${_rawKeys.indexOf(key) + 1}`, pool: _poolOf(m), last4: key.slice(-4), status: m.status, balance: m.lastBalance, used: m.lastUsed, tokensUsed: m.tokens, error: e.message });
+      results.push({ keyId: `KEY${_rawKeys.indexOf(key) + 1}`, role: _roleOf(key), pool: _poolOf(m), last4: key.slice(-4), status: m.status, balance: m.lastBalance, used: m.lastUsed, tokensUsed: m.tokens, error: e.message });
     }
   }
   return results;

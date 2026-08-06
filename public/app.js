@@ -3033,11 +3033,15 @@ async function loadKeys() {
     const active = keys.filter(k => k.pool === 'ACTIVE');
     const newKeys = keys.filter(k => k.pool === 'NEW').sort((a, b) => String(a.keyId).localeCompare(b.keyId));
     const notActive = keys.filter(k => k.pool === 'EXHAUSTED');
+    const byRole = {};
+    keys.forEach(k => { byRole[k.role] = (byRole[k.role] || 0) + 1; });
 
     grid.innerHTML = `
       <div class="keys-summary-bar">
         <span class="ks-label">Active:</span><span class="ks-val ks-ok">${active.length}</span>
-        <span class="ks-label">Exhausted / needs credits:</span><span class="ks-val ks-bad">${notActive.length}</span>
+        <span class="ks-label">New spares:</span><span class="ks-val ks-ok">${newKeys.length}</span>
+        <span class="ks-label">Exhausted:</span><span class="ks-val ks-bad">${notActive.length}</span>
+        <span class="ks-label">Roles:</span><span class="ks-val">${Object.entries(byRole).map(([r,c]) => `${r}:${c}`).join(' ')}</span>
         <span class="ks-label">Max per key:</span><span class="ks-val">${(data.maxTokensPerKey || '—')}</span>
       </div>
 
@@ -3070,6 +3074,7 @@ function keyChip(k, variant) {
   const label = k.keyId || (k.last4 ? `…${k.last4}` : '#');
   return `<div class="key-chip ${cls}">
     <span class="key-last4">${label}</span>
+    <span class="key-role">${k.role || 'REPLACEMENT'}</span>
     <span class="key-bal">bal ${bal}</span>
     <span class="key-used">used ${used}</span>
     <span class="key-pool">pool ${k.pool || variant}</span>
