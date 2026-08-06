@@ -9,7 +9,7 @@ router.get('/health', requireAuth, async (req, res) => {
   try {
     const keys = await llm.checkKeyHealth();
     const snapshot = llm.keyHealthSnapshot();
-    const active = keys.filter(k => k.pool === 'NEW' || k.pool === 'ACTIVE');
+    const active = keys.filter(k => k.pool === 'ACTIVE');
     const exhausted = keys.filter(k => k.pool === 'EXHAUSTED');
     res.json({
       keys,                         // [{ last4, balance, used, status, tokensUsed, maxTokens, lastCheck }]
