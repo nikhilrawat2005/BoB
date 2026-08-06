@@ -64,17 +64,30 @@ function _keyMeta(key) {
  * Round-robin selector that skips exhausted keys.
  * Throws if every key in the pool is exhausted.
  */
+// Pool label: NEW (untouched, balance>=0), ACTIVE (in-flight, balance>=0, tokens>0), EXHAUSTED.
+function _poolOf(m) {
+  if (m.status === 'exhausted' || (m.lastBalance ?? 0) < 0) return 'EXHAUSTED';
+  if ((m.tokens ?? 0) > 0) return 'ACTIVE';
+  return 'NEW';
+}
+
 function _nextKey() {
   if (_rawKeys.length === 0) throw new Error('No OpenRouter API key configured.');
-  const healthy = _rawKeys.filter(k => _keyMeta(k).status !== 'exhausted');
-  if (healthy.length === 0) throw new Error('All OpenRouter keys exhausted (MAX_TOKENS_PER_KEY reached or balance < 0).');
-  let key;
-  for (let i = 0; i < _rawKeys.length; i++) {
-    const candidate = _rawKeys[(_keyIndex + i) % _rawKeys.length];
-    if (_keyMeta(candidate).status !== 'exhausted') { key = candidate; break; }
-  }
-  _keyIndex = (_keyIndex + 1) % _rawKeys.length;
-  return key;
+  // Usable = healthy AND non-negative balance (originals with negative balance are excluded).
+  const usable = _rawKeys.filter(k => {
+    const m = _keyMeta(k);
+    return m.status !== 'exhausted' && (m.lastBalance ?? 0) >= 0;
+  });
+  if (usable.length === 0) throw new Error('All OpenRouter keys exhausted (MAX_TOKENS_PER_KEY reached or balance < 0).');
+  // Prefer NEW keys first, then ACTIVE — new-pool priority.
+  usable.sort((a, b) => {
+    const pa = _poolOf(_keyMeta(a)) === 'NEW' ? 1 : 0;
+    const pb = _poolOf(_keyMeta(b)) === 'NEW' ? 1 : 0;
+    return pb - pa;
+  });
+  const chosen = usable[0];
+  _keyIndex = (_rawKeys.indexOf(chosen) + 1) % _rawKeys.length;
+  return chosen;
 }
 
 /**
@@ -93,9 +106,12 @@ function markKeyExhausted(key) {
  * NEVER returns full key strings — only last4 + balance/usage/status.
  */
 function keyHealthSnapshot() {
-  return _rawKeys.map(k => {
+  return _rawKeys.map((k, i) => {
     const m = _keyMeta(k);
+    const pool = _poolOf(m);
     return {
+      keyId: `KEY${i + 1}`,
+      pool,
       last4: k.slice(-4),
       tokensUsed: m.tokens,
       maxTokens: MAX_TOKENS_PER_KEY,
@@ -118,7 +134,7 @@ async function checkKeyHealth(cacheMs = 60000) {
   for (const key of _rawKeys) {
     const m = _keyMeta(key);
     if (now - m.lastCheck < cacheMs && m.lastCheck) {
-      results.push({ last4: key.slice(-4), status: m.status, balance: m.lastBalance, used: m.lastUsed, tokensUsed: m.tokens });
+      results.push({ keyId: `KEY${_rawKeys.indexOf(key) + 1}`, pool: _poolOf(m), last4: key.slice(-4), status: m.status, balance: m.lastBalance, used: m.lastUsed, tokensUsed: m.tokens });
       continue;
     }
     try {
@@ -133,9 +149,9 @@ async function checkKeyHealth(cacheMs = 60000) {
       if (balance < 0 || m.tokens >= MAX_TOKENS_PER_KEY) {
         if (balance < 0) m.status = 'exhausted';
       }
-      results.push({ last4: key.slice(-4), status: m.status, balance, used, tokensUsed: m.tokens });
+      results.push({ keyId: `KEY${_rawKeys.indexOf(key) + 1}`, pool: _poolOf(m), last4: key.slice(-4), status: m.status, balance, used, tokensUsed: m.tokens });
     } catch (e) {
-      results.push({ last4: key.slice(-4), status: m.status, balance: m.lastBalance, used: m.lastUsed, tokensUsed: m.tokens, error: e.message });
+      results.push({ keyId: `KEY${_rawKeys.indexOf(key) + 1}`, pool: _poolOf(m), last4: key.slice(-4), status: m.status, balance: m.lastBalance, used: m.lastUsed, tokensUsed: m.tokens, error: e.message });
     }
   }
   return results;
