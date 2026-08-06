@@ -3029,10 +3029,10 @@ async function loadKeys() {
     const keys = data.keys || [];
     const summary = data.summary || {};
 
-    // A key is usable only if healthy. Everything else (exhausted / needs-credits / archived)
-    // counts as "not active" — list must match the summary counts exactly.
-    const active = keys.filter(k => k.status === 'healthy');
-    const notActive = keys.filter(k => k.status !== 'healthy');
+    // 3-pool model: NEW = untouched ($0, 0 usage); ACTIVE = in-flight (usage>0, healthy); EXHAUSTED = retired.
+    const active = keys.filter(k => k.pool === 'ACTIVE');
+    const newKeys = keys.filter(k => k.pool === 'NEW').sort((a, b) => String(a.keyId).localeCompare(b.keyId));
+    const notActive = keys.filter(k => k.pool === 'EXHAUSTED');
 
     grid.innerHTML = `
       <div class="keys-summary-bar">
@@ -3041,11 +3041,14 @@ async function loadKeys() {
         <span class="ks-label">Max per key:</span><span class="ks-val">${(data.maxTokensPerKey || '—')}</span>
       </div>
 
-      <div class="keys-section-title">🟢 Active Keys <span class="ks-note">Healthy keys in rotation</span></div>
+      <div class="keys-section-title">🟢 Active Keys <span class="ks-note">In rotation (in-flight)</span></div>
       <div class="key-chips">${active.map(k => keyChip(k, 'ok')).join('') || '<div class="empty-msg">no active keys right now</div>'}</div>
 
-      <div class="keys-section-title">🟡 New / Replacement Keys <span class="ks-note">Ready pool — add credits to activate</span></div>
-      <div class="key-chips">${data.newKeysLeft != null ? `<div class="ks-label">Available in pool: ${data.newKeysLeft} key(s)</div>` : '<div class="empty-msg">n/a</div>'}</div>
+      <div class="keys-section-title">🟡 New / Replacement Keys <span class="ks-note">Untouched spares — swap in when active exhaust</span></div>
+      <div class="key-chips">
+        <div class="ks-label">Available in pool: ${newKeys.length} key(s)</div>
+        ${newKeys.map(k => keyChip(k, 'new')).join('')}
+      </div>
 
       <div class="keys-section-title">🔴 Used / Expired <span class="ks-note">Exhausted or out of credits</span></div>
       <div class="key-chips">${notActive.map(k => keyChip(k, 'bad')).join('') || '<div class="empty-msg">none archived yet</div>'}</div>
@@ -3060,16 +3063,16 @@ async function loadKeys() {
 }
 
 function keyChip(k, variant) {
-  const cls = variant === 'ok' ? 'key-ok' : 'key-bad';
+  const cls = variant === 'ok' ? 'key-ok' : variant === 'new' ? 'key-new' : 'key-bad';
   const bal = typeof k.balance === 'number' ? k.balance : '?';
   const used = typeof k.tokensUsed === 'number' ? k.tokensUsed : 0;
   const last = k.lastCheck ? new Date(k.lastCheck).toLocaleTimeString('en-IN', { hour12: false }) : '—';
-  const label = k.last4 ? `…${k.last4}` : '#';
+  const label = k.keyId || (k.last4 ? `…${k.last4}` : '#');
   return `<div class="key-chip ${cls}">
     <span class="key-last4">${label}</span>
     <span class="key-bal">bal ${bal}</span>
     <span class="key-used">used ${used}</span>
-    <span class="key-status">${k.status}</span>
+    <span class="key-pool">pool ${k.pool || variant}</span>
     <span class="key-time">${last}</span>
   </div>`;
 }
