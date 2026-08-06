@@ -7,7 +7,7 @@ const { auth } = require('../config/firebase');
  */
 // Allowed emails — set ALLOWED_EMAILS in .env as comma-separated list
 // e.g. ALLOWED_EMAILS=nikhil@gmail.com,other@gmail.com
-const ALLOWED_EMAILS = (process.env.ALLOWED_EMAILS || '')
+const ALLOWED_EMAILS = String(process.env.ALLOWED_EMAILS || '')
   .split(',')
   .map(e => e.trim().toLowerCase())
   .filter(Boolean);
