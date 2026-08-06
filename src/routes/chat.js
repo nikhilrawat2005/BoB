@@ -104,11 +104,14 @@ const TOPIC_STOPWORDS = new Set(['github', 'git', 'repos', 'repo', 'repositories
 function extractTopic(m) {
   let cleaned = String(m || '').replace(/```[\s\S]*?```/g, ' ').replace(/\s+/g, ' ').trim();
 
+  // Pattern 0: Topic AFTER "regarding / related to / about / for / ke regarding" (e.g. "find repos regarding ai models")
+  const pAfterKeyword = cleaned.match(/(?:(?:ke\s+)?regarding|related\s+to|about|for|ke\s+baare\s+me|ke\s+liye)\s+([A-Za-z0-9][A-Za-z0-9 .&+_\/-]{1,50})/i);
+
   // Pattern 1: Topic BEFORE "ke regarding / related / pe / par / ke liye / ke baare me" (e.g. "location tracking ke regarding repos find karo")
   const pHinglishBefore = cleaned.match(/([A-Za-z0-9][A-Za-z0-9 .&+_\/-]{1,50})\s+(?:ke\s+(?:regarding|related|liye|baare\s+me|par|pe)|pe|par|related\s+to)/i);
 
   // Pattern 2: Topic AFTER "repos for/about/on/related to" (e.g. "repos for location tracking")
-  const pEnglishAfter = cleaned.match(/(?:repos?|projects?|repositories)\s+(?:for|about|on|related\s+to|ke\s+liye|ke\s+baare\s+me)\s+([A-Za-z0-9][A-Za-z0-9 .&+_\/-]{1,50})/i);
+  const pEnglishAfter = cleaned.match(/(?:repos?|projects?|repositories)\s+(?:for|about|on|related\s+to|regarding|ke\s+liye|ke\s+baare\s+me)\s+([A-Za-z0-9][A-Za-z0-9 .&+_\/-]{1,50})/i);
 
   // Pattern 3: Direct search verbs (e.g. "find location tracking repos" or "dhundo location tracking projects")
   const pVerbs = cleaned.match(/(?:find|search|dhundh[o]?|dhoond[o]?|khoj[o]?|suggest|recommend)\s+(\d+\s+)?([A-Za-z0-9][A-Za-z0-9 .&+_\/-]{1,50})\s*(?:repos?|projects?|code|repositories)?/i);
@@ -116,7 +119,8 @@ function extractTopic(m) {
   // Pattern 4: Direct noun phrase (e.g. "location tracking repos")
   const pNoun = cleaned.match(/([A-Za-z0-9][A-Za-z0-9 .&+_\/-]{1,50})\s+(?:repos?|projects?|repositories)/i);
 
-  let topic = (pHinglishBefore && pHinglishBefore[1]) ||
+  let topic = (pAfterKeyword && pAfterKeyword[1]) ||
+              (pHinglishBefore && pHinglishBefore[1]) ||
               (pEnglishAfter && pEnglishAfter[1]) ||
               (pVerbs && (pVerbs[2] || pVerbs[1])) ||
               (pNoun && pNoun[1]) ||
@@ -127,7 +131,7 @@ function extractTopic(m) {
     prev = topic;
     topic = topic
       .replace(/(?:\brelated\b|\brepo\b|\brepos?\b|\bprojects?\b|\bregarding\b|\bke?\b|\bka\b|\bki\b|\bko\b|\bme\b|\bpe\b|\bpar\b|\bdo\b|\bkarke\b|\bbatao\b|\bbata\b|\bchahiye\b|\bdhoondo?\b|\bdhundho?\b|\bfind\b|\bsearch\b|\bkaro\b|\bhai\b|\bhain\b|\bgood\b|\bgreat\b|\bacha\b|\baccha\b|\bacche\b|\bkoi\b|\bone\b|\bany\b|\bsome\b|\bnhi\b|\bnahi\b)\s*$/i, '')
-      .replace(/^(?:github|git|pe|par|me|se|ke|ka|ki|ko|the|a|an|some|best|top|kya|koi|good|acha|accha|any|abhi|mere|mera|apne|apna|apni|sab|saare|find|search|dhundh|dhoond|khoj)\s+/i, '')
+      .replace(/^(?:github|git|pe|par|me|se|ke|ka|ki|ko|the|a|an|some|best|top|kya|koi|good|acha|accha|any|abhi|mere|mera|apne|apna|apni|sab|saare|find|search|dhundh|dhoond|khoj|kar|sakte|ho)\s+/i, '')
       .trim();
   } while (topic !== prev);
 

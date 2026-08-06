@@ -532,40 +532,59 @@ function parseFileBlocks(text) {
     if (match.index > lastIndex) {
       blocks.push({ type: 'text', content: text.slice(lastIndex, match.index) });
     }
-    if (match[3] === 'schedule') {
+
+    const lang = match[1];
+    const filename = match[2];
+    const isSchedule = match[3] === 'schedule';
+    const isChart = match[4] === 'chart';
+    const isMermaid = match[5] === 'mermaid';
+    const isBuilder = match[6] === 'builder';
+    const isHackathon = match[7] === 'hackathon';
+    const blockContent = (match[8] || '').trim();
+
+    if (isSchedule) {
       try {
-        const data = JSON.parse(match[7].trim());
+        const data = JSON.parse(blockContent);
         blocks.push({ type: 'schedule', data });
       } catch {
         blocks.push({ type: 'text', content: match[0] });
       }
-    } else if (match[4] === 'chart') {
+    } else if (isChart) {
       try {
-        const data = JSON.parse(match[7].trim());
+        const data = JSON.parse(blockContent);
         blocks.push({ type: 'chart', data });
       } catch {
         blocks.push({ type: 'text', content: match[0] });
       }
-    } else if (match[5] === 'mermaid') {
-      blocks.push({ type: 'mermaid', source: match[7].trim() });
-    } else if (match[6] === 'builder') {
+    } else if (isMermaid) {
+      blocks.push({ type: 'mermaid', source: blockContent });
+    } else if (isBuilder) {
       try {
-        const data = JSON.parse(match[7].trim());
+        const data = JSON.parse(blockContent);
         if (!data.instruction || typeof data.instruction !== 'string' || !data.instruction.trim()) {
-          blocks.push({ type: 'builder-invalid', raw: match[7].trim(), error: 'instruction is required (Bob ka builder block incomplete hai — instruction missing/empty)' });
+          blocks.push({ type: 'builder-invalid', raw: blockContent, error: 'instruction is required (Bob ka builder block incomplete hai — instruction missing/empty)' });
         } else {
           blocks.push({ type: 'builder', data });
         }
       } catch {
-        blocks.push({ type: 'builder-invalid', raw: match[7].trim(), error: 'invalid JSON builder block' });
+        blocks.push({ type: 'builder-invalid', raw: blockContent, error: 'invalid JSON builder block' });
       }
-    } else {
+    } else if (isHackathon) {
+      try {
+        const data = JSON.parse(blockContent);
+        blocks.push({ type: 'hackathon', data });
+      } catch {
+        blocks.push({ type: 'text', content: match[0] });
+      }
+    } else if (lang && filename) {
       blocks.push({
         type:     'file',
-        lang:     match[1].toLowerCase().trim(),
-        filename: match[2].trim(),
-        content:  match[7],
+        lang:     lang.toLowerCase().trim(),
+        filename: filename.trim(),
+        content:  match[8] || '',
       });
+    } else {
+      blocks.push({ type: 'text', content: match[0] });
     }
     lastIndex = regex.lastIndex;
   }
@@ -853,8 +872,9 @@ function createFileCard(lang, filename, content) {
   if (lang === 'dockerfile' && !filename.includes('.')) finalName = 'Dockerfile';
   if (lang === 'makefile'   && !filename.includes('.')) finalName = 'Makefile';
 
-  const lineCount = content.split('\n').length;
-  const byteSize  = new TextEncoder().encode(content).length;
+  const fileContent = String(content || '');
+  const lineCount = fileContent.split('\n').length;
+  const byteSize  = new TextEncoder().encode(fileContent).length;
 
   const card = document.createElement('div');
   card.className = 'file-gen-card';
