@@ -56,6 +56,52 @@ function _allVisibleKeys() {
   return _builderKey ? [..._rawKeys, _builderKey] : _rawKeys.slice();
 }
 
+// Stable key identity (KEY1..KEY9) across cold starts — index within _allVisibleKeys.
+function _keyIdOf(key) {
+  const i = _allVisibleKeys().indexOf(key);
+  return i >= 0 ? `KEY${i + 1}` : null;
+}
+
+// --- Persistent key state (Firestore) so exhaustion/usage survives cold starts.
+// Falls back to in-memory only when Firebase is not configured (no new dep needed).
+function _firestore() {
+  try { const { db } = require('../config/firebase'); return db; } catch { return null; }
+}
+let _stateLoaded = false;
+async function _loadState() {
+  if (_stateLoaded) return;
+  const db = _firestore();
+  if (!db) { _stateLoaded = true; return; }
+  try {
+    const snap = await db.collection('keyStates').get();
+    const visible = _allVisibleKeys();
+    snap.forEach(doc => {
+      const idx = parseInt(doc.id.replace('KEY', ''), 10) - 1;
+      const key = visible[idx];
+      if (!key) return;
+      const m = _keyMeta(key);
+      const d = doc.data() || {};
+      if (d.tokens != null) m.tokens = d.tokens;
+      if (d.status) m.status = d.status;
+      if (d.lastBalance != null) m.lastBalance = d.lastBalance;
+      if (d.lastUsed != null) m.lastUsed = d.lastUsed;
+      if (d.lastCheck != null) m.lastCheck = d.lastCheck;
+    });
+  } catch (e) {
+    console.warn('[llmService] keyState load failed:', e.message);
+  }
+  _stateLoaded = true;
+}
+async function _persistKey(keyId, data) {
+  const db = _firestore();
+  if (!db || !keyId) return;
+  try { await db.collection('keyStates').doc(keyId).set(data, { merge: true }); }
+  catch (e) { console.warn('[llmService] keyState persist failed:', e.message); }
+}
+
+// Eagerly begin loading persisted state (non-blocking); awaited again in checkKeyHealth.
+_loadState();
+
 let _keyIndex = 0;
 
 /**
@@ -122,6 +168,7 @@ function markKeyExhausted(key) {
   m.status = 'exhausted';
   m.lastCheck = Date.now();
   console.warn('[llmService] Key ...' + key.slice(-8) + ' marked EXHAUSTED.');
+  _persistKey(_keyIdOf(key), { status: 'exhausted', lastCheck: m.lastCheck, lastBalance: m.lastBalance, lastUsed: m.lastUsed, tokens: m.tokens });
 }
 
 /**
@@ -153,12 +200,13 @@ function keyHealthSnapshot() {
  * usage>=limit. Cached per-key for `cacheMs` (default 60s) to avoid spamming.
  */
 async function checkKeyHealth(cacheMs = 60000) {
+  await _loadState();
   const results = [];
   const now = Date.now();
   for (const key of _allVisibleKeys()) {
     const m = _keyMeta(key);
     if (now - m.lastCheck < cacheMs && m.lastCheck) {
-      results.push({ keyId: `KEY${_rawKeys.indexOf(key) + 1}`, role: _roleOf(key), pool: _poolOf(m), last4: key.slice(-4), status: m.status, balance: m.lastBalance, used: m.lastUsed, tokensUsed: m.tokens });
+      results.push({ keyId: _keyIdOf(key) || `KEY?`, role: _roleOf(key), pool: _poolOf(m), last4: key.slice(-4), status: m.status, balance: m.lastBalance, used: m.lastUsed, tokensUsed: m.tokens });
       continue;
     }
     try {
@@ -175,9 +223,10 @@ async function checkKeyHealth(cacheMs = 60000) {
       } else {
         m.status = 'healthy';
       }
-      results.push({ keyId: `KEY${_rawKeys.indexOf(key) + 1}`, role: _roleOf(key), pool: _poolOf(m), last4: key.slice(-4), status: m.status, balance, used, tokensUsed: m.tokens });
+      _persistKey(_keyIdOf(key), { status: m.status, lastCheck: m.lastCheck, lastBalance: m.lastBalance, lastUsed: m.lastUsed, tokens: m.tokens });
+      results.push({ keyId: _keyIdOf(key) || `KEY?`, role: _roleOf(key), pool: _poolOf(m), last4: key.slice(-4), status: m.status, balance, used, tokensUsed: m.tokens });
     } catch (e) {
-      results.push({ keyId: `KEY${_rawKeys.indexOf(key) + 1}`, role: _roleOf(key), pool: _poolOf(m), last4: key.slice(-4), status: m.status, balance: m.lastBalance, used: m.lastUsed, tokensUsed: m.tokens, error: e.message });
+      results.push({ keyId: _keyIdOf(key) || `KEY?`, role: _roleOf(key), pool: _poolOf(m), last4: key.slice(-4), status: m.status, balance: m.lastBalance, used: m.lastUsed, tokensUsed: m.tokens, error: e.message });
     }
   }
   return results;
@@ -191,7 +240,9 @@ function _recordUsage(key, usedTokens) {
   if (!key || !usedTokens) return;
   const m = _keyMeta(key);
   m.tokens += usedTokens;
+  if (m.status !== 'exhausted') m.status = 'healthy';
   if (m.tokens >= MAX_TOKENS_PER_KEY) m.status = 'exhausted';
+  _persistKey(_keyIdOf(key), { tokens: m.tokens, status: m.status, lastBalance: m.lastBalance, lastUsed: m.lastUsed });
 }
 
 // ---------------------------------------------------------------------------
