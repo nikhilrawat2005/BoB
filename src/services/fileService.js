@@ -51,4 +51,29 @@ async function deleteFile(userId, fileId) {
   return true;
 }
 
-module.exports = { uploadFile, listFiles, deleteFile };
+// Stores a Buffer produced by documentGenerator.js (real .xlsx/.docx/.pdf/.pptx
+// bytes) exactly like a user-uploaded file — same Cloudinary pipeline, same
+// Firestore users/{userId}/files collection, so listFiles/deleteFile work on
+// generated files for free. resource_type is forced to 'raw' because these
+// are binary Office/PDF documents, not images Cloudinary should transform.
+async function saveGeneratedFile(userId, buffer, filename, mimeType) {
+  const result = await uploadBufferToCloudinary(buffer, `bob/${userId}/generated`);
+
+  const record = {
+    url: result.secure_url,
+    publicId: result.public_id,
+    resourceType: result.resource_type || 'raw',
+    originalName: filename,
+    mimeType,
+    sizeBytes: buffer.length,
+    generated: true,
+    createdAt: Date.now(),
+  };
+
+  const ref = db.collection('users').doc(userId).collection('files').doc();
+  await ref.set(record);
+
+  return { id: ref.id, ...record };
+}
+
+module.exports = { uploadFile, listFiles, deleteFile, saveGeneratedFile };

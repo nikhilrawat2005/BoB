@@ -17,6 +17,26 @@ const crawler = require('../services/crawlerService');
 const repoService = require('../services/repoService');
 
 // ─────────────────────────────────────────────────────────
+// Binary-file intent detection — fast regex pre-check (no LLM call) that
+// flags when Master Nikhil is asking for a real Office/PDF file, so we can
+// remind the model (below) to use a `filespec` JSON block instead of the
+// plain-text fenced-block path, which cannot produce valid .xlsx/.docx/etc.
+// Returns one of 'xlsx' | 'docx' | 'pdf' | 'pptx' | null.
+// ─────────────────────────────────────────────────────────
+function detectBinaryFileIntent(message) {
+  const m = String(message || '').toLowerCase();
+  // Bare "word"/"excel" are common English words, so those two require a
+  // file-ish companion word to avoid false positives (e.g. "in a word, yes").
+  // "pdf" and "ppt" are unambiguous short-forms in this Hinglish context, so
+  // they match standalone.
+  if (/\.xlsx\b|excel\s*(sheet|file|workbook)|spreadsheet/.test(m)) return 'xlsx';
+  if (/\.docx\b|\bword\s*(doc|document|file)\b/.test(m)) return 'docx';
+  if (/\.pptx\b|power\s*point|\bppt\b|slide\s*deck|presentation\s*file/.test(m)) return 'pptx';
+  if (/\.pdf\b|\bpdf\b/.test(m)) return 'pdf';
+  return null;
+}
+
+// ─────────────────────────────────────────────────────────
 // Live-data detection — when Master asks about weather, news, or
 // markets, we fetch REAL data in parallel and inject it into Bob's
 // context so he answers from exact numbers instead of guessing.
@@ -365,6 +385,11 @@ router.post('/', requireAuth, async (req, res) => {
       contextBlocks.push(`🤝 BOB + BUILDER COLLAB MODE (Master Nikhil ne ise ON kiya hai): Master ne explicitly allow kiya hai ki tum Bob the Builder ke saath milke kaam kar sakte ho. Jab bhi coding/project/planning ka kaam ho aur Builder ki help useful lage, apna kaam ek chhota \`\`\`builder {title,instruction} \`\`\` block bana kar Builder ko delegate kar sakte ho. Apne reply me phir batana ki tumne Builder ko kya assign kiya aur kyun. Jab tak Master ye mode ON rakhe, Builder collaboration allowed hai.`);
     }
 
+    const binaryFileIntent = detectBinaryFileIntent(promptMessage);
+    if (binaryFileIntent) {
+      contextBlocks.push(`📎 BINARY FILE REQUEST DETECTED (${binaryFileIntent}): Master Nikhil is asking for a real .${binaryFileIntent} file. You MUST respond with a single \`\`\`filespec JSON block (format: "${binaryFileIntent}") as described in the REAL OFFICE FILES section — do NOT use a plain \`\`\`${binaryFileIntent} filename=... \`\`\` text block, it will produce a corrupt file.`);
+    }
+
     const memoryContext = contextBlocks.join('\n\n');
 
     // 5. Call Answering Agent LLM with Proactive Mindset, File Creation & Scheduling
@@ -419,6 +444,40 @@ Supported formats and their code block languages:
 - Offer helpful follow-up actions (transcription request, analysis, etc.)
 
 ⚠️ IMPORTANT RULE: ALWAYS include the filename= attribute in code blocks for any file you create. Without it, the download button won't appear. Generate complete, production-ready file content — never truncate or add placeholders.
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+━━━ 📎 REAL OFFICE FILES (.xlsx, .docx, .pdf, .pptx) — DO NOT use the fenced-block method above for these ━━━
+Excel, Word, PDF, and PowerPoint files are BINARY formats — they cannot be written as plain text.
+NEVER put xlsx/docx/pdf/pptx content inside a normal \`\`\`<language> filename=... \`\`\` block; that will produce a corrupt file Master Nikhil cannot open.
+
+Instead, output a SINGLE \`\`\`filespec fenced block containing ONLY valid JSON (no comments, no trailing text) describing the file's structure. The backend turns this JSON into a real file using proper libraries.
+
+  \`\`\`filespec
+  { "format": "xlsx", "filename": "report.xlsx",
+    "sheets": [ { "name": "Sheet1", "headers": ["Name","Score"], "rows": [["Alice",95],["Bob",88]] } ] }
+  \`\`\`
+
+Format-specific JSON shapes:
+
+📊 xlsx → { "format":"xlsx", "filename":"...", "sheets":[ { "name":"...", "headers":[...], "rows":[[...],[...]] }, ... ] }
+   (multiple sheets allowed — add more objects to the "sheets" array)
+
+📝 docx → { "format":"docx", "filename":"...", "title":"optional doc title", "blocks":[
+     { "type":"heading", "text":"...", "level":1 },
+     { "type":"paragraph", "text":"..." },
+     { "type":"bullets", "items":["...", "..."] },
+     { "type":"table", "headers":[...], "rows":[[...],[...]] }
+   ] }
+
+📄 pdf → { "format":"pdf", "filename":"...", "title":"optional title", "sections":[ { "heading":"...", "body":"..." }, ... ] }
+
+📽️ pptx → { "format":"pptx", "filename":"...", "slides":[ { "title":"...", "bullets":["...", "..."] }, ... ] }
+
+Rules for filespec blocks:
+- Output exactly ONE filespec block per file. If Master Nikhil asks for multiple files, generate them one at a time across separate turns, or ask which one he wants first.
+- The JSON must be syntactically valid — it will be parsed with JSON.parse(). No trailing commas, no comments.
+- Never fabricate a "download ready" message before this block — the block IS what triggers the real download.
+- If unsure which format he wants (e.g. he just says "file bana do"), ask him — don't guess between xlsx/docx/pdf/pptx.
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 ━━━ 📊 DATA VISUALIZATION ENGINE (charts + tables) ━━━

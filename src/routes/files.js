@@ -4,6 +4,7 @@ const multer = require('multer');
 const router = express.Router();
 const { requireAuth } = require('../middleware/auth');
 const fileService = require('../services/fileService');
+const documentGenerator = require('../services/documentGenerator');
 
 // Allowed upload extensions (matches the frontend accept list).
 const ALLOWED_EXTENSIONS = new Set([
@@ -59,6 +60,40 @@ router.delete('/:id', requireAuth, async (req, res) => {
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/files/generate  { format: 'xlsx'|'docx'|'pdf'|'pptx', filename, spec }
+// Turns an LLM-authored JSON spec into a REAL binary file (via documentGenerator),
+// uploads it, and returns a real downloadable URL. This is the route that fixes
+// the old "text pretending to be a .docx/.xlsx" problem — nothing here writes
+// file bytes by hand; ExcelJS/docx/pdfkit/pptxgenjs do that.
+router.post('/generate', requireAuth, async (req, res) => {
+  const { format, filename, spec } = req.body || {};
+
+  if (!format || !documentGenerator.SUPPORTED_FORMATS.includes(format)) {
+    return res.status(400).json({
+      error: `"format" must be one of: ${documentGenerator.SUPPORTED_FORMATS.join(', ')}`,
+    });
+  }
+  if (!spec || typeof spec !== 'object') {
+    return res.status(400).json({ error: '"spec" (object) is required' });
+  }
+  if (!filename || typeof filename !== 'string') {
+    return res.status(400).json({ error: '"filename" (string) is required' });
+  }
+
+  try {
+    const buffer = await documentGenerator.generate(format, spec);
+    const mimeType = documentGenerator.MIME_TYPES[format];
+    const saved = await fileService.saveGeneratedFile(req.userId, buffer, filename, mimeType);
+    res.json({ file: saved });
+  } catch (err) {
+    console.error('[files/generate] error:', err.message);
+    // Spec-shape problems (thrown by documentGenerator's own validation) are
+    // the caller's fault (400); anything else is a server-side failure (500).
+    const isSpecError = /spec requires|Unsupported format/.test(err.message);
+    res.status(isSpecError ? 400 : 500).json({ error: err.message });
   }
 });
 
