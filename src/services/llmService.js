@@ -107,8 +107,8 @@ async function _persistKey(keyId, data) {
   catch (e) { console.warn('[llmService] keyState persist failed:', e.message); }
 }
 
-// Eagerly begin loading persisted state (non-blocking); awaited again in checkKeyHealth.
-_loadState();
+// (state loading kicked off further below, once _initRoleHolders exists —
+// see _initPromise / _ensureInit)
 
 // ---------------------------------------------------------------------------
 // Role-holders cursor (Firestore): tracks which KEY# is currently "Bob"/"Center".
@@ -140,7 +140,20 @@ async function _initRoleHolders() {
     console.warn('[llmService] roleHolders init failed:', e.message);
   }
 }
-_initRoleHolders();
+
+// FIX (#3): _loadState() and _initRoleHolders() used to be fired at module
+// load time with no one awaiting them ("fire and forget"). On a cold
+// serverless start, a request could arrive and start picking/using keys
+// before Firestore-persisted exhaustion/usage state (and role-holder
+// assignments) finished loading — meaning a key that was actually exhausted
+// on a previous invocation could briefly look "fresh" again, or budget
+// counters could be double-spent right after a restart. We now keep a single
+// shared init promise and every entry point (callLLM, callLLMWithVision,
+// checkKeyHealth, _resolveRoleKey) awaits it before touching key state.
+const _initPromise = Promise.all([_loadState(), _initRoleHolders()]);
+async function _ensureInit() {
+  await _initPromise;
+}
 
 function _holderKey(role) {
   const kid = _roleHolders[role];
@@ -177,9 +190,14 @@ async function promoteReplacement(role) {
   const current = _holderKey(role);
   const replacements = _freeReplacements(role);
   if (!replacements.length) {
-    // no swap possible; keep current holder (may be exhausted) so we stop retrying it
+    // No swap possible. FIX (#2): previously this returned `current` even when
+    // it was an exhausted key, which made _resolveRoleKey() treat it as a
+    // valid "promoted" key (since it's truthy) and keep retrying a dead key.
+    // Returning null here forces the caller to fall through to _nextKey(),
+    // which correctly searches the whole shared pool (or throws a clear
+    // "all keys exhausted" error instead of silently reusing a dead one).
     if (!current) _roleHolders[role] = null;
-    return current;
+    return null;
   }
   const next = replacements[0];
   const nextId = _keyIdOf(next);
@@ -204,6 +222,7 @@ async function promoteReplacement(role) {
 // If the holder is exhausted/not fundable, atomically promote to a fresh key;
 // if no fresh key exists, fall back to the shared pool so calls never break.
 async function _resolveRoleKey(role) {
+  await _ensureInit();
   const held = _holderKey(role);
   if (held) {
     const m = _keyMeta(held);
@@ -318,7 +337,7 @@ function keyHealthSnapshot() {
  * usage>=limit. Cached per-key for `cacheMs` (default 60s) to avoid spamming.
  */
 async function checkKeyHealth(cacheMs = 60000) {
-  await _loadState();
+  await _ensureInit();
   const results = [];
   const now = Date.now();
   for (const key of _allVisibleKeys()) {
@@ -336,9 +355,19 @@ async function checkKeyHealth(cacheMs = 60000) {
       m.lastBalance = balance;
       m.lastUsed = used;
       m.lastCheck = now;
+      // FIX (#1): exhausted status is now STICKY. Previously, a live /credits
+      // check that happened to see balance >= 0 (common with free-credit keys,
+      // which can lag/flap around $0) would silently overwrite an existing
+      // 'exhausted' status back to 'healthy' — putting a dead key straight
+      // back into rotation until it failed a real call again. Now, once a
+      // key has been marked exhausted (via markKeyExhausted(), triggered by
+      // an actual failed OpenRouter call), only a NEGATIVE balance or the
+      // token ceiling can re-affirm 'exhausted' — a clean live check can no
+      // longer un-exhaust it on its own. Restarting the server (or a future
+      // explicit "reset key" action) is required to bring it back.
       if (balance < 0 || m.tokens >= MAX_TOKENS_PER_KEY) {
         m.status = 'exhausted';
-      } else {
+      } else if (m.status !== 'exhausted') {
         m.status = 'healthy';
       }
       _persistKey(_keyIdOf(key), { status: m.status, lastCheck: m.lastCheck, lastBalance: m.lastBalance, lastUsed: m.lastUsed, tokens: m.tokens });
@@ -487,7 +516,13 @@ async function callLLM({ role = 'chat', messages, model, temperature, max_tokens
  */
 async function callLLMWithVision({ messages, userText, imageUrls = [], model, temperature, max_tokens }) {
   const selectedModel = model || MODEL_ROLES.vision;
-  const apiKey = _nextKey();
+  // FIX (#4): this used to call the plain round-robin _nextKey() instead of
+  // the role-aware _resolveRoleKey('BOB') that callLLM() uses. That meant
+  // vision calls could silently use a DIFFERENT key than the one the "BOB"
+  // role/dashboard was tracking, splitting token-budget bookkeeping across
+  // two untracked paths and making the HQ "Keys" role label unreliable.
+  // Vision now shares the same role-aware resolution as normal chat calls.
+  const apiKey = await _resolveRoleKey('BOB');
   const requestedMaxTokens = max_tokens ?? Number(process.env.MAX_TOKENS ?? 2000);
 
   // Build multimodal user content: text + images

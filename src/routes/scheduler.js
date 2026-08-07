@@ -67,6 +67,23 @@ router.delete('/:id', requireAuth, async (req, res) => {
 // Authorization: Bearer <CRON_SECRET>; otherwise (dev mode) the
 // browser-polling path falls back to the normal Firebase auth.
 // ─────────────────────────────────────────────────────────
+// FIX (#5): if CRON_SECRET is never set, /api/scheduler/tick silently falls
+// back to normal Firebase auth — the GitHub Actions cron workflow (which only
+// sends a Bearer secret, never a Firebase ID token) would then get a silent
+// 401 every hour with nothing surfaced anywhere except a buried log line.
+// This warns loudly ONCE at server startup so a missing CRON_SECRET is
+// obvious immediately instead of discovered days later when scheduled tasks
+// never fired.
+if (!process.env.CRON_SECRET) {
+  console.warn(
+    '[scheduler] WARNING: CRON_SECRET is not set. /api/scheduler/tick will ' +
+    'fall back to normal Firebase auth, which means the GitHub Actions cron ' +
+    'workflow (.github/workflows/tick.yml) will fail every run with 401 ' +
+    'Unauthorized — it sends a Bearer secret, not a Firebase ID token. ' +
+    'Set CRON_SECRET in both Vercel env vars and the GitHub repo secret to fix.'
+  );
+}
+
 function tickAuth(req, res, next) {
   const cronSecret = process.env.CRON_SECRET;
   const authHeader  = req.headers['authorization'] || '';

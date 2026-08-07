@@ -19,8 +19,15 @@ router.post('/', requireAuth, async (req, res) => {
   if (!link && !name) return res.status(400).json({ error: 'Provide a name or a link (LinkedIn / GitHub / site) to stalk.' });
   try {
     const profile = await stalk.createProfile(req.userId, { name, link, notes });
-    // Kick off the deep-dive research (background — response returns immediately)
-    stalk.researchProfile(req.userId, profile.id).then(() => {}).catch(() => {});
+    // Kick off the deep-dive research (background — response returns immediately).
+    // FIX (#9): researchProfile() already persists status:'error' to Firestore on
+    // failure (visible in the UI), but the route-level .catch(() => {}) silently
+    // dropped the error server-side too — so a bug in the write itself, or any
+    // failure before that persistence happens, left zero trace anywhere. Now it's
+    // at least logged so it shows up in server logs instead of vanishing.
+    stalk.researchProfile(req.userId, profile.id).catch(err =>
+      console.error(`[stalking] background research failed (profile ${profile.id}):`, err.message)
+    );
     res.json({ profile });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -61,7 +68,9 @@ router.delete('/:id', requireAuth, async (req, res) => {
 // POST /api/stalking/:id/research — re-run deep-dive
 router.post('/:id/research', requireAuth, async (req, res) => {
   try {
-    stalk.researchProfile(req.userId, req.params.id).then(() => {}).catch(() => {});
+    stalk.researchProfile(req.userId, req.params.id).catch(err =>
+      console.error(`[stalking] background re-research failed (profile ${req.params.id}):`, err.message)
+    );
     res.json({ status: 'researching' });
   } catch (err) {
     res.status(500).json({ error: err.message });

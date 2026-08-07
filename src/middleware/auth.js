@@ -13,7 +13,22 @@ const ALLOWED_EMAILS = String(process.env.ALLOWED_EMAILS || '')
   .filter(Boolean);
 
 if (ALLOWED_EMAILS.length === 0) {
-  console.warn('[auth] WARNING: ALLOWED_EMAILS is not set in .env — no one will be able to log in!');
+  // FIX (#7): previously this only logged a warning and let the server start
+  // normally — every request would then hit requireAuth(), fail the
+  // ALLOWED_EMAILS.includes(email) check, and return 403 for literally
+  // everyone, including the owner. That's a silent total-lockout that looks
+  // like a working deploy until someone actually tries to log in. Fail fast
+  // instead: refuse to boot with a loud, unmissable error, except under
+  // automated tests (NODE_ENV=test) where env vars are commonly unset.
+  console.error(
+    '[auth] FATAL: ALLOWED_EMAILS is not set (or empty) in your environment. ' +
+    'No one — including you — will be able to log in. Set ALLOWED_EMAILS as a ' +
+    'comma-separated list (e.g. ALLOWED_EMAILS=you@gmail.com) in .env / your ' +
+    'deployment environment variables and restart.'
+  );
+  if (process.env.NODE_ENV !== 'test') {
+    process.exit(1);
+  }
 }
 
 // Single master ID so all your authorized accounts share the EXACT same chats, memory, and files

@@ -7,8 +7,16 @@ const fileService = require('../services/fileService');
 const documentGenerator = require('../services/documentGenerator');
 
 // Allowed upload extensions (matches the frontend accept list).
+// FIX (#6): 'svg' intentionally removed. SVG files can embed <script> tags /
+// event handlers, and uploads here go straight to Cloudinary and come back
+// as a browser-openable URL — if one of those URLs is ever opened directly
+// or embedded, an SVG upload is effectively a stored-XSS vector. Every other
+// image format here is not script-capable, so this only removes the one
+// risky type. If SVG support is needed later, sanitize server-side first
+// (e.g. run it through a library like DOMPurify/svgo to strip scripts and
+// event handlers before uploading) rather than re-adding it as-is.
 const ALLOWED_EXTENSIONS = new Set([
-  'png','jpg','jpeg','gif','webp','svg','bmp','ico',
+  'png','jpg','jpeg','gif','webp','bmp','ico',
   'mp3','wav','ogg','m4a','aac',
   'mp4','webm','mov','mkv','m4v',
   'pdf','doc','docx','xls','xlsx','ppt','pptx','csv','tsv','txt','md','json','xml','yaml','yml','toml',

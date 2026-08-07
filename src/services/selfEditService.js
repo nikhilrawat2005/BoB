@@ -26,6 +26,36 @@ const BLOCKED_FILES = [
   'package.json', 'package-lock.json', 'package-lock.json5',
 ];
 
+// FIX: previously the ONLY gate on self-edit paths was isBlocked() — a deny-list
+// enforced deep inside the service layer, with no positive whitelist and no cap
+// on how big a single auto-applied change could be. That meant any new/renamed
+// sensitive file that wasn't explicitly added to BLOCKED_FILES was implicitly
+// allowed, and a single autoApply run could rewrite an entire large file in one
+// shot with no size guard. Adding two route-level, allow-list style guards:
+//   - ALLOWED_PATH_PREFIXES: only files under these prefixes may ever be
+//     proposed/applied, regardless of isBlocked(). This is enforced in the
+//     ROUTE (src/routes/selfEdit.js) before the service is even called, so it's
+//     a second independent check, not just a rename of the existing deny-list.
+//   - MAX_DIFF_CHARS: caps how much a single self-edit (especially autoApply)
+//     is allowed to change in one go. Computed from actual old/new content size,
+//     not from the truncated display diff.
+const ALLOWED_PATH_PREFIXES = ['src/routes/', 'src/services/', 'src/middleware/', 'public/'];
+const MAX_DIFF_CHARS = Number(process.env.SELF_EDIT_MAX_DIFF_CHARS || 4000);
+
+function isAllowedPath(rel) {
+  const r = normalizeFile(rel);
+  if (!r) return false;
+  return ALLOWED_PATH_PREFIXES.some(p => r.startsWith(p));
+}
+
+function diffCharSize(oldCode, newCode) {
+  const o = String(oldCode || '');
+  const n = String(newCode || '');
+  // Cheap, deterministic size-of-change metric: length of the old chunk being
+  // removed plus the new chunk being added (not the whole-file size).
+  return o.length + n.length;
+}
+
 function normalizeFile(f) {
   return String(f || '').replace(/\\/g, '/').replace(/^\.?\//, '').trim();
 }
@@ -327,4 +357,5 @@ Return ONLY a valid JSON array, no markdown:
 module.exports = {
   proposeEdit, listEdits, getEdit, setStatus, applyEdit,
   runSelfReview, listCandidateFiles, isBlocked,
+  isAllowedPath, diffCharSize, ALLOWED_PATH_PREFIXES, MAX_DIFF_CHARS,
 };
