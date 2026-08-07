@@ -299,6 +299,16 @@ router.post('/', requireAuth, async (req, res) => {
     ? documents.filter((d) => d && d.name).slice(0, 3)
     : [];
 
+  // DEBUG LOG — visible in Vercel → Logs. Search "[chat] documents received"
+  // to confirm whether the frontend is actually sending attached-file text,
+  // and whether extraction produced real content or came back empty/failed.
+  console.log(
+    `[chat] documents received: ${userDocuments.length}` +
+    (userDocuments.length
+      ? ' | ' + userDocuments.map(d => `"${d.name}" textExtracted=${d.textExtracted} chars=${(d.extractedText || '').length}`).join(', ')
+      : '')
+  );
+
   const documentContext = userDocuments.length
     ? `\n━━━ 📄 ATTACHED DOCUMENT(S) — REAL extracted text, use ONLY this, never invent content ━━━\n${userDocuments
         .map((d) => {
