@@ -1658,6 +1658,12 @@ async function sendMessage() {
 
   // Collect image URLs to send to Bob for vision analysis (Bob persona only)
   const imageUrls = [];
+  // NEW: non-image attachments (PDF/DOCX/txt/...) — previously these were
+  // uploaded to Cloudinary but their upload result was thrown away because
+  // only image URLs were ever added to the outgoing payload. Bob never
+  // received any reference to the file, so he had no choice but to guess
+  // at its contents from the filename alone.
+  const documents = [];
 
   if (currentPersona === 'bob') {
     // Upload pasted screenshot if any
@@ -1669,15 +1675,30 @@ async function sendMessage() {
 
     // Upload attached file if any
     if (pendingFile) {
-      const attachedUrl = await uploadPendingFile();
-      if (attachedUrl && pendingFile && pendingFile.type.startsWith('image/')) {
-        imageUrls.push(attachedUrl);
+      const isImage = pendingFile.type.startsWith('image/');
+      const uploadedRecord = await uploadPendingFile();
+      if (uploadedRecord) {
+        if (isImage) {
+          imageUrls.push(uploadedRecord.url);
+        } else {
+          // Forward the real extracted text (from fileService/documentReaderService
+          // on the backend) so Bob answers from the document's actual content
+          // instead of hallucinating from just the filename.
+          documents.push({
+            name: uploadedRecord.originalName,
+            extractedText: uploadedRecord.extractedText || '',
+            textExtracted: !!uploadedRecord.textExtracted,
+            extractionError: uploadedRecord.extractionError || null,
+          });
+        }
       }
     }
   }
 
-  // If only an image was sent with no text, add a default prompt
-  const finalText = text || (imageUrls.length ? 'Yeh screenshot dekho aur mujhe samjhao ismein kya hai.' : '');
+  // If only an image/document was sent with no text, add a default prompt
+  const finalText = text
+    || (imageUrls.length ? 'Yeh screenshot dekho aur mujhe samjhao ismein kya hai.' : '')
+    || (documents.length ? 'Is document ko dekho aur mujhe samjhao ismein kya hai.' : '');
   if (!finalText) return;
 
   // Clear input
@@ -1712,6 +1733,7 @@ async function sendMessage() {
     } else {
       const payload = { sessionId: currentSession.id, message: finalText, model };
       if (imageUrls.length) payload.imageUrls = imageUrls;
+      if (documents.length) payload.documents = documents;
       if (collabMode) payload.collab = true;
 
       data = await apiFetch('/api/chat', {
@@ -1785,14 +1807,15 @@ async function uploadPendingFile() {
   if (!currentSession || !pendingFile) return null;
   const file = pendingFile;
   clearPendingFile();
-  return await uploadImageFile(file, file.name);
+  return await uploadFileRecord(file);
 }
 
 /**
- * Uploads any file (attached or pasted) to backend, returns the Cloudinary URL.
- * For images, the URL is passed to Bob for vision analysis.
+ * Uploads any file (attached or pasted) to backend, returns the FULL file
+ * record (url, originalName, extractedText, textExtracted, ...) — not just
+ * the URL — so callers can decide what to do with images vs. documents.
  */
-async function uploadImageFile(file, label) {
+async function uploadFileRecord(file) {
   const formData = new FormData();
   formData.append('file', file);
 
@@ -1804,12 +1827,18 @@ async function uploadImageFile(file, label) {
     });
     if (!res.ok) throw new Error(`Upload failed: ${res.status}`);
     const data = await res.json();
-    // Return the URL so it can be sent to Bob for vision analysis
-    return data.file && data.file.url ? data.file.url : null;
+    return data.file || null;
   } catch (err) {
     appendMessage('assistant', `⚠️ File upload failed: ${err.message}`, true);
     return null;
   }
+}
+
+// Back-compat thin wrapper: older call sites just want the URL (e.g. pasted
+// screenshots for vision analysis).
+async function uploadImageFile(file, label) {
+  const record = await uploadFileRecord(file);
+  return record ? record.url : null;
 }
 
 // ═══════════════════════════════════════════════════════

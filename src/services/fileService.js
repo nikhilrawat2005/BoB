@@ -1,6 +1,7 @@
 const cloudinary = require('../config/cloudinary');
 const { db } = require('../config/firebase');
 const { Readable } = require('stream');
+const documentReader = require('./documentReaderService');
 
 function uploadBufferToCloudinary(buffer, folder) {
   return new Promise((resolve, reject) => {
@@ -13,7 +14,14 @@ function uploadBufferToCloudinary(buffer, folder) {
 }
 
 async function uploadFile(userId, file) {
+  // Upload the raw bytes to Cloudinary as before (unchanged behaviour).
   const result = await uploadBufferToCloudinary(file.buffer, `bob/${userId}`);
+
+  // NEW: actually read the file's content for text-bearing formats
+  // (PDF, DOCX, txt/md/csv/json/...). Without this, Bob only ever knew a
+  // file's name/size — never what was written inside it — and would
+  // hallucinate an answer instead of using the real content.
+  const extraction = await documentReader.extractText(file.buffer, file.originalname);
 
   const record = {
     url: result.secure_url,
@@ -22,6 +30,10 @@ async function uploadFile(userId, file) {
     originalName: file.originalname,
     sizeBytes: file.size,
     createdAt: Date.now(),
+    // Populated only when extraction succeeded; undefined/empty otherwise.
+    extractedText: extraction.supported ? extraction.text : '',
+    textExtracted: extraction.supported,
+    extractionError: extraction.supported ? null : extraction.error,
   };
 
   const ref = db.collection('users').doc(userId).collection('files').doc();

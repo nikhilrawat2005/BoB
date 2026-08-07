@@ -253,9 +253,9 @@ router.get('/proactive-greeting', requireAuth, async (req, res) => {
   }
 });
 
-// POST /api/chat  { sessionId, message, model?, imageUrls? }
+// POST /api/chat  { sessionId, message, model?, imageUrls?, documents? }
 router.post('/', requireAuth, async (req, res) => {
-  const { sessionId, message, model, imageUrls } = req.body;
+  const { sessionId, message, model, imageUrls, documents } = req.body;
   if (!sessionId || !message) {
     return res.status(400).json({ error: 'sessionId and message are required' });
   }
@@ -291,6 +291,24 @@ router.post('/', requireAuth, async (req, res) => {
 
   // Normalize image URLs from request (screenshots uploaded by user)
   const userImageUrls = Array.isArray(imageUrls) ? imageUrls.filter(Boolean).slice(0, 6) : [];
+
+  // NEW: normalize attached documents (PDF/DOCX/etc. text extracted at
+  // upload time by fileService/documentReaderService, forwarded here by the
+  // frontend). Each item looks like { name, extractedText, textExtracted }.
+  const userDocuments = Array.isArray(documents)
+    ? documents.filter((d) => d && d.name).slice(0, 3)
+    : [];
+
+  const documentContext = userDocuments.length
+    ? `\n━━━ 📄 ATTACHED DOCUMENT(S) — REAL extracted text, use ONLY this, never invent content ━━━\n${userDocuments
+        .map((d) => {
+          if (!d.textExtracted || !d.extractedText) {
+            return `File: "${d.name}" — ⚠️ text could not be extracted (${d.extractionError || 'unsupported format'}). Tell Master honestly you cannot read this file's content instead of guessing.`;
+          }
+          return `File: "${d.name}"\n${d.extractedText}`;
+        })
+        .join('\n\n---\n\n')}\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`
+    : '';
 
   try {
     // 1. Behavior Profiler + Intent Router + Media Detection run in parallel
@@ -388,6 +406,10 @@ router.post('/', requireAuth, async (req, res) => {
     const binaryFileIntent = detectBinaryFileIntent(promptMessage);
     if (binaryFileIntent) {
       contextBlocks.push(`📎 BINARY FILE REQUEST DETECTED (${binaryFileIntent}): Master Nikhil is asking for a real .${binaryFileIntent} file. You MUST respond with a single \`\`\`filespec JSON block (format: "${binaryFileIntent}") as described in the REAL OFFICE FILES section — do NOT use a plain \`\`\`${binaryFileIntent} filename=... \`\`\` text block, it will produce a corrupt file.`);
+    }
+
+    if (userDocuments.length) {
+      contextBlocks.push(`📄 DOCUMENT(S) ATTACHED: Master Nikhil ne ${userDocuments.length} file(s) attach ki hai(n) — real extracted text neeche "ATTACHED DOCUMENT(S)" block mein hai. Jo bhi answer/table/file banao wo SIRF is real extracted text se banao. Kabhi bhi apni taraf se problem statements, numbers, ya facts invent mat karo jo document mein nahi hain — agar kuch section extraction mein missing/unclear lage to Master ko honestly bata do.`);
     }
 
     const memoryContext = contextBlocks.join('\n\n');
@@ -697,7 +719,7 @@ When AUTO-EXTRACTED MEDIA DATA appears in context below:
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 - You have full access to historical chat summaries, habits, and stored facts about Master Nikhil.
-${memoryContext}${mediaEnrichment.mediaContext}`;
+${memoryContext}${mediaEnrichment.mediaContext}${documentContext}`;
 
     // 5. Call Answering Agent LLM — use Vision if images are present
     const baseMessages = [
