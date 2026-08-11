@@ -445,18 +445,83 @@ function clearMessages() {
 async function loadMessages(sessionId) {
   try {
     const url = currentPersona === 'builder' ? `/api/builder/sessions/${sessionId}/messages` : `/api/sessions/${sessionId}/messages`;
-    const { messages } = await apiFetch(url);
-    (messages || []).forEach(m => {
+    const res = await apiFetch(url);
+    const messages = res.messages || [];
+    const project = res.project || null;
+
+    messages.forEach(m => {
       if (currentPersona === 'builder') {
         appendMessage(m.role, m.content, false, m.sender || m.role);
       } else {
         appendMessage(m.role, m.content, false);
       }
     });
+
+    if (currentPersona === 'builder' && project && Array.isArray(project.files) && project.files.length) {
+      renderProjectHeaderCard(sessionId, project);
+    }
     scrollToBottom();
   } catch (err) {
     console.error('loadMessages error:', err);
   }
+}
+
+async function downloadProjectZip(sessionId, projectName) {
+  try {
+    const user = auth.currentUser;
+    const token = user ? await user.getIdToken() : '';
+    const res = await fetch(`/api/builder/projects/${sessionId}/zip`, {
+      headers: { Authorization: token ? `Bearer ${token}` : '' }
+    });
+    if (!res.ok) {
+      const errJson = await res.json().catch(() => ({}));
+      throw new Error(errJson.error || errJson.details || 'Zip generation failed');
+    }
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${(projectName || 'builder_project').replace(/[^a-zA-Z0-9_-]/g, '_')}.zip`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  } catch (err) {
+    alert('ZIP Download failed: ' + err.message);
+  }
+}
+
+function renderProjectHeaderCard(sessionId, project) {
+  const container = document.getElementById('messages-container');
+  if (!container) return;
+  const existing = container.querySelector('.builder-project-banner-card');
+  if (existing) existing.remove();
+
+  const card = document.createElement('div');
+  card.className = 'builder-project-banner-card';
+  card.style.cssText = 'background: rgba(245, 158, 11, 0.12); border: 1px solid rgba(245, 158, 11, 0.35); border-radius: 12px; padding: 14px 18px; margin: 10px 0 18px 0; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px;';
+
+  const titleText = escHtml(project.name || 'Builder Project');
+  const fileCount = (project.files || []).length;
+
+  card.innerHTML = `
+    <div style="display: flex; align-items: center; gap: 12px;">
+      <span style="font-size: 24px;">🏗️</span>
+      <div>
+        <div style="font-weight: 700; color: var(--text-main, #f3f4f6); font-size: 15px;">${titleText}</div>
+        <div style="font-size: 12px; color: var(--text-sub, #9ca3af); font-weight: 500;">${fileCount} Codebase Files Generated</div>
+      </div>
+    </div>
+    <button class="download-zip-btn" style="background: #f59e0b; color: #000; border: none; font-weight: 700; padding: 9px 18px; border-radius: 8px; cursor: pointer; display: flex; align-items: center; gap: 8px; font-size: 13px; transition: all 0.2s ease;">
+      📦 Download Full Codebase (.zip)
+    </button>
+  `;
+
+  card.querySelector('.download-zip-btn').addEventListener('click', () => {
+    downloadProjectZip(sessionId, project.name);
+  });
+
+  container.insertBefore(card, container.firstChild);
 }
 
 // ── File type metadata ──────────────────────────────
@@ -524,7 +589,7 @@ function parseFileBlocks(text) {
   // Match ```<lang> filename=<filename>\n<content>\n```, ```schedule\n{...}\n```,
   // ```chart\n{...}\n```, ```mermaid\n<diagram>\n```, ```builder\n{...}\n```,
   // ```hackathon\n{...}\n```, or ```filespec\n{...}\n``` (real .xlsx/.docx/.pdf/.pptx spec)
-  const regex = /```(?:([\w.+-]+)[ \t]+filename=([^\n\r]+)|(schedule)|(chart)|(mermaid)|(builder)|(hackathon)|(filespec))[\n\r]?([\s\S]*?)```/g;
+  const regex = /```(?:([\w.+-]+)?[ \t]+(?:filename|file)=["']?([^"'\n\r]+)["']?|([\w.+-]+)[:\/]([^\n\r]+)|(schedule)|(chart)|(mermaid)|(builder)|(hackathon)|(filespec))[\n\r]?([\s\S]*?)```/gi;
   const blocks = [];
   let lastIndex = 0;
   let match;
@@ -534,15 +599,20 @@ function parseFileBlocks(text) {
       blocks.push({ type: 'text', content: text.slice(lastIndex, match.index) });
     }
 
-    const lang = match[1];
-    const filename = match[2];
-    const isSchedule = match[3] === 'schedule';
-    const isChart = match[4] === 'chart';
-    const isMermaid = match[5] === 'mermaid';
-    const isBuilder = match[6] === 'builder';
-    const isHackathon = match[7] === 'hackathon';
-    const isFilespec = match[8] === 'filespec';
-    const blockContent = (match[9] || '').trim();
+    const lang1 = match[1];
+    const filename1 = match[2];
+    const lang2 = match[3];
+    const filename2 = match[4];
+    const isSchedule = match[5] === 'schedule';
+    const isChart = match[6] === 'chart';
+    const isMermaid = match[7] === 'mermaid';
+    const isBuilder = match[8] === 'builder';
+    const isHackathon = match[9] === 'hackathon';
+    const isFilespec = match[10] === 'filespec';
+    const blockContent = (match[11] || '').trim();
+
+    const lang = lang1 || lang2;
+    const filename = filename1 || filename2;
 
     if (isSchedule) {
       try {
@@ -587,17 +657,14 @@ function parseFileBlocks(text) {
           blocks.push({ type: 'filespec', data });
         }
       } catch {
-        // Malformed JSON from the LLM — fall back to showing it as text
-        // rather than silently dropping it, so Master Nikhil can see what
-        // went wrong and ask Bob to retry.
         blocks.push({ type: 'text', content: match[0] });
       }
-    } else if (lang && filename) {
+    } else if (filename && filename.trim()) {
       blocks.push({
         type:     'file',
-        lang:     lang.toLowerCase().trim(),
-        filename: filename.trim(),
-        content:  match[9] || '',
+        lang:     (lang || 'text').toLowerCase().trim(),
+        filename: filename.trim().replace(/^["']|["']$/g, ''),
+        content:  match[11] || '',
       });
     } else {
       blocks.push({ type: 'text', content: match[0] });

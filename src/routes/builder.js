@@ -1,3 +1,4 @@
+const path = require('path');
 const express = require('express');
 const router = express.Router();
 const { requireAuth } = require('../middleware/auth');
@@ -9,7 +10,6 @@ const tasks = require('../services/builderTaskService');
 const memory = require('../services/memoryService');
 const memoryManager = require('../services/memoryManager');
 
-const FILE_BLOCK_RE = /```([\w.+-]+)[ \t]+filename=([^\n\r]+)[\n\r]([\s\S]*?)```/g;
 const BOBQUERY_RE = /```bobquery[\n\r]([\s\S]*?)```/g;
 const PERSONAL_WORD_RE = /instagram|insta account|github account|meri details|personal data|personal info|mere baare|mere bare|mera account|profile/i;
 
@@ -36,17 +36,49 @@ function detectTaskIntent(message) {
   return false;
 }
 
+function getMimeType(filename) {
+  const ext = (path.extname(filename || '').slice(1) || '').toLowerCase();
+  const mimeMap = {
+    html: 'text/html', css: 'text/css', js: 'application/javascript', jsx: 'application/javascript',
+    ts: 'application/typescript', tsx: 'application/typescript', json: 'application/json',
+    md: 'text/markdown', py: 'text/x-python', sql: 'text/x-sql', sh: 'text/x-sh',
+    svg: 'image/svg+xml', yaml: 'text/yaml', yml: 'text/yaml', env: 'text/plain'
+  };
+  return mimeMap[ext] || 'text/plain';
+}
+
 function extractPackFiles(reply) {
   const files = [];
+  if (!reply || typeof reply !== 'string') return files;
+  const seen = new Set();
+
+  // Pattern 1: ```lang filename=path/to/file or file="path/to/file"
+  const P1 = /```([\w.+-]+)?\s+(?:filename|file)=["']?([^"'\n\r]+)["']?[\n\r]([\s\S]*?)```/gi;
   let m;
-  while ((m = FILE_BLOCK_RE.exec(reply)) !== null) {
-    files.push({
-      lang: m[1].toLowerCase().trim(),
-      name: m[2].trim(),
-      content: m[3],
-      mime: 'text/markdown',
-    });
+  while ((m = P1.exec(reply)) !== null) {
+    const lang = (m[1] || 'text').toLowerCase().trim();
+    const name = m[2].trim().replace(/^["']|["']$/g, '');
+    const content = m[3];
+    if (name && content && !seen.has(name)) {
+      seen.add(name);
+      files.push({ lang, name, content, mime: getMimeType(name) });
+    }
   }
+
+  // Pattern 2: ```lang:path/to/file or ```path/to/file.ext
+  if (files.length === 0) {
+    const P2 = /```([\w.+-]+)[:\/]([^\n\r]+)[\n\r]([\s\S]*?)```/g;
+    while ((m = P2.exec(reply)) !== null) {
+      const lang = m[1].toLowerCase().trim();
+      const name = m[2].trim();
+      const content = m[3];
+      if (name.includes('.') && content && !seen.has(name)) {
+        seen.add(name);
+        files.push({ lang, name, content, mime: getMimeType(name) });
+      }
+    }
+  }
+
   return files;
 }
 
@@ -192,8 +224,8 @@ async function runBuilderTurn(userId, session, message, sender) {
     role: 'builder',
     persona: 'builder',
     messages,
-    temperature: 0.5,
-    max_tokens: 4000,
+    temperature: 0.4,
+    max_tokens: 8000,
   });
   const reply = result.text;
 
@@ -249,6 +281,19 @@ router.get('/projects', requireAuth, async (req, res) => {
     res.json({ projects });
   } catch (err) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/builder/projects/:id/zip — Download generated codebase as a .zip file
+router.get('/projects/:id/zip', requireAuth, async (req, res) => {
+  try {
+    const { buffer, filename } = await builder.generateProjectZip(req.userId, req.params.id);
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.send(buffer);
+  } catch (err) {
+    console.error('[Builder ZIP] Export error:', err.message);
+    res.status(404).json({ error: 'Zip generation failed', details: err.message });
   }
 });
 

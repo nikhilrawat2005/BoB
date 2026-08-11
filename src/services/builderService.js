@@ -83,13 +83,15 @@ async function getBuilderNotes(userId, sessionId) {
   return session && Array.isArray(session.notes) ? session.notes : [];
 }
 
+const JSZip = require('jszip');
+
 async function saveBuilderProject(userId, sessionId, { name, type = null, files = [] }) {
   const now = Date.now();
   const ref = db.collection('users').doc(userId).collection('builderProjects').doc(sessionId);
   await ref.set({
     name: name || 'Untitled Project',
     type: type || null,
-    files: files.slice(0, 12),
+    files: files.slice(0, 50),
     createdAt: now,
     updatedAt: now,
   }, { merge: true });
@@ -107,10 +109,31 @@ async function listBuilderProjects(userId, limit = 30) {
   return snap.docs.map(d => ({ id: d.id, ...d.data() }));
 }
 
+async function generateProjectZip(userId, sessionId) {
+  const project = await getBuilderProject(userId, sessionId);
+  if (!project || !Array.isArray(project.files) || !project.files.length) {
+    throw new Error('Project files not found for this session');
+  }
+
+  const zip = new JSZip();
+  const folderName = (project.name || 'builder_project').replace(/[^a-zA-Z0-9_-]/g, '_').toLowerCase();
+  const folder = zip.folder(folderName);
+
+  for (const f of project.files) {
+    if (f && f.name && f.content != null) {
+      const cleanPath = String(f.name).replace(/^\/+/, '');
+      folder.file(cleanPath, String(f.content));
+    }
+  }
+
+  const buffer = await zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' });
+  return { buffer, filename: `${folderName}.zip` };
+}
+
 module.exports = {
   createBuilderSession, updateBuilderSessionTitle, updateBuilderSessionProjectType,
   listBuilderSessions, getBuilderSession, deleteBuilderSession,
   addBuilderMessage, getBuilderMessages,
   addBuilderNote, getBuilderNotes,
-  saveBuilderProject, getBuilderProject, listBuilderProjects,
+  saveBuilderProject, getBuilderProject, listBuilderProjects, generateProjectZip,
 };
