@@ -1451,6 +1451,12 @@ function cleanTextForSpeech(rawText) {
     .replace(/`([^`]+)`/g, '$1')     // inline code
     .replace(/[*_#~]/g, '')           // markdown formatting
     .replace(/(https?:\/\/[^\s]+)/g, '') // URLs
+    // Strip all emojis & pictographic unicode (they sound ridiculous when spoken)
+    .replace(/[\u{1F000}-\u{1FFFF}]/gu, '')  // Supplemental symbols, Emoji
+    .replace(/[\u{2600}-\u{27BF}]/gu, '')    // Misc symbols, Dingbats
+    .replace(/[\u{1F300}-\u{1FAFF}]/gu, '') // All emoji ranges
+    .replace(/[\u{200D}\u{FE0F}]/gu, '')     // ZWJ & variation selectors
+    .replace(/\s{2,}/g, ' ')                 // Collapse extra spaces left by removed emojis
     .trim();
 }
 
