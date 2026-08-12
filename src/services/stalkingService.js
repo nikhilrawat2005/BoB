@@ -508,10 +508,6 @@ async function findMoreLinks(userId, profId) {
       }
     } catch (e) { /* best effort */ }
   }
-        });
-      }
-    } catch (e) { /* best effort */ }
-  }
 
   if (newLinks.length === 0) {
     return { reply: 'Bhai maine kafi dhundha — koi naye links nahi mile jo already profile me na ho. Koi specific link paste karo `add link: [url]` se!', updatedProfile: prof };
