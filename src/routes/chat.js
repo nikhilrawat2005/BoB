@@ -202,8 +202,8 @@ async function fetchGitHub(message) {
     } else if (res.items && res.items.length) {
       const lines = [];
       lines.push(`🐙 GITHUB SEARCH "${topic}" (REAL GitHub API, sorted by stars) — Sirf inki details use karo, kuch invent mat karo:`);
-      res.items.forEach((r, i) => lines.push(`${i + 1}. ${r.full_name} — ${r.language || 'N/A'} ⭐${r.stars} (${r.forks} forks)\n   🔗 ${r.html_url}\n   ${r.description ? r.description.slice(0, 160) : '(no description)'}`));
-      lines.push('- RULE: Ye hi real results hain. Koi aur repo/star/link mat banao. Repo detail ke liye kaunsi repo pasand aaye, Master usse paste kare, tab main actual code padh ke analysis doonga.');
+      res.items.forEach((r, i) => lines.push(`${i + 1}. [${r.full_name}](https://github.com/${r.full_name}) — ${r.language || 'N/A'} ⭐${r.stars} (${r.forks} forks)\n   🔗 https://github.com/${r.full_name}\n   ${r.description ? r.description.slice(0, 160) : '(no description)'}`));
+      lines.push('- RULE: Ye hi real results hain. Koi aur repo/star/link mat banao. Links hamesha clean Markdown format me output karo: [owner/repo](https://github.com/owner/repo). Kabhi URL ke andar extra outer brackets ya HTML tags (like <strong>) mat lagao.');
       blocks.push(lines.join('\n'));
     } else {
       blocks.push(`🐙 GITHUB SEARCH "${topic}" (REAL API): koi repo nahi mili is topic pe — honestly bolo, fake repo/link mat banao.`);
@@ -694,11 +694,12 @@ You are only allowed to promise Master Nikhil things that are ACTUALLY built. Th
 5. NEVER invent temperatures, prices, headlines, or data. If you don't have real data, say so.
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-━━━ 🐙 GITHUB RULE — ONLY REAL REPOS, NEVER INVENT ━━━
+━━━ 🐙 GITHUB RULE — ONLY REAL REPOS & CLEAN LINKS, NEVER INVENT ━━━
 - Jab bhi GitHub ka sawaal aaye (profile, "mera github study kar", repo count, repos list, followers, "ye repo kya hai", koi github link paste), upar ka "🐙 GITHUB PROFILE" ya "📦 GITHUB REPO ANALYSIS" block REAL API data hai.
 - SIRF wahi repos/languages/stars/counts/descriptions mention karo jo block me hain. Koi repo, link, count, language, ya stars apne dimaag se mat banao.
+- Links ALWAYS write in clean, standard Markdown format: [owner/repo](https://github.com/owner/repo) or plain URL https://github.com/owner/repo.
+- NEVER wrap URLs in extra outer brackets (e.g. `([https://...])` is INVALID) and NEVER insert HTML tags (like `<strong>` or `%3C/strong%3E`) inside link targets.
 - Koi repo block me nahi hai → wo exist nahi karti (ya private hai) → kabhi mat batao, aur uska fake link mat do.
-- Links hamesha sirf real full_name se: https://github.com/<owner>/<repo>. Kabhi guessed/broken link mat do — link 404 lag jayega.
 - Repo ke baare me detail (code, tech stack) batate waqt ONLY actual file content use karo jo block me hai.
 - Agar koi GitHub block nahi aaya (fetch fail / rate limit), khul ke bolo: "GitHub fetch abhi fail hua" — guess mat karo.
 - REPO DHOONDHNA TUMHARI APNI SKILL HAI: "best <topic> repos do / find repos / <topic> repos" jaise sawaal pe upar '🐙 GITHUB SEARCH' block me REAL results milte hain (GitHub Search API se). USE WOHI. Repo-finding ko Builder ko DELEGATE MAT KARO — ye khud karo.

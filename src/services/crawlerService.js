@@ -182,12 +182,21 @@ async function scrapeURL(targetUrl, timeoutMs = 8000) {
 
     // Extract JSON-LD structured data (often embedded in Unstop / Devpost / Event pages for SEO)
     const jsonLdBlocks = [];
+    const sameAsLinks = [];
     $('script[type="application/ld+json"]').each((_, el) => {
       try {
         const text = $(el).html();
         if (text) {
           const json = JSON.parse(text);
           jsonLdBlocks.push(json);
+          const sameAs = json.sameAs || (json['@graph'] && json['@graph'].map(g => g.sameAs).filter(Boolean));
+          if (Array.isArray(sameAs)) {
+            sameAs.forEach(sa => {
+              if (typeof sa === 'string' && sa.startsWith('http')) sameAsLinks.push(sa);
+            });
+          } else if (typeof sameAs === 'string' && sameAs.startsWith('http')) {
+            sameAsLinks.push(sameAs);
+          }
         }
       } catch (e) { /* ignore invalid JSON-LD */ }
     });
@@ -218,10 +227,18 @@ async function scrapeURL(targetUrl, timeoutMs = 8000) {
     });
 
     // Extract outgoing links for network crawling — only keep meaningful profile/project links
-    const links = [];
     const highValueLinks = [];
     const otherLinks = [];
     const seenLinks = new Set();
+
+    // Merge sameAs links extracted from JSON-LD
+    sameAsLinks.forEach(sa => {
+      if (!seenLinks.has(sa) && !isJunkUrl(sa)) {
+        seenLinks.add(sa);
+        highValueLinks.push({ url: sa, text: 'JSON-LD Verified Profile' });
+      }
+    });
+
     $('a[href]').each((_, el) => {
       const rawHref = $(el).attr('href');
       if (!rawHref) return;
