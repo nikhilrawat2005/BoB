@@ -190,16 +190,19 @@ async function researchProfile(userId, profId) {
       raw.push(linkedinSnippets);
     }
 
-    // ── Step 3.5: Fetch Official Coding Platform Stats ONLY if discovered in scraped text/links ──
-    let codingStats = {};
-    const textToScan = (prof.link || '') + ' ' + (linkedinSnippets || '');
-    const handlesToFetch = {};
-    if (textToScan.includes('leetcode.com')) handlesToFetch.leetcode = handle;
-    if (textToScan.includes('codeforces.com')) handlesToFetch.codeforces = handle;
-    if (textToScan.includes('hackerrank.com')) handlesToFetch.hackerrank = handle;
-    if (textToScan.includes('dev.to')) handlesToFetch.devto = handle;
+    const allText = raw.join('\n\n');
+    let githubHandle = extractGitHubHandle(allText + ' ' + (prof.link || ''));
 
-    if (Object.keys(handlesToFetch).length > 0) {
+    // ── Step 3.5: Fetch Official Coding Platform Stats ONLY if explicitly discovered ──
+    let codingStats = {};
+    const textToScan = (prof.link || '') + ' ' + allText + ' ' + collectedLinks.map(l => l.url).join(' ');
+    const handlesToFetch = {};
+    if (textToScan.includes('leetcode.com/')) handlesToFetch.leetcode = handle;
+    if (textToScan.includes('codeforces.com/')) handlesToFetch.codeforces = handle;
+    if (textToScan.includes('hackerrank.com/')) handlesToFetch.hackerrank = handle;
+    if (textToScan.includes('dev.to/')) handlesToFetch.devto = handle;
+
+    if (Object.keys(handlesToFetch).length > 0 && handle) {
       try {
         codingStats = await devPlatforms.fetchAllDeveloperProfiles(handlesToFetch);
         if (Object.keys(codingStats).length > 0) {
@@ -209,30 +212,6 @@ async function researchProfile(userId, profId) {
         console.error('[stalking] Developer platform stats fetch error:', e.message);
       }
     }
-    const searchQueries = handle
-      ? [`"${handle}" portfolio OR github OR linkedin`, `"${prof.name}" "${handle}"`]
-      : [`"${prof.name}" developer profile OR portfolio OR github`];
-
-    for (const q of searchQueries) {
-      try {
-        const search = await web.searchWeb(q, { count: 5 });
-        raw.push(`[WEB SEARCH: ${q}]\n${search.results.map(r => `- ${r.title}\n  ${r.url}\n  ${r.snippet}`).join('\n')}`);
-        search.results.forEach(r => {
-          if (r.url && !seenUrls.has(r.url) && !isJunkUrl(r.url)) {
-            const isHV = isHighValueProfileUrl(r.url);
-            const lowerUrl = r.url.toLowerCase();
-            const lowerHandle = handle.toLowerCase();
-            if (isHV || (lowerHandle && lowerUrl.includes(lowerHandle))) {
-              seenUrls.add(r.url);
-              collectedLinks.push({ url: r.url, label: r.title, source: 'Web Search', highValue: isHV });
-            }
-          }
-        });
-      } catch (e) { /* best effort */ }
-    }
-
-    const allText = raw.join('\n\n');
-    let githubHandle = extractGitHubHandle(allText + ' ' + (prof.link || '')) || (handle && !prof.link?.includes('linkedin') ? handle : null);
 
     // ── Step 5: GitHub Deep API & package.json Mining ──
     const github = { handle: githubHandle, repos: [], analyzed: [], techStack: [] };
