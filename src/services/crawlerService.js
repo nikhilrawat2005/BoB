@@ -91,7 +91,8 @@ const JUNK_DOMAINS = [
   // Generic Q&A, dictionaries, baby names, generic forums & tech support junk
   /zhihu\.com/i, /baidujingyan/i, /jingyan\.baidu/i, /momjunction\.com/i, /definitions\.net/i,
   /avvo\.com/i, /technet\.microsoft\.com/i, /answers\.microsoft\.com/i, /ourhealthnetwork\.com/i,
-  /stelizabethphysicians\.com/i, /whatsapp\.com/i, /wa\.me/i,
+  /stelizabethphysicians\.com/i, /whatsapp\.com/i, /wa\.me/i, /lowyat\.net/i, /shopee\./i,
+  /forum\./i, /forums\./i, /wikipedia\.org/i,
   // Generic platform nav / CDN / analytics
   /^https?:\/\/(cdn|assets|static|tracker|analytics|ads|pixel|gtm|fonts)\.\S+/i,
   // Boilerplate open-source / legal / policy pages

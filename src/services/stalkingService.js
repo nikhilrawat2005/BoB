@@ -312,11 +312,14 @@ function buildProfileContext(prof) {
 
 // ── Command detection ─────────────────────────────────────
 function detectChatCommand(msg) {
+  const m = String(msg || '').trim();
+  const low = m.toLowerCase();
+
   // re-research / research again
   if (/^(re[- ]?research|research (again|phir se|dubara)|phir se research|dubara research)/i.test(m))
     return { type: 're_research' };
 
-  // clear links / remove links / links hatao
+  // clear links / remove links / links hatao / clear all links
   if (/^(clear|remove|delete|hatao) (all )?(discovered )?links?/i.test(m) || /(links|link) (clear|remove|delete|hatao)/i.test(m) || /sab links (remove|hatao|delete)/i.test(m))
     return { type: 'clear_links' };
 
