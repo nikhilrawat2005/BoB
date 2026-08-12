@@ -86,6 +86,12 @@ const JUNK_DOMAINS = [
   /^https?:\/\/(docs|cli|gist|education|classroom|status|desktop|mobile)\.github(\.(com|io))?/i,
   /^https?:\/\/github\.blog/i,
   /^https?:\/\/github\.com\/(?:site|account|orgs|apps|login|sessions|password_reset)\b/i,
+  // Search engines & tracking domains
+  /^https?:\/\/(www\.)?(bing\.com|google\.com|duckduckgo\.com|baidu\.com|yahoo\.com)\//i,
+  // Generic Q&A, dictionaries, baby names, generic forums & tech support junk
+  /zhihu\.com/i, /baidujingyan/i, /jingyan\.baidu/i, /momjunction\.com/i, /definitions\.net/i,
+  /avvo\.com/i, /technet\.microsoft\.com/i, /answers\.microsoft\.com/i, /ourhealthnetwork\.com/i,
+  /stelizabethphysicians\.com/i, /whatsapp\.com/i, /wa\.me/i,
   // Generic platform nav / CDN / analytics
   /^https?:\/\/(cdn|assets|static|tracker|analytics|ads|pixel|gtm|fonts)\.\S+/i,
   // Boilerplate open-source / legal / policy pages

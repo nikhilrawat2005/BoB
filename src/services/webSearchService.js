@@ -80,8 +80,24 @@ async function searchBing(query, count) {
     const a = $(el).find('h2 a').first();
     const sn = $(el).find('.b_caption p, .b_lineclamp').first();
     const title = a.text().trim();
-    const href = (a.attr('href') || '');
-    if (title && href.startsWith('http')) {
+    let href = (a.attr('href') || '');
+
+    // Unwrap Bing click-tracking redirect URLs (bing.com/ck/a?!...&u=a1aHR0cHM...)
+    if (href.includes('bing.com/ck/a')) {
+      try {
+        const uParam = new URL(href).searchParams.get('u');
+        if (uParam) {
+          // 'u' parameter starts with 'a1' followed by base64-encoded URL
+          const rawB64 = uParam.startsWith('a1') ? uParam.slice(2) : uParam;
+          const decoded = Buffer.from(rawB64, 'base64').toString('utf-8');
+          if (decoded.startsWith('http')) {
+            href = decoded;
+          }
+        }
+      } catch (e) { /* keep original */ }
+    }
+
+    if (title && href.startsWith('http') && !href.includes('bing.com/')) {
       results.push({ title, url: href, snippet: cleanSnippet(sn.text()) });
     }
   });

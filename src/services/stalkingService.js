@@ -453,20 +453,41 @@ async function findMoreLinks(userId, profId) {
   const { isHighValueProfileUrl, isJunkUrl } = crawler;
   const newLinks = [];
 
-  // Fresh web searches with different angles
-  const queries = [
-    `${prof.name} site:linkedin.com OR site:github.com OR site:twitter.com`,
-    `${prof.name} portfolio projects blog`,
-    `${prof.name} developer profile`,
-  ];
+  // Extract handle from primary link or githubHandle
+  let handle = pd.githubHandle || '';
+  if (!handle && prof.link) {
+    const m = prof.link.match(/(?:linkedin\.com\/in\/|github\.com\/|twitter\.com\/|x\.com\/|instagram\.com\/)([A-Za-z0-9_.-]+)/i);
+    if (m) handle = m[1];
+  }
+
+  // Targeted search queries
+  const queries = [];
+  if (handle) {
+    queries.push(`"${handle}"`);
+    queries.push(`"${prof.name}" "${handle}"`);
+    queries.push(`"${handle}" portfolio OR github OR linkedin OR twitter OR blog`);
+  } else {
+    queries.push(`"${prof.name}" developer profile OR portfolio OR github`);
+    queries.push(`"${prof.name}" site:linkedin.com OR site:github.com OR site:twitter.com`);
+  }
 
   for (const q of queries) {
     try {
       const search = await web.searchWeb(q, { count: 5 });
       for (const r of search.results) {
-        if (r.url && !existingUrls.has(r.url) && !isJunkUrl(r.url)) {
+        if (!r.url || existingUrls.has(r.url) || isJunkUrl(r.url)) continue;
+
+        const isHV = isHighValueProfileUrl(r.url);
+        const lowerUrl = r.url.toLowerCase();
+        const lowerTitle = (r.title || '').toLowerCase();
+        const lowerHandle = handle ? handle.toLowerCase() : '';
+
+        // Strict relevance check: must be a high-value profile URL OR contain the handle/name
+        const isRelevant = isHV || (lowerHandle && (lowerUrl.includes(lowerHandle) || lowerTitle.includes(lowerHandle)));
+
+        if (isRelevant) {
           existingUrls.add(r.url);
-          newLinks.push({ url: r.url, label: r.title || r.url, source: 'Find More Search', highValue: isHighValueProfileUrl(r.url) });
+          newLinks.push({ url: r.url, label: r.title || r.url, source: 'Find More Search', highValue: isHV });
         }
       }
     } catch (e) { /* best effort */ }
@@ -479,10 +500,14 @@ async function findMoreLinks(userId, profId) {
       const s = await crawler.scrapeURL(item.url, 4000);
       if (s.links) {
         s.links.filter(l => isHighValueProfileUrl(l.url)).slice(0, 4).forEach(l => {
-          if (!existingUrls.has(l.url)) {
+          if (!existingUrls.has(l.url) && !isJunkUrl(l.url)) {
             existingUrls.add(l.url);
             newLinks.push({ url: l.url, label: l.text || l.url, source: 'Find More Crawl', highValue: true });
           }
+        });
+      }
+    } catch (e) { /* best effort */ }
+  }
         });
       }
     } catch (e) { /* best effort */ }
