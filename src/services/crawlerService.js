@@ -74,10 +74,77 @@ function fetchWithTimeout(url, options = {}, timeoutMs = 8000) {
     });
 }
 
-// Skip URLs that are login/auth/register pages (they hang or return no useful content)
-function isUselessUrl(url) {
-  const lower = String(url).toLowerCase();
-  return /\/(login|signin|sign-in|auth|oauth|register|signup|sign-up|logout|callback)\b/.test(lower);
+// ── Link quality filters ───────────────────────────────────
+// Returns true if this URL is worth keeping as a 'discovered profile link'.
+// The goal: only keep links that belong to the PERSON — their LinkedIn,
+// portfolio, deployed projects, social profiles, personal blog, etc.
+// Kills: platform nav, GitHub features/docs/blog, auth pages, CDN junk.
+
+const JUNK_DOMAINS = [
+  // GitHub's own site navigation (not the user's content)
+  /^https?:\/\/github\.com(?:\/features|\/security|\/pricing|\/marketplace|\/about|\/contact|\/explore|\/mcp|\/blog|\/docs|\/why-github|\/solutions|\/enterprise|\/team|\/collections|\/topics(?:\/$|$))(.*)?$/i,
+  /^https?:\/\/(docs|cli|gist|education|classroom|status)\.github(\.(com|io))?/i,
+  /^https?:\/\/github\.blog/i,
+  // Generic platform nav / CDN / analytics
+  /^https?:\/\/(cdn|assets|static|tracker|analytics|ads|pixel|gtm|fonts)\.\S+/i,
+  // Boilerplate open-source / legal / policy pages
+  /\/(terms|privacy|cookie|legal|sitemap|robots\.txt)(\/?|$)/i,
+];
+
+const PROFILE_DOMAINS = [
+  /linkedin\.com\/in\//i,
+  /linkedin\.com\/pub\//i,
+  /twitter\.com\//i,
+  /x\.com\//i,
+  /instagram\.com\//i,
+  /youtube\.com\/(channel|c|user|@)/i,
+  /medium\.com\/@/i,
+  /dev\.to\//i,
+  /hashnode\.dev\//i,
+  /substack\.com\//i,
+  /kaggle\.com\/[^/]+\/?(datasets|competitions|notebooks)?$/i,
+  /leetcode\.com\/(u|users?)\//i,
+  /codeforces\.com\/profile\//i,
+  /codechef\.com\/users\//i,
+  /hackerrank\.com\/profile\//i,
+  /topcoder\.com\/members\//i,
+  /behance\.net\//i,
+  /dribbble\.com\//i,
+  /figma\.com\/(?:file|proto|design)\//i,
+  // Deployed project links (very high value)
+  /\.vercel\.app/i,
+  /\.netlify\.app/i,
+  /\.railway\.app/i,
+  /\.render\.com/i,
+  /\.heroku\.com/i,
+  /\.pages\.dev/i,
+  /\.web\.app/i,
+  /\.firebaseapp\.com/i,
+  /\.azurewebsites\.net/i,
+  /\.onrender\.com/i,
+  /\.fly\.dev/i,
+  /\.ngrok\.io/i,
+  // User's own GitHub repos/profile (not GitHub.com nav)
+  /github\.com\/[A-Za-z0-9_.-]+(?:\/[A-Za-z0-9_.-]+)?$/i,
+  // npm, PyPI packages (could be the person's own)
+  /npmjs\.com\/package\//i,
+  /pypi\.org\/project\//i,
+];
+
+function isJunkUrl(url) {
+  const lower = String(url || '').toLowerCase();
+  // Always skip auth/redirect pages
+  if (/\/(login|signin|sign-in|auth|oauth|register|signup|sign-up|logout|callback)\b/.test(lower)) return true;
+  // Skip file anchors and empty fragments
+  if (/\.(png|jpg|jpeg|gif|svg|ico|webp|pdf|zip|gz|woff|woff2|ttf|mp4|mp3)$/i.test(lower)) return true;
+  // Skip known junk domains
+  for (const re of JUNK_DOMAINS) if (re.test(url)) return true;
+  return false;
+}
+
+function isHighValueProfileUrl(url) {
+  for (const re of PROFILE_DOMAINS) if (re.test(url)) return true;
+  return false;
 }
 
 async function scrapeURL(targetUrl, timeoutMs = 8000) {
@@ -142,23 +209,35 @@ async function scrapeURL(targetUrl, timeoutMs = 8000) {
       if (text) headings.push(`${el.tagName.toUpperCase()}: ${text}`);
     });
 
-    // Extract outgoing links for network crawling
+    // Extract outgoing links for network crawling — only keep meaningful profile/project links
     const links = [];
+    const highValueLinks = [];
+    const otherLinks = [];
     const seenLinks = new Set();
     $('a[href]').each((_, el) => {
-      if (links.length >= 30) return;
       const rawHref = $(el).attr('href');
       if (!rawHref) return;
       try {
         const parsedUrl = new URL(rawHref, targetUrl);
         if (parsedUrl.protocol !== 'http:' && parsedUrl.protocol !== 'https:') return;
         const href = parsedUrl.href.split('#')[0];
-        if (seenLinks.has(href) || isUselessUrl(href)) return;
+        if (seenLinks.has(href) || isJunkUrl(href)) return;
         seenLinks.add(href);
         const linkText = $(el).text().trim().replace(/\s+/g, ' ').slice(0, 100);
-        links.push({ url: href, text: linkText || parsedUrl.hostname });
+        const entry = { url: href, text: linkText || parsedUrl.hostname };
+        if (isHighValueProfileUrl(href)) {
+          highValueLinks.push(entry);
+        } else {
+          otherLinks.push(entry);
+        }
       } catch (e) { /* ignore invalid URLs */ }
     });
+    // High-value links (profile/deployed-app) always go first, rest fill up to 30
+    links.push(...highValueLinks);
+    for (const l of otherLinks) {
+      if (links.length >= 30) break;
+      links.push(l);
+    }
 
     return {
       url: targetUrl,
@@ -279,4 +358,6 @@ module.exports = {
   deepCrawl,
   scrapeAll,
   extractEventMeta,
+  isHighValueProfileUrl,
+  isJunkUrl,
 };
