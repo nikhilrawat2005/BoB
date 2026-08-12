@@ -85,14 +85,24 @@ if (!process.env.CRON_SECRET) {
 }
 
 function tickAuth(req, res, next) {
-  const cronSecret = process.env.CRON_SECRET;
-  const authHeader  = req.headers['authorization'] || '';
-  const provided    = authHeader.replace(/^Bearer\s+/i, '').trim();
+  const cronSecret = (process.env.CRON_SECRET || '').trim();
+  const authHeader = req.headers['authorization'] || '';
+  const provided = authHeader.replace(/^Bearer\s+/i, '').trim();
+  const headerSecret = (req.headers['x-cron-secret'] || '').trim();
+  const querySecret = (req.query.cron_secret || req.query.key || '').trim();
+  const isVercelCron = req.headers['x-vercel-cron'] === '1';
+
+  // If Vercel Cron invoked it directly or valid secret matches
+  if (isVercelCron) return next();
 
   if (cronSecret) {
-    if (provided === cronSecret) return next();
-    return res.status(401).json({ error: 'Unauthorized cron call' });
+    if (provided === cronSecret || headerSecret === cronSecret || querySecret === cronSecret) {
+      return next();
+    }
+    return res.status(401).json({ error: 'Unauthorized cron call (CRON_SECRET mismatch)' });
   }
+
+  // Fallback if CRON_SECRET is not set: check if Bearer token present or fallback to requireAuth
   return requireAuth(req, res, next);
 }
 
