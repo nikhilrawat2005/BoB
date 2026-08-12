@@ -190,16 +190,18 @@ async function researchProfile(userId, profId) {
       raw.push(linkedinSnippets);
     }
 
-    // ── Step 3.5: Fetch Official Coding Platform Stats (LeetCode, Codeforces, HackerRank, DEV.to) ──
+    // ── Step 3.5: Fetch Official Coding Platform Stats ONLY if discovered in scraped text/links ──
     let codingStats = {};
-    if (handle) {
+    const textToScan = (prof.link || '') + ' ' + (linkedinSnippets || '');
+    const handlesToFetch = {};
+    if (textToScan.includes('leetcode.com')) handlesToFetch.leetcode = handle;
+    if (textToScan.includes('codeforces.com')) handlesToFetch.codeforces = handle;
+    if (textToScan.includes('hackerrank.com')) handlesToFetch.hackerrank = handle;
+    if (textToScan.includes('dev.to')) handlesToFetch.devto = handle;
+
+    if (Object.keys(handlesToFetch).length > 0) {
       try {
-        codingStats = await devPlatforms.fetchAllDeveloperProfiles({
-          leetcode: handle,
-          codeforces: handle,
-          hackerrank: handle,
-          devto: handle
-        });
+        codingStats = await devPlatforms.fetchAllDeveloperProfiles(handlesToFetch);
         if (Object.keys(codingStats).length > 0) {
           raw.push(`[CODING PLATFORM STATS]\n${JSON.stringify(codingStats, null, 2)}`);
         }
