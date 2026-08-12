@@ -82,9 +82,10 @@ function fetchWithTimeout(url, options = {}, timeoutMs = 8000) {
 
 const JUNK_DOMAINS = [
   // GitHub's own site navigation (not the user's content)
-  /^https?:\/\/github\.com(?:\/features|\/security|\/pricing|\/marketplace|\/about|\/contact|\/explore|\/mcp|\/blog|\/docs|\/why-github|\/solutions|\/enterprise|\/team|\/collections|\/topics(?:\/$|$))(.*)?$/i,
-  /^https?:\/\/(docs|cli|gist|education|classroom|status)\.github(\.(com|io))?/i,
+  /^https?:\/\/github\.com(?:\/features|\/security|\/pricing|\/marketplace|\/about|\/contact|\/explore|\/mcp|\/blog|\/docs|\/why-github|\/solutions|\/enterprise|\/team|\/collections|\/topics(?:\/|$)|\/resources(?:\/|$)|\/customer-stories|\/events|\/whitepapers|\/trust-center|\/partners|\/open-source(?:\/sponsors|\/accelerator|\/stories)?(?:\/|$)|\/trending(?:\/|$)|\/sponsors(?:\/|$)|\/readme|\/changelog|\/releases|\/discussions|\/codespaces|\/copilot|\/actions|\/packages|\/skills|\/issues|\/pulls|\/notifications|\/new|\/organizations|\/settings|\/stars(?:\/|$)|\/watching(?:\/|$)|\/saved-replies|\/showcases|\/guides)(.*)?$/i,
+  /^https?:\/\/(docs|cli|gist|education|classroom|status|desktop|mobile)\.github(\.(com|io))?/i,
   /^https?:\/\/github\.blog/i,
+  /^https?:\/\/github\.com\/(?:site|account|orgs|apps|login|sessions|password_reset)\b/i,
   // Generic platform nav / CDN / analytics
   /^https?:\/\/(cdn|assets|static|tracker|analytics|ads|pixel|gtm|fonts)\.\S+/i,
   // Boilerplate open-source / legal / policy pages

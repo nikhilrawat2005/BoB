@@ -2986,7 +2986,14 @@ function resetStalkChat() {
 function renderProfileCard(p) {
   const d = p.profileData || {};
   const el = document.getElementById('stalk-profile-card');
-  const discovered = d.discoveredLinks || [];
+  const primaryLinks = new Set((d.links || []).map(l => l.toLowerCase()));
+  const ghNavPattern = /^https?:\/\/github\.com\/(resources|customer-stories|events|whitepapers|trust-center|partners|open-source|trending|sponsors|readme|features|security|pricing|marketplace|about|contact|explore|blog|docs|why-github|solutions|enterprise|team|collections|topics|changelog|releases|discussions|codespaces|copilot|actions|packages|skills|issues|pulls|notifications|showcases|guides|new|organizations|settings)(\/|$)/i;
+  const discovered = (d.discoveredLinks || []).filter(l => {
+    const url = String(l.url || '').toLowerCase();
+    if (primaryLinks.has(url)) return false;
+    if (ghNavPattern.test(l.url)) return false;
+    return true;
+  });
   
   el.innerHTML = `
     <div class="profile-card">
@@ -3001,7 +3008,27 @@ function renderProfileCard(p) {
       ${d.bio ? `<div class="profile-sec"><div class="profile-sec-title">Bio</div><div>${escHtml(d.bio)}</div></div>` : ''}
       ${(d.tech || []).length ? `<div class="profile-sec"><div class="profile-sec-title">Tech Stack</div><div class="tech-chips">${d.tech.map(t => `<span class="tech-chip">${escHtml(t)}</span>`).join('')}</div></div>` : ''}
       ${(d.summary || []).length ? `<div class="profile-sec"><div class="profile-sec-title">Deep-Dive Insights</div><div>${d.summary.map(s => `<div class="profile-bullet">• ${escHtml(s)}</div>`).join('')}</div></div>` : ''}
-      ${(d.links || []).length ? `<div class="profile-sec"><div class="profile-sec-title">Primary Links</div><div class="profile-links">${d.links.map(l => `<a href="${escHtml(l)}" target="_blank" rel="noopener">${escHtml(l)}</a>`).join(' · ')}</div></div>` : ''}
+      ${(d.links || []).length ? `<div class="profile-sec"><div class="profile-sec-title">Primary Links</div><div class="profile-links" style="display:flex;flex-direction:column;gap:5px;">${d.links.map(l => {
+        const url = String(l).toLowerCase();
+        let icon = '🔗', label = '';
+        if (url.includes('github.com')) { icon = '💻'; label = 'GitHub'; }
+        else if (url.includes('linkedin.com')) { icon = '💼'; label = 'LinkedIn'; }
+        else if (url.includes('leetcode.com')) { icon = '🏆'; label = 'LeetCode'; }
+        else if (url.includes('codechef.com')) { icon = '🍳'; label = 'CodeChef'; }
+        else if (url.includes('codeforces.com')) { icon = '⚡'; label = 'Codeforces'; }
+        else if (url.includes('kaggle.com')) { icon = '📊'; label = 'Kaggle'; }
+        else if (url.includes('twitter.com') || url.includes('x.com')) { icon = '🐦'; label = 'X / Twitter'; }
+        else if (url.includes('instagram.com')) { icon = '📸'; label = 'Instagram'; }
+        else if (url.includes('medium.com')) { icon = '📝'; label = 'Medium'; }
+        else if (url.includes('dev.to')) { icon = '✍️'; label = 'DEV.to'; }
+        else if (url.includes('youtube.com')) { icon = '🎬'; label = 'YouTube'; }
+        else if (url.includes('behance.net')) { icon = '🎨'; label = 'Behance'; }
+        else if (url.includes('dribbble.com')) { icon = '🏀'; label = 'Dribbble'; }
+        else if (url.includes('vercel.app') || url.includes('netlify.app') || url.includes('.web.app') || url.includes('.pages.dev')) { icon = '🌐'; label = 'Portfolio / Live Project'; }
+        else if (url.includes('hackerrank.com')) { icon = '🧩'; label = 'HackerRank'; }
+        else { try { label = new URL(l).hostname.replace(/^www\./, ''); } catch(e) { label = l; } }
+        return '<div style="display:flex;align-items:center;gap:6px;"><span style="font-size:14px;">' + icon + '</span><a href="' + escHtml(l) + '" target="_blank" rel="noopener" style="font-size:12px;word-break:break-all;">' + escHtml(label) + ' — ' + escHtml(l) + '</a></div>';
+      }).join('')}</div></div>` : ''}
       ${(d.socials || []).length ? `<div class="profile-sec"><div class="profile-sec-title">Social Handles</div><div>${d.socials.map(s => `<span class="tech-chip" style="background:rgba(255,255,255,0.06);">${escHtml(s)}</span>`).join(' ')}</div></div>` : ''}
       ${discovered.length ? `
         <div class="profile-sec">
