@@ -287,7 +287,7 @@ async function researchProfile(userId, profId) {
 // ── Per-profile chat (context-isolated) ───────────────────
 async function ensureChatSession(userId, prof) {
   if (prof.chatSessionId) return prof.chatSessionId;
-  const s = await memory.createSession(userId, `🕵️ ${prof.name}`);
+  const s = await memory.createSession(userId, `🕵️ ${prof.name}`, 'stalker');
   await coll(userId).doc(prof.id).set({ chatSessionId: s.id }, { merge: true });
   return s.id;
 }

@@ -330,7 +330,16 @@ function renderHqNotifications(notifications) {
 
 function renderSessions(sessions) {
   const list = document.getElementById('sessions-list');
-  if (!sessions.length) {
+  
+  // Filter out hackathon (🏆) and stalker (🕵️) workspace chats from main sidebar
+  const normalSessions = (sessions || []).filter(s => {
+    if (s.type === 'hackathon' || s.type === 'stalker') return false;
+    const title = s.title || '';
+    if (title.startsWith('🏆') || title.startsWith('🕵️')) return false;
+    return true;
+  });
+
+  if (!normalSessions.length) {
     list.innerHTML = '<div class="empty-sessions">No chats yet</div>';
     return;
   }
@@ -338,7 +347,7 @@ function renderSessions(sessions) {
   // Check if top session was updated within the last 24h for auto-pulse highlight
   const now = Date.now();
 
-  list.innerHTML = sessions.map((s, idx) => {
+  list.innerHTML = normalSessions.map((s, idx) => {
     const isRecent = idx === 0 && (now - (s.updatedAt || 0)) < 24 * 60 * 60 * 1000;
     const titleLc = (s.title || '').toLowerCase();
     const isAutoActive = isRecent && (titleLc.includes('goal') || titleLc.includes('dsa'));
@@ -1607,12 +1616,57 @@ messageInput.addEventListener('paste', (e) => {
   }
 });
 
-function clearPastedImage() {
-  pendingPasteImage = null;
-  const preview = document.getElementById('file-preview');
-  preview.classList.add('hidden');
-  preview.innerHTML = '';
-  sendBtn.disabled = !messageInput.value.trim() && !pendingFile;
+let pendingHackPasteImage = null;
+let pendingStalkPasteImage = null;
+
+function setupPasteImageSupport(textareaId, previewId, setPendingFn, clearFn) {
+  const ta = document.getElementById(textareaId);
+  if (!ta) return;
+  ta.addEventListener('paste', (e) => {
+    const items = e.clipboardData && e.clipboardData.items;
+    if (!items) return;
+    for (const item of items) {
+      if (item.kind === 'file' && item.type.startsWith('image/')) {
+        e.preventDefault();
+        const file = item.getAsFile();
+        if (!file) return;
+        setPendingFn(file);
+        const reader = new FileReader();
+        reader.onload = (ev) => {
+          const preview = document.getElementById(previewId);
+          preview.classList.remove('hidden');
+          preview.innerHTML = `
+            <div class="paste-img-preview">
+              <img src="${ev.target.result}" alt="Screenshot preview" class="paste-thumb" />
+              <div class="paste-img-info">
+                <span class="file-type-badge">🖼️</span>
+                <span>Screenshot pasted <span style="color:var(--text3)">(${formatBytes(file.size)})</span></span>
+              </div>
+              <button class="remove-file">✕</button>
+            </div>
+          `;
+          preview.querySelector('.remove-file').addEventListener('click', clearFn);
+        };
+        reader.readAsDataURL(file);
+        return;
+      }
+    }
+  });
+}
+
+setupPasteImageSupport('hack-chat-input', 'hack-file-preview', (f) => { pendingHackPasteImage = f; }, clearPastedHackImage);
+setupPasteImageSupport('stalk-chat-input', 'stalk-file-preview', (f) => { pendingStalkPasteImage = f; }, clearPastedStalkImage);
+
+function clearPastedHackImage() {
+  pendingHackPasteImage = null;
+  const p = document.getElementById('hack-file-preview');
+  if (p && !pendingHackFile) { p.classList.add('hidden'); p.innerHTML = ''; }
+}
+
+function clearPastedStalkImage() {
+  pendingStalkPasteImage = null;
+  const p = document.getElementById('stalk-file-preview');
+  if (p && !pendingStalkFile) { p.classList.add('hidden'); p.innerHTML = ''; }
 }
 
 sendBtn.addEventListener('click', sendMessage);
@@ -1828,12 +1882,40 @@ async function sendMessage() {
 // FILE UPLOAD
 // ═══════════════════════════════════════════════════════
 
+function setupFileInputHandlers(inputId, previewId, clearFn) {
+  const inputEl = document.getElementById(inputId);
+  if (!inputEl) return;
+  inputEl.addEventListener('change', (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    let icon = '📄';
+    const type = file.type || '', name = file.name.toLowerCase();
+    if (type.startsWith('image/')) icon = '🖼️';
+    else if (type.startsWith('audio/')) icon = '🎵';
+    else if (type.startsWith('video/')) icon = '🎬';
+    else if (type.includes('pdf')) icon = '📕';
+    else if (name.endsWith('.csv') || name.endsWith('.tsv') || name.endsWith('.xlsx') || name.endsWith('.xls')) icon = '📊';
+    else if (name.endsWith('.json') || name.endsWith('.py') || name.endsWith('.js') || name.endsWith('.ts')) icon = '💻';
+
+    const preview = document.getElementById(previewId);
+    preview.classList.remove('hidden');
+    preview.innerHTML = `
+      <span class="file-type-badge">${icon}</span>
+      <span>${escHtml(file.name)} <span style="color:var(--text3)">(${formatBytes(file.size)})</span></span>
+      <button class="remove-file">✕</button>
+    `;
+    preview.querySelector('.remove-file').addEventListener('click', () => clearFn(previewId, inputId));
+  });
+}
+
+let pendingHackFile = null;
+let pendingStalkFile = null;
+
 document.getElementById('file-upload-input').addEventListener('change', (e) => {
   const file = e.target.files[0];
   if (!file) return;
   pendingFile = file;
 
-  // Determine file type icon
   const type = file.type || '';
   const name = file.name.toLowerCase();
   let fileIcon = '📄';
@@ -1841,8 +1923,7 @@ document.getElementById('file-upload-input').addEventListener('change', (e) => {
   else if (type.startsWith('audio/'))      fileIcon = '🎵';
   else if (type.startsWith('video/'))      fileIcon = '🎬';
   else if (type.includes('pdf'))           fileIcon = '📕';
-  else if (name.endsWith('.csv') || name.endsWith('.tsv') || name.endsWith('.xlsx') || name.endsWith('.xls'))
-                                           fileIcon = '📊';
+  else if (name.endsWith('.csv') || name.endsWith('.tsv') || name.endsWith('.xlsx') || name.endsWith('.xls')) fileIcon = '📊';
   else if (name.endsWith('.json'))         fileIcon = '🔧';
   else if (name.endsWith('.py'))           fileIcon = '🐍';
   else if (name.endsWith('.js') || name.endsWith('.ts')) fileIcon = '🟨';
@@ -1863,11 +1944,57 @@ document.getElementById('file-upload-input').addEventListener('change', (e) => {
   sendBtn.disabled = false;
 });
 
+document.getElementById('hack-file-upload-input')?.addEventListener('change', (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  pendingHackFile = file;
+  let icon = file.type.startsWith('image/') ? '🖼️' : '📄';
+  const preview = document.getElementById('hack-file-preview');
+  preview.classList.remove('hidden');
+  preview.innerHTML = `
+    <span class="file-type-badge">${icon}</span>
+    <span>${escHtml(file.name)} <span style="color:var(--text3)">(${formatBytes(file.size)})</span></span>
+    <button class="remove-file" id="remove-hack-file-btn">✕</button>
+  `;
+  document.getElementById('remove-hack-file-btn').addEventListener('click', clearPendingHackFile);
+});
+
+document.getElementById('stalk-file-upload-input')?.addEventListener('change', (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  pendingStalkFile = file;
+  let icon = file.type.startsWith('image/') ? '🖼️' : '📄';
+  const preview = document.getElementById('stalk-file-preview');
+  preview.classList.remove('hidden');
+  preview.innerHTML = `
+    <span class="file-type-badge">${icon}</span>
+    <span>${escHtml(file.name)} <span style="color:var(--text3)">(${formatBytes(file.size)})</span></span>
+    <button class="remove-file" id="remove-stalk-file-btn">✕</button>
+  `;
+  document.getElementById('remove-stalk-file-btn').addEventListener('click', clearPendingStalkFile);
+});
+
 function clearPendingFile() {
   pendingFile = null;
   document.getElementById('file-preview').classList.add('hidden');
   document.getElementById('file-upload-input').value = '';
   sendBtn.disabled = !messageInput.value.trim();
+}
+
+function clearPendingHackFile() {
+  pendingHackFile = null;
+  const p = document.getElementById('hack-file-preview');
+  if (p) { p.classList.add('hidden'); p.innerHTML = ''; }
+  const inp = document.getElementById('hack-file-upload-input');
+  if (inp) inp.value = '';
+}
+
+function clearPendingStalkFile() {
+  pendingStalkFile = null;
+  const p = document.getElementById('stalk-file-preview');
+  if (p) { p.classList.add('hidden'); p.innerHTML = ''; }
+  const inp = document.getElementById('stalk-file-upload-input');
+  if (inp) inp.value = '';
 }
 
 async function uploadPendingFile() {
@@ -2741,7 +2868,22 @@ attachAutoResizeTextarea('hack-chat-input', sendHackMessage);
 
 async function sendHackMessage() {
   const input = document.getElementById('hack-chat-input');
-  const text = input.value.trim(); if (!text) return;
+  let text = input.value.trim();
+  const fileToUpload = pendingHackFile || pendingHackPasteImage;
+  if (!text && !fileToUpload) return;
+
+  if (fileToUpload) {
+    const uploadedRecord = await uploadFileRecord(fileToUpload);
+    if (uploadedRecord) {
+      const fileName = uploadedRecord.originalName || fileToUpload.name || 'file';
+      const fileUrl = uploadedRecord.url || '';
+      const extracted = uploadedRecord.extractedText ? `\n\n[File Content: ${uploadedRecord.extractedText.slice(0, 3000)}]` : '';
+      text = text ? `📄 Attached File: ${fileName} (${fileUrl})\n${text}${extracted}` : `📄 Attached File: ${fileName} (${fileUrl})${extracted}`;
+    }
+    clearPendingHackFile();
+    clearPastedHackImage();
+  }
+
   input.value = ''; input.style.height = 'auto'; input.disabled = true;
   const el = document.getElementById('hack-chat-messages');
   appendWsMsg(el, 'user', 'Nikhil', text);
@@ -3057,7 +3199,22 @@ attachAutoResizeTextarea('stalk-chat-input', sendStalkMessage);
 
 async function sendStalkMessage() {
   const input = document.getElementById('stalk-chat-input');
-  const text = input.value.trim(); if (!text) return;
+  let text = input.value.trim();
+  const fileToUpload = pendingStalkFile || pendingStalkPasteImage;
+  if (!text && !fileToUpload) return;
+
+  if (fileToUpload) {
+    const uploadedRecord = await uploadFileRecord(fileToUpload);
+    if (uploadedRecord) {
+      const fileName = uploadedRecord.originalName || fileToUpload.name || 'file';
+      const fileUrl = uploadedRecord.url || '';
+      const extracted = uploadedRecord.extractedText ? `\n\n[File Content: ${uploadedRecord.extractedText.slice(0, 3000)}]` : '';
+      text = text ? `📄 Attached File: ${fileName} (${fileUrl})\n${text}${extracted}` : `📄 Attached File: ${fileName} (${fileUrl})${extracted}`;
+    }
+    clearPendingStalkFile();
+    clearPastedStalkImage();
+  }
+
   input.value = ''; input.style.height = 'auto'; input.disabled = true;
   const el = document.getElementById('stalk-chat-messages');
   appendWsMsg(el, 'user', 'Nikhil', text);

@@ -450,7 +450,7 @@ async function ensureChatSession(userId, hack) {
     }
   } catch (e) { /* best-effort */ }
 
-  const s = await memory.createSession(userId, `🏆 ${hack.title}`);
+  const s = await memory.createSession(userId, `🏆 ${hack.title}`, 'hackathon');
   await coll(userId).doc(hack.id).set({ chatSessionId: s.id }, { merge: true });
   return s.id;
 }

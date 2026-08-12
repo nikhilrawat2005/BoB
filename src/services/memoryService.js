@@ -9,11 +9,11 @@ const { db, firebaseAdmin } = require('../config/firebase');
  * users/{userId}/monthlyFiles/{monthId}       -> { filename, content, mime, monthId, createdAt }
  */
 
-async function createSession(userId, title = 'New chat') {
+async function createSession(userId, title = 'New chat', type = 'chat') {
   const ref = db.collection('users').doc(userId).collection('sessions').doc();
   const now = Date.now();
-  await ref.set({ title, createdAt: now, updatedAt: now });
-  return { id: ref.id, title, createdAt: now, updatedAt: now };
+  await ref.set({ title, type, createdAt: now, updatedAt: now });
+  return { id: ref.id, title, type, createdAt: now, updatedAt: now };
 }
 
 async function updateSessionTitle(userId, sessionId, title) {
@@ -21,12 +21,12 @@ async function updateSessionTitle(userId, sessionId, title) {
   await sessionRef.set({ title }, { merge: true });
 }
 
-async function listSessions(userId) {
-  const snap = await db
-    .collection('users').doc(userId)
-    .collection('sessions')
-    .orderBy('updatedAt', 'desc')
-    .get();
+async function listSessions(userId, type = null) {
+  let query = db.collection('users').doc(userId).collection('sessions');
+  if (type) {
+    query = query.where('type', '==', type);
+  }
+  const snap = await query.orderBy('updatedAt', 'desc').get();
   return snap.docs.map(d => ({ id: d.id, ...d.data() }));
 }
 
