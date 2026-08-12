@@ -322,7 +322,7 @@ async function researchProfile(userId, profId) {
         role: 'review',
         messages: [
           { role: 'system', content: 'You build a concise intelligence Profile Card from scraped research about a person/org. Reply with clean JSON only (no markdown fences).' },
-          { role: 'user', content: `RESEARCH:\n\n${allTextFinal.slice(0, 16000)}\n\nGITHUB TECH DEPS:\n${JSON.stringify(github.techStack)}\n\nReturn JSON: { "name" (the ACTUAL person's real name), "headline" (job title/role), "bio" (2-3 sentences), "location", "links" (array of key URLs), "socials" (array of strings like "github/username"), "tech" (array of technologies/skills), "summary" (5-6 bullet insights as array of strings) }` },
+          { role: 'user', content: `RESEARCH:\n\n${allTextFinal.slice(0, 16000)}\n\nGITHUB TECH DEPS:\n${JSON.stringify(github.techStack)}\n\nReturn JSON: { "name" (the ACTUAL person's real name), "headline" (job title/role), "bio" (2-3 sentences), "location", "links" (array of key URLs), "socials" (array of strings like "github/username"), "tech" (array of technologies/skills), "certifications" (array of hackathons, badges, or certifications found), "summary" (5-6 bullet insights as array of strings) }` },
         ],
         temperature: 0.2,
         max_tokens: 1200,
@@ -346,6 +346,7 @@ async function researchProfile(userId, profId) {
       discoveredLinks: validLinks.sort((a, b) => (b.highValue ? 1 : 0) - (a.highValue ? 1 : 0)).slice(0, 20),
       socials: card?.socials || (githubHandle ? [`github/${githubHandle}`] : []),
       tech: [...new Set([...(card?.tech || []), ...github.techStack.slice(0, 8)])],
+      certifications: card?.certifications || [],
       summary: card?.summary || [],
       githubHandle,
       githubRepos: github.repos,

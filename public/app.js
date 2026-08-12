@@ -3190,6 +3190,7 @@ function renderProfileCard(p) {
         </div>
       </div>
       ${d.bio ? `<div class="profile-sec"><div class="profile-sec-title">Bio</div><div>${escHtml(d.bio)}</div></div>` : ''}
+      ${(d.certifications || []).length ? `<div class="profile-sec"><div class="profile-sec-title">🏆 Certifications, Badges & Achievements (${d.certifications.length})</div><div>${d.certifications.map(c => `<div class="profile-bullet">🏅 ${escHtml(c)}</div>`).join('')}</div></div>` : ''}
       ${(d.tech || []).length ? `<div class="profile-sec"><div class="profile-sec-title">Tech Stack</div><div class="tech-chips">${d.tech.map(t => `<span class="tech-chip">${escHtml(t)}</span>`).join('')}</div></div>` : ''}
       ${(d.summary || []).length ? `<div class="profile-sec"><div class="profile-sec-title">Deep-Dive Insights</div><div>${d.summary.map(s => `<div class="profile-bullet">• ${escHtml(s)}</div>`).join('')}</div></div>` : ''}
       ${(d.links || []).length ? `<div class="profile-sec"><div class="profile-sec-title">Primary Profile Link</div><div class="profile-links" style="display:flex;flex-direction:column;gap:5px;">${d.links.map(l => {
