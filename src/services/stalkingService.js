@@ -161,7 +161,7 @@ async function researchProfile(userId, profId) {
         role: 'review',
         messages: [
           { role: 'system', content: 'You build a concise intelligence Profile Card from scraped research about a person/org. Reply with clean JSON only (no markdown fences).' },
-          { role: 'user', content: `RESEARCH:\n\n${allText.slice(0, 15000)}\n\nGITHUB:\n${JSON.stringify(github)}\n\nReturn JSON: { "headline", "bio" (2-3 sentences), "location", "links" (array of key URLs), "socials" (array of strings like "github/username" or "x/handle"), "tech" (array of technologies/skills), "summary" (5-6 bullet insights as array of strings) }` },
+          { role: 'user', content: `RESEARCH:\n\n${allText.slice(0, 15000)}\n\nGITHUB:\n${JSON.stringify(github)}\n\nReturn JSON: { "name" (the ACTUAL person's real name like "Narayan Singh" — NOT their job title or role), "headline" (their job title/role/tagline), "bio" (2-3 sentences), "location", "links" (array of key URLs), "socials" (array of strings like "github/username" or "x/handle"), "tech" (array of technologies/skills), "summary" (5-6 bullet insights as array of strings) }` },
         ],
         temperature: 0.2,
         max_tokens: 1200,
@@ -184,16 +184,20 @@ async function researchProfile(userId, profId) {
       lastResearchAt: Date.now(),
     };
 
+    // Use the LLM-extracted real name (e.g. "Narayan Singh"), NOT the headline/role.
+    // Fall back to the original name provided by the user.
+    const resolvedName = card?.name || prof.name;
+
     await coll(userId).doc(profId).set({
       profileData,
       status: 'ready',
-      name: card?.headline || prof.name,
+      name: resolvedName,
       updatedAt: Date.now(),
     }, { merge: true });
 
     await memory.addNotification(
       userId,
-      `🕵️ Stalking complete: ${prof.name}`,
+      `🕵️ Stalking complete: ${resolvedName}`,
       `Deep-dive done — ${profileData.summary.length ? profileData.summary[0].slice(0, 120) : 'Profile card ready.'}`
     );
     return getProfile(userId, profId);
