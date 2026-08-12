@@ -103,6 +103,20 @@ html, body { height: 100%; font-family: 'Inter', sans-serif; background: var(--b
 }
 .logo-orb.small { width: 26px; height: 26px; }
 
+/* Cat logo image — replaces logo-orb where used */
+.logo-cat {
+  width: 44px; height: 44px;
+  border-radius: 50%;
+  object-fit: cover;
+  flex-shrink: 0;
+  box-shadow: 0 0 18px var(--accent-glow), 0 0 6px rgba(108,99,255,0.5);
+  border: 2px solid rgba(108,99,255,0.4);
+  transition: box-shadow 0.3s ease, transform 0.3s ease;
+}
+.logo-cat:hover { box-shadow: 0 0 28px var(--accent-glow), 0 0 12px rgba(108,99,255,0.7); transform: scale(1.05); }
+.logo-cat.small { width: 28px; height: 28px; border-width: 1.5px; }
+
+
 .logo-text { font-size: 22px; font-weight: 700; letter-spacing: -0.5px; }
 
 .login-subtitle { font-size: 13px; color: var(--text2); margin-bottom: 28px; }
