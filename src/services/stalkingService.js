@@ -312,8 +312,17 @@ function buildProfileContext(prof) {
 
 // ── Command detection ─────────────────────────────────────
 function detectChatCommand(msg) {
-  const m = msg.trim();
-  const low = m.toLowerCase();
+  // re-research / research again
+  if (/^(re[- ]?research|research (again|phir se|dubara)|phir se research|dubara research)/i.test(m))
+    return { type: 're_research' };
+
+  // clear links / remove links / links hatao
+  if (/^(clear|remove|delete|hatao) (all )?(discovered )?links?/i.test(m) || /(links|link) (clear|remove|delete|hatao)/i.test(m) || /sab links (remove|hatao|delete)/i.test(m))
+    return { type: 'clear_links' };
+
+  // clear insights / remove insights
+  if (/^(clear|remove|delete|hatao) (all )?insights?/i.test(m) || /insights (clear|remove|delete|hatao)/i.test(m))
+    return { type: 'clear_insights' };
 
   // find more links / aur links dhundo
   if (/^(find more links|aur links (dhundo|dhoond)|more links|links dhundo)/i.test(m))
@@ -368,6 +377,16 @@ async function patchProfileFromChat(userId, profId, command) {
   let reply = '';
 
   switch (command.type) {
+    case 'clear_links': {
+      patch = { profileData: { ...pd, discoveredLinks: [] } };
+      reply = `✅ Profile ke saare Discovered Links clear/remove kar diye hain!`;
+      break;
+    }
+    case 'clear_insights': {
+      patch = { profileData: { ...pd, summary: [] } };
+      reply = `✅ Profile ke saare Insights clear/remove kar diye hain!`;
+      break;
+    }
     case 'add_insight': {
       const existing = pd.summary || [];
       if (!existing.includes(command.value)) existing.push(command.value);
@@ -621,8 +640,17 @@ async function chatSend(userId, profId, message) {
       return { reply: '🔍 Deep study shuru ho gayi... thoda wait karo. Profile card update hogi. Tum tab tak kuch aur pucho!', action: 'studying', updatedProfile: prof };
     }
 
+    if (command.type === 're_research') {
+      const sid = await ensureChatSession(userId, prof);
+      await memory.addMessage(userId, sid, 'user', message);
+      researchProfile(userId, profId).then(async updated => {
+        await memory.addMessage(userId, sid, 'assistant', `✅ Re-research complete! Profile card refresh kar di gayi hai.`);
+      }).catch(err => console.error('[stalking] re-research error:', err.message));
+      return { reply: '🔄 Fresh re-research background me shuru ho gaya hai! Clean search engine se research ho raha hai, thodi der me card update hoga.', action: 'studying', updatedProfile: prof };
+    }
+
     // Synchronous data patch commands
-    const patchTypes = ['add_insight','add_tech','add_link','edit_bio','edit_headline','edit_location','edit_name','correct_field'];
+    const patchTypes = ['clear_links','clear_insights','add_insight','add_tech','add_link','edit_bio','edit_headline','edit_location','edit_name','correct_field'];
     if (patchTypes.includes(command.type)) {
       const result = await patchProfileFromChat(userId, profId, command);
       const sid = await ensureChatSession(userId, prof);
@@ -646,6 +674,9 @@ PROFILE KNOWLEDGE:
 ${context}
 
 COMMANDS USER CAN USE (mention these when relevant):
+- "clear links" or "remove links" → removes all junk discovered links from profile card
+- "clear insights" → removes all insights from profile card
+- "re-research" → re-runs full clean deep research on this person
 - "add insight: [text]" → adds to profile card insights
 - "add tech: [skill1, skill2]" → adds to tech stack
 - "add link: [url]" → adds a link to profile
@@ -656,7 +687,7 @@ COMMANDS USER CAN USE (mention these when relevant):
 - "find more links" → Bob searches for more links
 - "deep dive" → Bob does deeper research on this person
 
-If user says you got something wrong about the profile, acknowledge it clearly and suggest the correct command to fix it (e.g., "correct kar do: edit bio: [correct info]").
+IMPORTANT: NEVER claim you have removed or modified links or profile data unless you used an actual command. If user wants to remove bad/junk links, tell them to type "clear links" or "re-research"!
 Be sharp, specific, and honest about what is known vs guessed. Use Hinglish when natural.`;
 
   const { text, model } = await callLLM({
