@@ -3131,16 +3131,52 @@ function resetStalkChat() {
   document.getElementById('stalk-send-btn').disabled = false;
 }
 
+function getLinkInfo(urlStr) {
+  const url = String(urlStr || '').toLowerCase();
+  if (url.includes('github.com')) return { icon: '🐙', label: 'GitHub Profile' };
+  if (url.includes('linkedin.com')) return { icon: '💼', label: 'LinkedIn Profile' };
+  if (url.includes('leetcode.com')) return { icon: '🏆', label: 'LeetCode' };
+  if (url.includes('codechef.com')) return { icon: '🍳', label: 'CodeChef' };
+  if (url.includes('codeforces.com')) return { icon: '⚡', label: 'Codeforces' };
+  if (url.includes('hackerrank.com')) return { icon: '🧩', label: 'HackerRank' };
+  if (url.includes('kaggle.com')) return { icon: '📊', label: 'Kaggle' };
+  if (url.includes('twitter.com') || url.includes('x.com')) return { icon: '🐦', label: 'X / Twitter' };
+  if (url.includes('instagram.com')) return { icon: '📸', label: 'Instagram' };
+  if (url.includes('medium.com')) return { icon: '📝', label: 'Medium' };
+  if (url.includes('dev.to')) return { icon: '✍️', label: 'DEV.to' };
+  if (url.includes('hashnode.')) return { icon: '⚡', label: 'Hashnode' };
+  if (url.includes('producthunt.com')) return { icon: '😸', label: 'ProductHunt' };
+  if (url.includes('youtube.com')) return { icon: '🎬', label: 'YouTube' };
+  if (url.includes('vercel.app') || url.includes('netlify.app') || url.includes('.pages.dev') || url.includes('.web.app')) return { icon: '🚀', label: 'Live Deployed App' };
+  try { return { icon: '🌐', label: new URL(urlStr).hostname.replace(/^www\./, '') }; } catch(e) { return { icon: '🔗', label: urlStr }; }
+}
+
 function renderProfileCard(p) {
   const d = p.profileData || {};
   const el = document.getElementById('stalk-profile-card');
   const primaryLinks = new Set((d.links || []).map(l => l.toLowerCase()));
   const ghNavPattern = /^https?:\/\/github\.com\/(resources|customer-stories|events|whitepapers|trust-center|partners|open-source|trending|sponsors|readme|features|security|pricing|marketplace|about|contact|explore|blog|docs|why-github|solutions|enterprise|team|collections|topics|changelog|releases|discussions|codespaces|copilot|actions|packages|skills|issues|pulls|notifications|showcases|guides|new|organizations|settings)(\/|$)/i;
+
   const discovered = (d.discoveredLinks || []).filter(l => {
     const url = String(l.url || '').toLowerCase();
     if (primaryLinks.has(url)) return false;
     if (ghNavPattern.test(l.url)) return false;
     return true;
+  });
+
+  const verifiedProfiles = [];
+  const deployedDemos = [];
+  const otherDiscovered = [];
+
+  discovered.forEach(l => {
+    const info = getLinkInfo(l.url);
+    if (info.icon === '🚀') {
+      deployedDemos.push({ ...l, info });
+    } else if (['🐙','💼','🏆','🍳','⚡','🧩','📊','🐦','📸','📝','✍️','😸'].includes(info.icon)) {
+      verifiedProfiles.push({ ...l, info });
+    } else {
+      otherDiscovered.push({ ...l, info });
+    }
   });
   
   el.innerHTML = `
@@ -3149,46 +3185,42 @@ function renderProfileCard(p) {
         <div class="profile-avatar">${escHtml((p.name || '?')[0].toUpperCase())}</div>
         <div>
           <div class="profile-name">${escHtml(p.name)}</div>
-          <div class="profile-headline">${escHtml(d.headline || '')}</div>
+          <div class="profile-headline">${escHtml((d.headline && d.headline !== 'Unknown' && d.headline !== p.name) ? d.headline : '')}</div>
           <div class="profile-meta">${escHtml(d.location || '')}</div>
         </div>
       </div>
       ${d.bio ? `<div class="profile-sec"><div class="profile-sec-title">Bio</div><div>${escHtml(d.bio)}</div></div>` : ''}
       ${(d.tech || []).length ? `<div class="profile-sec"><div class="profile-sec-title">Tech Stack</div><div class="tech-chips">${d.tech.map(t => `<span class="tech-chip">${escHtml(t)}</span>`).join('')}</div></div>` : ''}
       ${(d.summary || []).length ? `<div class="profile-sec"><div class="profile-sec-title">Deep-Dive Insights</div><div>${d.summary.map(s => `<div class="profile-bullet">• ${escHtml(s)}</div>`).join('')}</div></div>` : ''}
-      ${(d.links || []).length ? `<div class="profile-sec"><div class="profile-sec-title">Primary Links</div><div class="profile-links" style="display:flex;flex-direction:column;gap:5px;">${d.links.map(l => {
-        const url = String(l).toLowerCase();
-        let icon = '🔗', label = '';
-        if (url.includes('github.com')) { icon = '💻'; label = 'GitHub'; }
-        else if (url.includes('linkedin.com')) { icon = '💼'; label = 'LinkedIn'; }
-        else if (url.includes('leetcode.com')) { icon = '🏆'; label = 'LeetCode'; }
-        else if (url.includes('codechef.com')) { icon = '🍳'; label = 'CodeChef'; }
-        else if (url.includes('codeforces.com')) { icon = '⚡'; label = 'Codeforces'; }
-        else if (url.includes('kaggle.com')) { icon = '📊'; label = 'Kaggle'; }
-        else if (url.includes('twitter.com') || url.includes('x.com')) { icon = '🐦'; label = 'X / Twitter'; }
-        else if (url.includes('instagram.com')) { icon = '📸'; label = 'Instagram'; }
-        else if (url.includes('medium.com')) { icon = '📝'; label = 'Medium'; }
-        else if (url.includes('dev.to')) { icon = '✍️'; label = 'DEV.to'; }
-        else if (url.includes('youtube.com')) { icon = '🎬'; label = 'YouTube'; }
-        else if (url.includes('behance.net')) { icon = '🎨'; label = 'Behance'; }
-        else if (url.includes('dribbble.com')) { icon = '🏀'; label = 'Dribbble'; }
-        else if (url.includes('vercel.app') || url.includes('netlify.app') || url.includes('.web.app') || url.includes('.pages.dev')) { icon = '🌐'; label = 'Portfolio / Live Project'; }
-        else if (url.includes('hackerrank.com')) { icon = '🧩'; label = 'HackerRank'; }
-        else { try { label = new URL(l).hostname.replace(/^www\./, ''); } catch(e) { label = l; } }
-        return '<div style="display:flex;align-items:center;gap:6px;"><span style="font-size:14px;">' + icon + '</span><a href="' + escHtml(l) + '" target="_blank" rel="noopener" style="font-size:12px;word-break:break-all;">' + escHtml(label) + ' — ' + escHtml(l) + '</a></div>';
+      ${(d.links || []).length ? `<div class="profile-sec"><div class="profile-sec-title">Primary Profile Link</div><div class="profile-links" style="display:flex;flex-direction:column;gap:5px;">${d.links.map(l => {
+        const info = getLinkInfo(l);
+        return `<div style="display:flex;align-items:center;gap:6px;"><span style="font-size:14px;">${info.icon}</span><a href="${escHtml(l)}" target="_blank" rel="noopener" style="font-size:12px;word-break:break-all;"><strong>${escHtml(info.label)}</strong> — ${escHtml(l)}</a></div>`;
       }).join('')}</div></div>` : ''}
-      ${(d.socials || []).length ? `<div class="profile-sec"><div class="profile-sec-title">Social Handles</div><div>${d.socials.map(s => `<span class="tech-chip" style="background:rgba(255,255,255,0.06);">${escHtml(s)}</span>`).join(' ')}</div></div>` : ''}
-      ${discovered.length ? `
+      ${verifiedProfiles.length ? `
         <div class="profile-sec">
-          <div class="profile-sec-title">🌐 Discovered Links Network (${discovered.length})</div>
-          <div class="profile-links" style="display:flex;flex-direction:column;gap:4px;max-height:160px;overflow-y:auto;">
-            ${discovered.map(l => `<a href="${escHtml(l.url)}" target="_blank" rel="noopener" title="${escHtml(l.url)}">🔗 ${escHtml(l.label || l.url)} <span style="opacity:0.6;font-size:10px;">(${escHtml(l.source || 'web')})</span></a>`).join('')}
+          <div class="profile-sec-title">👤 Verified Profiles (${verifiedProfiles.length})</div>
+          <div class="profile-links" style="display:flex;flex-direction:column;gap:5px;max-height:160px;overflow-y:auto;">
+            ${verifiedProfiles.map(l => `<div style="display:flex;align-items:center;gap:6px;"><span style="font-size:14px;">${l.info.icon}</span><a href="${escHtml(l.url)}" target="_blank" rel="noopener" style="font-size:12px;word-break:break-all;"><strong>${escHtml(l.info.label)}</strong> — ${escHtml(l.url)}</a></div>`).join('')}
+          </div>
+        </div>` : ''}
+      ${deployedDemos.length ? `
+        <div class="profile-sec">
+          <div class="profile-sec-title">🚀 Deployed Live Demos (${deployedDemos.length})</div>
+          <div class="profile-links" style="display:flex;flex-direction:column;gap:5px;">
+            ${deployedDemos.map(l => `<div style="display:flex;align-items:center;gap:6px;"><span style="font-size:14px;">🚀</span><a href="${escHtml(l.url)}" target="_blank" rel="noopener" style="font-size:12px;word-break:break-all;"><strong>${escHtml(l.label || l.url)}</strong></a></div>`).join('')}
+          </div>
+        </div>` : ''}
+      ${otherDiscovered.length ? `
+        <div class="profile-sec">
+          <div class="profile-sec-title">🌐 Discovered Links Network (${otherDiscovered.length})</div>
+          <div class="profile-links" style="display:flex;flex-direction:column;gap:4px;max-height:140px;overflow-y:auto;">
+            ${otherDiscovered.map(l => `<a href="${escHtml(l.url)}" target="_blank" rel="noopener" title="${escHtml(l.url)}">🔗 ${escHtml(l.label || l.url)} <span style="opacity:0.6;font-size:10px;">(${escHtml(l.source || 'web')})</span></a>`).join('')}
           </div>
         </div>` : ''}
       ${(d.githubRepos || []).length ? `
         <div class="profile-sec">
           <div class="profile-sec-title">🐙 GitHub Repositories (${d.githubRepos.length})</div>
-          <div style="display:flex;flex-direction:column;gap:4px;">
+          <div style="display:flex;flex-direction:column;gap:4px;max-height:160px;overflow-y:auto;">
             ${d.githubRepos.map(r => `
               <div class="repo-row" style="display:flex;align-items:center;justify-content:space-between;background:rgba(255,255,255,0.03);padding:4px 8px;border-radius:4px;">
                 <a href="${escHtml(r.url || `https://github.com/${r.name}`)}" target="_blank" rel="noopener" style="font-weight:600;font-size:12px;color:var(--accent-blue);text-decoration:none;">${escHtml(r.name)}</a>

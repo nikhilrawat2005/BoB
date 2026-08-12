@@ -181,16 +181,8 @@ async function researchProfile(userId, profId) {
       }
     }
 
-    // ── Step 2: Handle Hunter — Probe 12+ tech & social platforms ──
-    if (handle) {
-      const probed = await probePlatformProfiles(handle);
-      probed.forEach(p => {
-        if (!seenUrls.has(p.url)) {
-          seenUrls.add(p.url);
-          collectedLinks.push(p);
-        }
-      });
-    }
+    // ── Step 2: Handle Hunter probing disabled per user instruction ──
+    // Only verified links found via direct scraping, search results, or APIs are included.
 
     // ── Step 3: Targeted LinkedIn Posts & Experience Mining ──
     const linkedinSnippets = await scrapeLinkedInSnippets(handle, prof.name);
@@ -341,9 +333,14 @@ async function researchProfile(userId, profId) {
     // Deduplicate and filter links
     const validLinks = collectedLinks.filter(l => l.url && !isJunkUrl(l.url));
 
+    const isCleanName = (n) => n && typeof n === 'string' && n.trim() !== '' && !n.toLowerCase().includes('unknown');
+    const resolvedName = isCleanName(card?.name) 
+      ? card.name.trim() 
+      : (isCleanName(prof.name) ? prof.name.trim() : (handle || 'Unknown Profile'));
+
     const profileData = {
-      headline: card?.headline || prof.name,
-      bio: card?.bio || 'No bio found — research completed.',
+      headline: card?.headline || resolvedName,
+      bio: card?.bio || 'No public bio available.',
       location: card?.location || 'unknown',
       links: card?.links || (prof.link ? [prof.link] : []),
       discoveredLinks: validLinks.sort((a, b) => (b.highValue ? 1 : 0) - (a.highValue ? 1 : 0)).slice(0, 20),
@@ -355,8 +352,6 @@ async function researchProfile(userId, profId) {
       codingStats: codingStats || {},
       lastResearchAt: Date.now(),
     };
-
-    const resolvedName = card?.name || prof.name;
 
     await coll(userId).doc(profId).set({
       profileData,
@@ -526,16 +521,21 @@ async function patchProfileFromChat(userId, profId, command) {
       break;
     }
     case 'edit_name': {
-      patch = { name: command.value };
+      const updatedPd = { ...pd };
+      if (!updatedPd.headline || updatedPd.headline === 'Unknown' || updatedPd.headline === prof.name) {
+        updatedPd.headline = command.value;
+      }
+      patch = { name: command.value, profileData: updatedPd };
       reply = `✅ Name fix ho gaya: "${command.value}"`;
       break;
     }
     case 'correct_field': {
-      const fieldMap = { bio: 'bio', headline: 'headline', location: 'location', summary: 'summary', name: null };
       if (command.field === 'name') {
-        patch = { name: command.value };
-      } else if (fieldMap[command.field] !== undefined) {
-        patch = { profileData: { ...pd, [command.field]: command.value } };
+        const updatedPd = { ...pd };
+        if (!updatedPd.headline || updatedPd.headline === 'Unknown' || updatedPd.headline === prof.name) {
+          updatedPd.headline = command.value;
+        }
+        patch = { name: command.value, profileData: updatedPd };
       } else {
         patch = { profileData: { ...pd, [command.field]: command.value } };
       }
