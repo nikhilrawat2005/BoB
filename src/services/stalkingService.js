@@ -13,6 +13,7 @@ const memory = require('./memoryService');
 const crawler = require('./crawlerService');
 const web = require('./webSearchService');
 const repo = require('./repoService');
+const devPlatforms = require('./developerPlatformsService');
 const { callLLM } = require('./llmService');
 
 function coll(userId) {
@@ -70,6 +71,74 @@ async function updateProfile(userId, profId, patch = {}) {
   return getProfile(userId, profId);
 }
 
+// ── Helper: Probe 12+ tech & social platforms for handle ──
+async function probePlatformProfiles(handle) {
+  if (!handle || handle.length < 2) return [];
+  const platforms = [
+    { name: 'GitHub', url: `https://github.com/${handle}` },
+    { name: 'LeetCode', url: `https://leetcode.com/u/${handle}` },
+    { name: 'CodeChef', url: `https://www.codechef.com/users/${handle}` },
+    { name: 'Codeforces', url: `https://codeforces.com/profile/${handle}` },
+    { name: 'HackerRank', url: `https://www.hackerrank.com/profile/${handle}` },
+    { name: 'DEV.to', url: `https://dev.to/${handle}` },
+    { name: 'Medium', url: `https://medium.com/@${handle}` },
+    { name: 'Hashnode', url: `https://hashnode.com/@${handle}` },
+    { name: 'Kaggle', url: `https://www.kaggle.com/${handle}` },
+    { name: 'ProductHunt', url: `https://www.producthunt.com/@${handle}` },
+    { name: 'X / Twitter', url: `https://x.com/${handle}` },
+    { name: 'Instagram', url: `https://www.instagram.com/${handle}` },
+  ];
+
+  const found = [];
+  const probeOne = async (p) => {
+    try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 2500);
+      const res = await fetch(p.url, {
+        method: 'GET',
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'Accept': 'text/html,application/xhtml+xml',
+        },
+        signal: controller.signal,
+      }).catch(() => null);
+      clearTimeout(timer);
+      if (res && (res.status === 200 || res.status === 301 || res.status === 302)) {
+        found.push({ url: p.url, label: `${p.name} (@${handle})`, source: 'Handle Hunter', highValue: true });
+      }
+    } catch (e) { /* ignore timeout/404 */ }
+  };
+
+  await Promise.allSettled(platforms.map(probeOne));
+  return found;
+}
+
+// ── Helper: Targeted Search Operator for LinkedIn posts & experience ──
+async function scrapeLinkedInSnippets(handle, name) {
+  const snippets = [];
+  const queries = [];
+  if (handle) {
+    queries.push(`site:linkedin.com/in/${handle}`);
+    queries.push(`"${handle}" "LinkedIn" post OR article OR experience OR project`);
+  }
+  if (name && name !== 'Unknown') {
+    queries.push(`"${name}" site:linkedin.com/in/`);
+    queries.push(`"${name}" site:linkedin.com/posts/`);
+  }
+
+  for (const q of queries) {
+    try {
+      const search = await web.searchWeb(q, { count: 4 });
+      search.results.forEach(r => {
+        if (r.snippet && r.snippet.length > 20) {
+          snippets.push(`[LINKEDIN SNIPPET: ${r.title}]\nURL: ${r.url}\nContent: ${r.snippet}`);
+        }
+      });
+    } catch (e) { /* best effort */ }
+  }
+  return snippets.join('\n\n');
+}
+
 // ── Deep-dive research pipeline ──────────────────────────
 async function researchProfile(userId, profId) {
   const prof = await getProfile(userId, profId);
@@ -84,12 +153,21 @@ async function researchProfile(userId, profId) {
     const { isHighValueProfileUrl, isJunkUrl } = crawler;
     if (prof.link) seenUrls.add(prof.link);
 
+    // Extract handle from primary link or profile name
+    let handle = '';
+    if (prof.link) {
+      const m = prof.link.match(/(?:linkedin\.com\/in\/|github\.com\/|twitter\.com\/|x\.com\/|instagram\.com\/)([A-Za-z0-9_.-]+)/i);
+      if (m) handle = m[1];
+    }
+    if (!handle && prof.name && !prof.name.includes(' ')) {
+      handle = prof.name;
+    }
+
     // ── Step 1: Scrape the primary link provided by the user ──
     if (prof.link) {
       try {
         const s = await crawler.scrapeURL(prof.link);
-        raw.push(`[LINK: ${prof.link}]\nTitle: ${s.title}\nDescription: ${s.description}\nSnippet: ${s.contentSnippet}`);
-        // Only keep high-value profile/project links from the primary page
+        raw.push(`[PRIMARY LINK: ${prof.link}]\nTitle: ${s.title}\nDescription: ${s.description}\nSnippet: ${s.contentSnippet}`);
         if (s.links && s.links.length) {
           s.links.forEach(l => {
             if (!seenUrls.has(l.url) && !isJunkUrl(l.url)) {
@@ -99,29 +177,73 @@ async function researchProfile(userId, profId) {
           });
         }
       } catch (e) {
-        raw.push(`[LINK: ${prof.link}]\n(scrape failed: ${e.message})`);
+        raw.push(`[PRIMARY LINK: ${prof.link}]\n(scrape failed: ${e.message})`);
       }
     }
 
-    // ── Step 2: Web search ──
-    const q = prof.name + (prof.link ? '' : ' developer github profile portfolio');
-    const search = await web.searchWeb(q, { count: 6 });
-    raw.push(`[WEB SEARCH: ${q}]\n${search.results.map(r => `- ${r.title}\n  ${r.url}\n  ${r.snippet}`).join('\n')}`);
-    search.results.forEach(r => {
-      if (r.url && !seenUrls.has(r.url) && !isJunkUrl(r.url)) {
-        seenUrls.add(r.url);
-        collectedLinks.push({ url: r.url, label: r.title, source: 'Web Search', highValue: isHighValueProfileUrl(r.url) });
+    // ── Step 2: Handle Hunter — Probe 12+ tech & social platforms ──
+    if (handle) {
+      const probed = await probePlatformProfiles(handle);
+      probed.forEach(p => {
+        if (!seenUrls.has(p.url)) {
+          seenUrls.add(p.url);
+          collectedLinks.push(p);
+        }
+      });
+    }
+
+    // ── Step 3: Targeted LinkedIn Posts & Experience Mining ──
+    const linkedinSnippets = await scrapeLinkedInSnippets(handle, prof.name);
+    if (linkedinSnippets) {
+      raw.push(linkedinSnippets);
+    }
+
+    // ── Step 3.5: Fetch Official Coding Platform Stats (LeetCode, Codeforces, HackerRank, DEV.to) ──
+    let codingStats = {};
+    if (handle) {
+      try {
+        codingStats = await devPlatforms.fetchAllDeveloperProfiles({
+          leetcode: handle,
+          codeforces: handle,
+          hackerrank: handle,
+          devto: handle
+        });
+        if (Object.keys(codingStats).length > 0) {
+          raw.push(`[CODING PLATFORM STATS]\n${JSON.stringify(codingStats, null, 2)}`);
+        }
+      } catch (e) {
+        console.error('[stalking] Developer platform stats fetch error:', e.message);
       }
-    });
+    }
+    const searchQueries = handle
+      ? [`"${handle}" portfolio OR github OR linkedin`, `"${prof.name}" "${handle}"`]
+      : [`"${prof.name}" developer profile OR portfolio OR github`];
+
+    for (const q of searchQueries) {
+      try {
+        const search = await web.searchWeb(q, { count: 5 });
+        raw.push(`[WEB SEARCH: ${q}]\n${search.results.map(r => `- ${r.title}\n  ${r.url}\n  ${r.snippet}`).join('\n')}`);
+        search.results.forEach(r => {
+          if (r.url && !seenUrls.has(r.url) && !isJunkUrl(r.url)) {
+            const isHV = isHighValueProfileUrl(r.url);
+            const lowerUrl = r.url.toLowerCase();
+            const lowerHandle = handle.toLowerCase();
+            if (isHV || (lowerHandle && lowerUrl.includes(lowerHandle))) {
+              seenUrls.add(r.url);
+              collectedLinks.push({ url: r.url, label: r.title, source: 'Web Search', highValue: isHV });
+            }
+          }
+        });
+      } catch (e) { /* best effort */ }
+    }
 
     const allText = raw.join('\n\n');
-    let githubHandle = extractGitHubHandle(allText + ' ' + (prof.link || ''));
+    let githubHandle = extractGitHubHandle(allText + ' ' + (prof.link || '')) || (handle && !prof.link?.includes('linkedin') ? handle : null);
 
-    // ── Step 3: GitHub REST API — pull real profile bio, blog, twitter ──
-    const github = { handle: githubHandle, repos: [], analyzed: [] };
+    // ── Step 5: GitHub Deep API & package.json Mining ──
+    const github = { handle: githubHandle, repos: [], analyzed: [], techStack: [] };
     if (githubHandle) {
       try {
-        // Fetch the GitHub user profile via API for blog/twitter/social links
         const GITHUB_TOKEN = process.env.GITHUB_TOKEN || '';
         const ghHeaders = {
           'Accept': 'application/vnd.github+json',
@@ -133,13 +255,11 @@ async function researchProfile(userId, profId) {
         if (ghProfileRes.ok) {
           const ghUser = await ghProfileRes.json();
           raw.push(`[GITHUB PROFILE]\nName: ${ghUser.name || ''}\nBio: ${ghUser.bio || ''}\nLocation: ${ghUser.location || ''}\nBlog: ${ghUser.blog || ''}\nTwitter: ${ghUser.twitter_username || ''}\nPublic Repos: ${ghUser.public_repos}\nFollowers: ${ghUser.followers}`);
-          // Blog (portfolio) link from GitHub profile
           if (ghUser.blog && !seenUrls.has(ghUser.blog)) {
             const blogUrl = ghUser.blog.startsWith('http') ? ghUser.blog : 'https://' + ghUser.blog;
             seenUrls.add(blogUrl);
             collectedLinks.push({ url: blogUrl, label: `${ghUser.name || githubHandle}'s Portfolio/Website`, source: 'GitHub Profile', highValue: true });
           }
-          // Twitter from GitHub profile
           if (ghUser.twitter_username) {
             const twitterUrl = `https://x.com/${ghUser.twitter_username}`;
             if (!seenUrls.has(twitterUrl)) {
@@ -149,7 +269,6 @@ async function researchProfile(userId, profId) {
           }
         }
 
-        // Fetch top repos via GitHub API (not search) to get accurate list
         const reposRes = await fetch(`https://api.github.com/users/${encodeURIComponent(githubHandle)}/repos?sort=updated&per_page=10&type=owner`, { headers: ghHeaders });
         if (reposRes.ok) {
           const reposList = await reposRes.json();
@@ -162,15 +281,14 @@ async function researchProfile(userId, profId) {
             language: r.language || null,
           }));
 
-          // Add homepage (deployed project links) from repos
           for (const r of reposList) {
             if (r.homepage && !seenUrls.has(r.homepage) && !isJunkUrl(r.homepage)) {
               seenUrls.add(r.homepage);
-              collectedLinks.push({ url: r.homepage, label: `${r.name} — Live Demo`, source: 'GitHub Repo Homepage', highValue: true });
+              collectedLinks.push({ url: r.homepage, label: `${r.name} — Deployed Live Demo`, source: 'GitHub Repo Homepage', highValue: true });
             }
           }
 
-          // Scan READMEs of top 3 repos for deployed project links
+          // Scan READMEs and package.json of top 3 repos
           const topRepos = reposList.slice(0, 3);
           for (const r of topRepos) {
             try {
@@ -178,11 +296,10 @@ async function researchProfile(userId, profId) {
               if (readmeRes.ok) {
                 const readmeText = await readmeRes.text();
                 raw.push(`[README: ${r.full_name}]\n${readmeText.slice(0, 3000)}`);
-                // Extract all URLs from README
                 const urlRe = /https?:\/\/[^\s\)\"\'<>\]]+/g;
                 let m;
                 while ((m = urlRe.exec(readmeText)) !== null) {
-                  const url = m[0].replace(/[.,;!?]+$/, ''); // strip trailing punctuation
+                  const url = m[0].replace(/[.,;!?]+$/, '');
                   if (!seenUrls.has(url) && !isJunkUrl(url)) {
                     seenUrls.add(url);
                     const isHV = isHighValueProfileUrl(url);
@@ -190,43 +307,18 @@ async function researchProfile(userId, profId) {
                   }
                 }
               }
-            } catch (e) { /* best effort README scan */ }
-          }
 
-          // Analyze top repo for code intelligence
-          if (github.repos.length > 0) {
-            const top = github.repos[0];
-            const a = await repo.analyzeRepo(top.name).catch(err => ({ status: 'error', error: 'read', message: err.message }));
-            github.analyzed = [{
-              full_name: top.name,
-              status: a.status || 'ok',
-              readCount: a.readCount || 0,
-              message: a.message || null,
-              context: (a.context || '').slice(0, 4000),
-            }];
+              // Scan package.json for tech dependencies
+              const pkgRes = await fetch(`https://raw.githubusercontent.com/${r.full_name}/${r.default_branch || 'main'}/package.json`, { headers: ghHeaders });
+              if (pkgRes.ok) {
+                const pkg = await pkgRes.json();
+                const deps = Object.keys({ ...(pkg.dependencies || {}), ...(pkg.devDependencies || {}) });
+                github.techStack.push(...deps.slice(0, 10));
+              }
+            } catch (e) { /* best effort */ }
           }
         }
       } catch (e) { console.error('[stalking] GitHub API error:', e.message); }
-    }
-
-    // ── Step 4: Deep-crawl only high-value discovered links ──
-    const highValueToScrape = collectedLinks.filter(l => l.highValue).slice(0, 3);
-    for (const item of highValueToScrape) {
-      try {
-        const sub = await crawler.scrapeURL(item.url, 5000);
-        if (sub.contentSnippet) {
-          raw.push(`[DEEP CRAWL: ${item.url}]\nTitle: ${sub.title}\nSnippet: ${sub.contentSnippet.slice(0, 2000)}`);
-        }
-        // From this page, only pick additional high-value profile links
-        if (sub.links && sub.links.length) {
-          sub.links.filter(l => isHighValueProfileUrl(l.url)).slice(0, 5).forEach(l => {
-            if (!seenUrls.has(l.url)) {
-              seenUrls.add(l.url);
-              collectedLinks.push({ url: l.url, label: l.text, source: 'Deep Crawl', highValue: true });
-            }
-          });
-        }
-      } catch (e) { /* best effort */ }
     }
 
     const allTextFinal = raw.join('\n\n');
@@ -238,7 +330,7 @@ async function researchProfile(userId, profId) {
         role: 'review',
         messages: [
           { role: 'system', content: 'You build a concise intelligence Profile Card from scraped research about a person/org. Reply with clean JSON only (no markdown fences).' },
-          { role: 'user', content: `RESEARCH:\n\n${allTextFinal.slice(0, 15000)}\n\nGITHUB:\n${JSON.stringify(github)}\n\nReturn JSON: { "name" (the ACTUAL person's real name like "Narayan Singh" — NOT their job title or role), "headline" (their job title/role/tagline), "bio" (2-3 sentences), "location", "links" (array of key URLs), "socials" (array of strings like "github/username" or "x/handle"), "tech" (array of technologies/skills), "summary" (5-6 bullet insights as array of strings) }` },
+          { role: 'user', content: `RESEARCH:\n\n${allTextFinal.slice(0, 16000)}\n\nGITHUB TECH DEPS:\n${JSON.stringify(github.techStack)}\n\nReturn JSON: { "name" (the ACTUAL person's real name), "headline" (job title/role), "bio" (2-3 sentences), "location", "links" (array of key URLs), "socials" (array of strings like "github/username"), "tech" (array of technologies/skills), "summary" (5-6 bullet insights as array of strings) }` },
         ],
         temperature: 0.2,
         max_tokens: 1200,
@@ -246,23 +338,24 @@ async function researchProfile(userId, profId) {
       card = JSON.parse(res.text.replace(/```json|```/g, '').trim());
     } catch (e) { card = null; }
 
+    // Deduplicate and filter links
+    const validLinks = collectedLinks.filter(l => l.url && !isJunkUrl(l.url));
+
     const profileData = {
       headline: card?.headline || prof.name,
       bio: card?.bio || 'No bio found — research completed.',
       location: card?.location || 'unknown',
       links: card?.links || (prof.link ? [prof.link] : []),
-      discoveredLinks: collectedLinks.sort((a, b) => (b.highValue ? 1 : 0) - (a.highValue ? 1 : 0)).slice(0, 15),
+      discoveredLinks: validLinks.sort((a, b) => (b.highValue ? 1 : 0) - (a.highValue ? 1 : 0)).slice(0, 20),
       socials: card?.socials || (githubHandle ? [`github/${githubHandle}`] : []),
-      tech: card?.tech || [],
+      tech: [...new Set([...(card?.tech || []), ...github.techStack.slice(0, 8)])],
       summary: card?.summary || [],
       githubHandle,
       githubRepos: github.repos,
-      analyzedRepos: github.analyzed,
+      codingStats: codingStats || {},
       lastResearchAt: Date.now(),
     };
 
-    // Use the LLM-extracted real name (e.g. "Narayan Singh"), NOT the headline/role.
-    // Fall back to the original name provided by the user.
     const resolvedName = card?.name || prof.name;
 
     await coll(userId).doc(profId).set({
