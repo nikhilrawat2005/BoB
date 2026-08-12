@@ -310,10 +310,308 @@ function buildProfileContext(prof) {
   return lines.join('\n');
 }
 
+// ── Command detection ─────────────────────────────────────
+function detectChatCommand(msg) {
+  const m = msg.trim();
+  const low = m.toLowerCase();
+
+  // find more links / aur links dhundo
+  if (/^(find more links|aur links (dhundo|dhoond)|more links|links dhundo)/i.test(m))
+    return { type: 'find_links' };
+
+  // deep dive / deep study / aur study karo
+  if (/^(deep[- ]?dive|deep[- ]?study|aur (zyada|jyada|deep|aur) (study|research) karo?|aur study karo?|aur research karo?)/i.test(m))
+    return { type: 'deep_study' };
+
+  // add insight / add this
+  const addInsight = m.match(/^(add (insight|this|fact|info|information):?)\s+(.+)/is);
+  if (addInsight) return { type: 'add_insight', value: addInsight[3].trim() };
+
+  // add tech / add skills
+  const addTech = m.match(/^add (tech|skill|technology|stack):?\s+(.+)/i);
+  if (addTech) return { type: 'add_tech', value: addTech[2].trim() };
+
+  // add link
+  const addLink = m.match(/^add link:?\s+(https?:\/\/\S+)/i);
+  if (addLink) return { type: 'add_link', value: addLink[1].trim() };
+
+  // edit bio
+  const editBio = m.match(/^(edit|update|correct|change) bio:?\s+(.+)/is);
+  if (editBio) return { type: 'edit_bio', value: editBio[2].trim() };
+
+  // edit headline
+  const editHL = m.match(/^(edit|update|correct|change) headline:?\s+(.+)/is);
+  if (editHL) return { type: 'edit_headline', value: editHL[2].trim() };
+
+  // edit location
+  const editLoc = m.match(/^(edit|update|correct|change) location:?\s+(.+)/is);
+  if (editLoc) return { type: 'edit_location', value: editLoc[2].trim() };
+
+  // correct name
+  const editName = m.match(/^(correct|fix|update|change) name:?\s+(.+)/is);
+  if (editName) return { type: 'edit_name', value: editName[2].trim() };
+
+  // correct this: field = value
+  const correctThis = m.match(/^correct this:?\s+(\w+)\s*=\s*(.+)/is);
+  if (correctThis) return { type: 'correct_field', field: correctThis[1].toLowerCase().trim(), value: correctThis[2].trim() };
+
+  return null; // no command — normal chat
+}
+
+// ── Patch profile data from a chat command ────────────────
+async function patchProfileFromChat(userId, profId, command) {
+  const prof = await getProfile(userId, profId);
+  if (!prof) throw new Error('Profile not found');
+  const pd = prof.profileData || {};
+
+  let patch = {};
+  let reply = '';
+
+  switch (command.type) {
+    case 'add_insight': {
+      const existing = pd.summary || [];
+      if (!existing.includes(command.value)) existing.push(command.value);
+      patch = { profileData: { ...pd, summary: existing } };
+      reply = `✅ Insight add ho gaya profile card me:\n"${command.value}"`;
+      break;
+    }
+    case 'add_tech': {
+      const existing = pd.tech || [];
+      const newItems = command.value.split(/[,،]+/).map(t => t.trim()).filter(Boolean);
+      const merged = [...new Set([...existing, ...newItems])];
+      patch = { profileData: { ...pd, tech: merged } };
+      reply = `✅ Tech stack update ho gaya: ${newItems.join(', ')} add kiya.`;
+      break;
+    }
+    case 'add_link': {
+      const existing = pd.links || [];
+      if (!existing.includes(command.value)) existing.push(command.value);
+      const discoveredLinks = pd.discoveredLinks || [];
+      const alreadyInDiscovered = discoveredLinks.some(l => l.url === command.value);
+      if (!alreadyInDiscovered) {
+        discoveredLinks.unshift({ url: command.value, label: command.value, source: 'User Added', highValue: true });
+      }
+      patch = { profileData: { ...pd, links: existing, discoveredLinks } };
+      reply = `✅ Link add ho gaya profile card me:\n${command.value}`;
+      break;
+    }
+    case 'edit_bio': {
+      patch = { profileData: { ...pd, bio: command.value } };
+      reply = `✅ Bio update ho gaya:\n"${command.value}"`;
+      break;
+    }
+    case 'edit_headline': {
+      patch = { profileData: { ...pd, headline: command.value } };
+      reply = `✅ Headline update ho gaya:\n"${command.value}"`;
+      break;
+    }
+    case 'edit_location': {
+      patch = { profileData: { ...pd, location: command.value } };
+      reply = `✅ Location update ho gaya: ${command.value}`;
+      break;
+    }
+    case 'edit_name': {
+      patch = { name: command.value };
+      reply = `✅ Name fix ho gaya: "${command.value}"`;
+      break;
+    }
+    case 'correct_field': {
+      const fieldMap = { bio: 'bio', headline: 'headline', location: 'location', summary: 'summary', name: null };
+      if (command.field === 'name') {
+        patch = { name: command.value };
+      } else if (fieldMap[command.field] !== undefined) {
+        patch = { profileData: { ...pd, [command.field]: command.value } };
+      } else {
+        patch = { profileData: { ...pd, [command.field]: command.value } };
+      }
+      reply = `✅ "${command.field}" correct ho gaya:\n"${command.value}"`;
+      break;
+    }
+    default:
+      reply = 'Command samajh nahi aaya — please phir se try karo.';
+  }
+
+  if (Object.keys(patch).length) {
+    patch.updatedAt = Date.now();
+    await coll(userId).doc(profId).set(patch, { merge: true });
+  }
+
+  return { reply, updatedProfile: await getProfile(userId, profId) };
+}
+
+// ── Find more links (fresh search + merge) ────────────────
+async function findMoreLinks(userId, profId) {
+  const prof = await getProfile(userId, profId);
+  if (!prof) throw new Error('Profile not found');
+
+  const pd = prof.profileData || {};
+  const existingUrls = new Set([
+    ...(pd.links || []),
+    ...(pd.discoveredLinks || []).map(l => l.url),
+  ]);
+
+  const { isHighValueProfileUrl, isJunkUrl } = crawler;
+  const newLinks = [];
+
+  // Fresh web searches with different angles
+  const queries = [
+    `${prof.name} site:linkedin.com OR site:github.com OR site:twitter.com`,
+    `${prof.name} portfolio projects blog`,
+    `${prof.name} developer profile`,
+  ];
+
+  for (const q of queries) {
+    try {
+      const search = await web.searchWeb(q, { count: 5 });
+      for (const r of search.results) {
+        if (r.url && !existingUrls.has(r.url) && !isJunkUrl(r.url)) {
+          existingUrls.add(r.url);
+          newLinks.push({ url: r.url, label: r.title || r.url, source: 'Find More Search', highValue: isHighValueProfileUrl(r.url) });
+        }
+      }
+    } catch (e) { /* best effort */ }
+  }
+
+  // Also try scraping top 2 new high-value links
+  const toScrape = newLinks.filter(l => l.highValue).slice(0, 2);
+  for (const item of toScrape) {
+    try {
+      const s = await crawler.scrapeURL(item.url, 4000);
+      if (s.links) {
+        s.links.filter(l => isHighValueProfileUrl(l.url)).slice(0, 4).forEach(l => {
+          if (!existingUrls.has(l.url)) {
+            existingUrls.add(l.url);
+            newLinks.push({ url: l.url, label: l.text || l.url, source: 'Find More Crawl', highValue: true });
+          }
+        });
+      }
+    } catch (e) { /* best effort */ }
+  }
+
+  if (newLinks.length === 0) {
+    return { reply: 'Bhai maine kafi dhundha — koi naye links nahi mile jo already profile me na ho. Koi specific link paste karo `add link: [url]` se!', updatedProfile: prof };
+  }
+
+  // Merge new links into discoveredLinks
+  const merged = [...(pd.discoveredLinks || []), ...newLinks];
+  await coll(userId).doc(profId).set({
+    profileData: { ...pd, discoveredLinks: merged },
+    updatedAt: Date.now(),
+  }, { merge: true });
+
+  const highV = newLinks.filter(l => l.highValue);
+  const reply = `🔍 ${newLinks.length} naye links mile!\n\n${highV.length ? `**High-value links:**\n${highV.map(l => `• ${l.url}`).join('\n')}\n\n` : ''}Profile card me "Discovered Links" section me dekho.`;
+  return { reply, updatedProfile: await getProfile(userId, profId) };
+}
+
+// ── Deep study on existing data ───────────────────────────
+async function deepStudyProfile(userId, profId) {
+  const prof = await getProfile(userId, profId);
+  if (!prof) throw new Error('Profile not found');
+
+  const pd = prof.profileData || {};
+  const raw = [];
+  const { isJunkUrl } = crawler;
+
+  // Re-crawl existing primary + high-value links
+  const toCrawl = [
+    ...(pd.links || []).map(u => ({ url: u, label: 'Primary Link' })),
+    ...(pd.discoveredLinks || []).filter(l => l.highValue).slice(0, 3),
+  ].slice(0, 5);
+
+  for (const item of toCrawl) {
+    try {
+      const s = await crawler.scrapeURL(item.url || item, 6000);
+      if (s.contentSnippet) {
+        raw.push(`[RE-CRAWL: ${item.url || item}]\nTitle: ${s.title}\nContent: ${s.contentSnippet.slice(0, 3000)}`);
+      }
+    } catch (e) { /* best effort */ }
+  }
+
+  // Additional targeted search
+  try {
+    const q = `${prof.name} ${pd.tech && pd.tech.length ? pd.tech.slice(0, 3).join(' ') : ''} projects work achievements`;
+    const search = await web.searchWeb(q, { count: 5 });
+    raw.push(`[DEEP SEARCH]\n${search.results.map(r => `- ${r.title}\n  ${r.snippet}`).join('\n')}`);
+  } catch (e) { /* best effort */ }
+
+  if (!raw.length) {
+    return { reply: 'Deep study ke liye koi crawlable links nahi mile. Pehle kuch links add karo `add link: [url]` se!', updatedProfile: prof };
+  }
+
+  // LLM — extract additional insights from fresh data
+  const context = buildProfileContext(prof);
+  let newInsights = [];
+  try {
+    const res = await callLLM({
+      role: 'review',
+      messages: [
+        { role: 'system', content: 'You are a deep intelligence analyst. Given existing profile data and newly scraped content, extract NEW insights not already in the profile. Return JSON array of insight strings only.' },
+        { role: 'user', content: `EXISTING PROFILE:\n${context}\n\nNEW SCRAPED DATA:\n${raw.join('\n\n').slice(0, 12000)}\n\nReturn JSON array of 3-6 NEW specific insights (things not already covered). Each insight should be a complete sentence.` },
+      ],
+      temperature: 0.3,
+      max_tokens: 800,
+    });
+    newInsights = JSON.parse(res.text.replace(/```json|```/g, '').trim());
+    if (!Array.isArray(newInsights)) newInsights = [];
+  } catch (e) { newInsights = []; }
+
+  // Merge new insights with existing
+  const existingInsights = pd.summary || [];
+  const merged = [...new Set([...existingInsights, ...newInsights])];
+
+  await coll(userId).doc(profId).set({
+    profileData: { ...pd, summary: merged, lastResearchAt: Date.now() },
+    updatedAt: Date.now(),
+  }, { merge: true });
+
+  const reply = newInsights.length
+    ? `🧠 Deep study complete! **${newInsights.length} naye insights** mile:\n\n${newInsights.map(i => `• ${i}`).join('\n')}`
+    : '🧠 Deep study kiya — sab existing data already covered tha. Koi genuinely naya nahi mila. Aur specific angle chahiye toh bolo!';
+
+  return { reply, updatedProfile: await getProfile(userId, profId) };
+}
+
 async function chatSend(userId, profId, message) {
   const prof = await getProfile(userId, profId);
   if (!prof) throw new Error('Profile not found');
 
+  // ── Command Detection ────────────────────────────────────
+  const command = detectChatCommand(message);
+
+  if (command) {
+    // Async background operations
+    if (command.type === 'find_links') {
+      const result = await findMoreLinks(userId, profId);
+      // Save to chat history
+      const sid = await ensureChatSession(userId, prof);
+      await memory.addMessage(userId, sid, 'user', message);
+      await memory.addMessage(userId, sid, 'assistant', result.reply);
+      return { reply: result.reply, action: 'data_updated', updatedProfile: result.updatedProfile };
+    }
+
+    if (command.type === 'deep_study') {
+      const sid = await ensureChatSession(userId, prof);
+      await memory.addMessage(userId, sid, 'user', message);
+      // Start deep study in background, return immediate ack
+      deepStudyProfile(userId, profId).then(async result => {
+        await memory.addMessage(userId, sid, 'assistant', result.reply);
+      }).catch(err => console.error('[stalking] deep study error:', err.message));
+      return { reply: '🔍 Deep study shuru ho gayi... thoda wait karo. Profile card update hogi. Tum tab tak kuch aur pucho!', action: 'studying', updatedProfile: prof };
+    }
+
+    // Synchronous data patch commands
+    const patchTypes = ['add_insight','add_tech','add_link','edit_bio','edit_headline','edit_location','edit_name','correct_field'];
+    if (patchTypes.includes(command.type)) {
+      const result = await patchProfileFromChat(userId, profId, command);
+      const sid = await ensureChatSession(userId, prof);
+      await memory.addMessage(userId, sid, 'user', message);
+      await memory.addMessage(userId, sid, 'assistant', result.reply);
+      return { reply: result.reply, action: 'data_updated', updatedProfile: result.updatedProfile };
+    }
+  }
+
+  // ── Normal conversational chat ───────────────────────────
   const sid = await ensureChatSession(userId, prof);
   await memory.addMessage(userId, sid, 'user', message);
   const recent = await memory.getRecentMessages(userId, sid, 20);
@@ -326,7 +624,20 @@ Never bring up vault, hackathons, or other chats.
 PROFILE KNOWLEDGE:
 ${context}
 
+COMMANDS USER CAN USE (mention these when relevant):
+- "add insight: [text]" → adds to profile card insights
+- "add tech: [skill1, skill2]" → adds to tech stack
+- "add link: [url]" → adds a link to profile
+- "edit bio: [text]" → updates bio
+- "edit headline: [text]" → updates headline
+- "edit location: [place]" → updates location
+- "correct name: [name]" → fixes the name
+- "find more links" → Bob searches for more links
+- "deep dive" → Bob does deeper research on this person
+
+If user says you got something wrong about the profile, acknowledge it clearly and suggest the correct command to fix it (e.g., "correct kar do: edit bio: [correct info]").
 Be sharp, specific, and honest about what is known vs guessed. Use Hinglish when natural.`;
+
   const { text, model } = await callLLM({
     role: 'chat',
     messages: [
@@ -335,7 +646,7 @@ Be sharp, specific, and honest about what is known vs guessed. Use Hinglish when
     ],
   });
   await memory.addMessage(userId, sid, 'assistant', text);
-  return { reply: text, model, sessionId: sid };
+  return { reply: text, model, sessionId: sid, action: 'chat' };
 }
 
 async function chatList(userId, profId) {

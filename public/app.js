@@ -3252,6 +3252,25 @@ async function sendStalkMessage() {
   try {
     const data = await apiFetch(`/api/stalking/${currentStalk.id}/chat`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ message: text }) });
     appendWsMsg(el, 'assistant', 'Bob 🕵️', data.reply);
+
+    if (data.action === 'data_updated' && data.updatedProfile) {
+      currentStalk = data.updatedProfile;
+      const idx = stalkCache.findIndex(x => String(x.id) === String(currentStalk.id));
+      if (idx !== -1) stalkCache[idx] = currentStalk;
+      renderProfileCard(currentStalk);
+      renderStalkList();
+    } else if (data.action === 'studying') {
+      setTimeout(async () => {
+        if (currentStalk) {
+          const { profile } = await apiFetch(`/api/stalking/${currentStalk.id}`);
+          if (profile) {
+            currentStalk = profile;
+            renderProfileCard(currentStalk);
+            renderStalkList();
+          }
+        }
+      }, 8000);
+    }
   } catch (err) { appendWsMsg(el, 'assistant', 'Bob 🕵️', '⚠️ ' + err.message); }
   input.disabled = false; input.focus();
 }
