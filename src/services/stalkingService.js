@@ -79,20 +79,57 @@ async function researchProfile(userId, profId) {
 
   try {
     const raw = [];
+    const collectedLinks = [];
+    const seenUrls = new Set();
+    if (prof.link) seenUrls.add(prof.link);
+
     if (prof.link) {
       try {
         const s = await crawler.scrapeURL(prof.link);
-        raw.push(`[LINK: ${prof.link}]\n${s.title}\n${s.description}\n${s.contentSnippet}`);
+        raw.push(`[LINK: ${prof.link}]\nTitle: ${s.title}\nDescription: ${s.description}\nSnippet: ${s.contentSnippet}`);
+        if (s.links && s.links.length) {
+          s.links.forEach(l => {
+            if (!seenUrls.has(l.url)) {
+              seenUrls.add(l.url);
+              collectedLinks.push({ url: l.url, label: l.text, source: 'Pasted Link' });
+            }
+          });
+        }
       } catch (e) {
         raw.push(`[LINK: ${prof.link}]\n(scrape failed: ${e.message})`);
       }
     }
 
     // Web search the name (with context)
-    const q = prof.name + (prof.link ? '' : ' developer github');
+    const q = prof.name + (prof.link ? '' : ' developer github profile');
     const search = await web.searchWeb(q, { count: 6 });
-    const topUrls = search.results.slice(0, 4).map(r => r.url);
     raw.push(`[WEB SEARCH: ${q}]\n${search.results.map(r => `- ${r.title}\n  ${r.url}\n  ${r.snippet}`).join('\n')}`);
+
+    search.results.forEach(r => {
+      if (r.url && !seenUrls.has(r.url)) {
+        seenUrls.add(r.url);
+        collectedLinks.push({ url: r.url, label: r.title, source: 'Web Search' });
+      }
+    });
+
+    // Scrape top 3 discovered external links for deep intelligence
+    const deepToScrape = collectedLinks.slice(0, 3);
+    for (const item of deepToScrape) {
+      try {
+        const sub = await crawler.scrapeURL(item.url, 5000);
+        if (sub.contentSnippet) {
+          raw.push(`[DEEP CRAWL: ${item.url}]\nTitle: ${sub.title}\nSnippet: ${sub.contentSnippet.slice(0, 2000)}`);
+        }
+        if (sub.links && sub.links.length) {
+          sub.links.slice(0, 5).forEach(l => {
+            if (!seenUrls.has(l.url)) {
+              seenUrls.add(l.url);
+              collectedLinks.push({ url: l.url, label: l.text, source: 'Sub Page' });
+            }
+          });
+        }
+      } catch (e) { /* best effort deep scrape */ }
+    }
 
     const allText = raw.join('\n\n');
     let githubHandle = extractGitHubHandle(allText + ' ' + (prof.link || ''));
@@ -103,7 +140,7 @@ async function researchProfile(userId, profId) {
       try {
         const res = await repo.searchRepos(githubHandle, 5);
         if (res.items && res.items.length) {
-          github.repos = res.items.map(i => ({ name: i.full_name, description: i.description || '', stars: i.stargazers_count || 0 }));
+          github.repos = res.items.map(i => ({ name: i.full_name, description: i.description || '', stars: i.stargazers_count || 0, url: i.html_url || `https://github.com/${i.full_name}` }));
           const top = github.repos[0];
           const a = await repo.analyzeRepo(top.name).catch(err => ({ status: 'error', error: 'read', message: err.message }));
           github.analyzed = [{
@@ -124,7 +161,7 @@ async function researchProfile(userId, profId) {
         role: 'review',
         messages: [
           { role: 'system', content: 'You build a concise intelligence Profile Card from scraped research about a person/org. Reply with clean JSON only (no markdown fences).' },
-          { role: 'user', content: `RESEARCH:\n\n${allText.slice(0, 12000)}\n\nGITHUB:\n${JSON.stringify(github)}\n\nReturn JSON: { "headline", "bio" (2-3 sentences), "location", "links" (array of urls), "socials" (array of strings like "github/username"), "tech" (array of technologies/topics), "summary" (5-6 bullet insights as array of strings) }` },
+          { role: 'user', content: `RESEARCH:\n\n${allText.slice(0, 15000)}\n\nGITHUB:\n${JSON.stringify(github)}\n\nReturn JSON: { "headline", "bio" (2-3 sentences), "location", "links" (array of key URLs), "socials" (array of strings like "github/username" or "x/handle"), "tech" (array of technologies/skills), "summary" (5-6 bullet insights as array of strings) }` },
         ],
         temperature: 0.2,
         max_tokens: 1200,
@@ -134,9 +171,10 @@ async function researchProfile(userId, profId) {
 
     const profileData = {
       headline: card?.headline || prof.name,
-      bio: card?.bio || 'No bio found — research was limited.',
+      bio: card?.bio || 'No bio found — research completed.',
       location: card?.location || 'unknown',
       links: card?.links || (prof.link ? [prof.link] : []),
+      discoveredLinks: collectedLinks.slice(0, 15),
       socials: card?.socials || (githubHandle ? [`github/${githubHandle}`] : []),
       tech: card?.tech || [],
       summary: card?.summary || [],

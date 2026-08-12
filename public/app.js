@@ -2866,25 +2866,62 @@ document.getElementById('add-hack-btn-sidebar')?.addEventListener('click', openA
 
 let stalkCache = [];
 let currentStalk = null;
+let stalkPollTimer = null;
 
 async function loadStalking() {
   try {
     const { profiles } = await apiFetch('/api/stalking');
     stalkCache = profiles || [];
     renderStalkList();
+
+    // If currently selected profile updated in background, refresh card & chat header
+    if (currentStalk) {
+      const updated = stalkCache.find(x => String(x.id) === String(currentStalk.id));
+      if (updated) {
+        currentStalk = updated;
+        renderProfileCard(updated);
+        updateStalkHeader(updated);
+      }
+    }
+
+    // Auto-poll if any profile is currently in 'researching' status
+    const hasResearching = stalkCache.some(p => p.status === 'researching');
+    if (hasResearching && !stalkPollTimer) {
+      stalkPollTimer = setTimeout(() => {
+        stalkPollTimer = null;
+        loadStalking();
+      }, 5000);
+    }
   } catch (err) { console.error('loadStalking error:', err); }
+}
+
+function updateStalkHeader(prof) {
+  const header = document.getElementById('stalk-chat-header');
+  if (!header) return;
+  if (!prof) {
+    header.innerHTML = `<span>Select a profile to open its private chat</span>`;
+    return;
+  }
+  header.innerHTML = `
+    <div style="display:flex;align-items:center;justify-content:space-between;width:100%;">
+      <div>
+        <strong style="font-size:15px;color:var(--text-main);">${escHtml(prof.name)}</strong>
+        <span class="status-badge ${prof.status === 'ready' ? 'green' : (prof.status === 'researching' ? 'amber' : 'grey')}" style="margin-left:8px;font-size:11px;padding:2px 6px;border-radius:4px;">${prof.status}</span>
+      </div>
+      ${prof.link ? `<a href="${escHtml(prof.link)}" target="_blank" rel="noopener" style="font-size:12px;color:var(--accent-blue);text-decoration:none;">🔗 Open Source</a>` : ''}
+    </div>`;
 }
 
 function renderStalkList() {
   const list = document.getElementById('stalk-list');
-  if (!stalkCache.length) { list.innerHTML = '<div class="empty-msg">No profiles yet. Add one to start deep-dive.</div>'; return; }
+  if (!stalkCache.length) { list.innerHTML = '<div class="empty-msg">No profiles yet. Click ＋ to add one.</div>'; return; }
   list.innerHTML = stalkCache.map(p => `
     <div class="ws-item${currentStalk?.id === p.id ? ' selected' : ''}" data-id="${p.id}">
       <div class="ws-item-row">
         <span class="status-dot ${p.status === 'ready' ? 'green' : (p.status === 'researching' ? 'amber' : 'grey')}"></span>
         <span class="ws-item-title">${escHtml(p.name)}</span>
       </div>
-      <div class="ws-item-sub">${escHtml(p.link || '')} · ${p.status}</div>
+      <div class="ws-item-sub">${escHtml(p.link || 'No URL')} · ${p.status}</div>
       <div class="ws-item-actions">
         ${p.status !== 'researching' ? `<button class="ws-re-research" data-id="${p.id}">🔍 Re-Research</button>` : '<span class="ws-researching">⏳ researching…</span>'}
         <button class="ws-del" data-id="${p.id}" title="Delete">🗑</button>
@@ -2910,7 +2947,7 @@ function renderStalkList() {
       const p = stalkCache.find(x => String(x.id) === String(btn.dataset.id));
       if (p) p.status = 'researching';
       renderStalkList();
-      setTimeout(loadStalking, 20000);
+      setTimeout(loadStalking, 3000);
     } catch (err) { alert(err.message); }
   }));
 }
@@ -2920,10 +2957,12 @@ async function selectStalk(id) {
   currentStalk = p;
   renderStalkList();
   if (!p) return;
+  updateStalkHeader(p);
   try {
     const { profile } = await apiFetch(`/api/stalking/${id}`);
     const prof = profile || p;
     currentStalk = prof;
+    updateStalkHeader(prof);
     renderProfileCard(prof);
     document.getElementById('stalk-chat-input').disabled = false;
     document.getElementById('stalk-chat-input').placeholder = `${escHtml(prof.name)} ke baare me kuch pucho…`;
@@ -2936,8 +2975,9 @@ async function selectStalk(id) {
 }
 
 function resetStalkChat() {
+  updateStalkHeader(null);
   document.getElementById('stalk-profile-card').innerHTML = '<div class="empty-msg">Kisi person ka naam + LinkedIn/GitHub URL do ya left me se select karo.</div>';
-  document.getElementById('stalk-chat-messages').innerHTML = '';
+  document.getElementById('stalk-chat-messages').innerHTML = '<div class="empty-msg">👈 Left list me se koi person select karo ya naya add karo.</div>';
   document.getElementById('stalk-chat-input').disabled = false;
   document.getElementById('stalk-chat-input').placeholder = 'Person ka naam aur LinkedIn/GitHub URL do, ya left me se select karo…';
   document.getElementById('stalk-send-btn').disabled = false;
@@ -2946,6 +2986,8 @@ function resetStalkChat() {
 function renderProfileCard(p) {
   const d = p.profileData || {};
   const el = document.getElementById('stalk-profile-card');
+  const discovered = d.discoveredLinks || [];
+  
   el.innerHTML = `
     <div class="profile-card">
       <div class="profile-head">
@@ -2958,11 +3000,28 @@ function renderProfileCard(p) {
       </div>
       ${d.bio ? `<div class="profile-sec"><div class="profile-sec-title">Bio</div><div>${escHtml(d.bio)}</div></div>` : ''}
       ${(d.tech || []).length ? `<div class="profile-sec"><div class="profile-sec-title">Tech Stack</div><div class="tech-chips">${d.tech.map(t => `<span class="tech-chip">${escHtml(t)}</span>`).join('')}</div></div>` : ''}
-      ${(d.summary || []).length ? `<div class="profile-sec"><div class="profile-sec-title">Deep-Dive Summary</div><div>${d.summary.map(s => `<div class="profile-bullet">• ${escHtml(s)}</div>`).join('')}</div></div>` : ''}
-      ${(d.links || []).length ? `<div class="profile-sec"><div class="profile-sec-title">Links</div><div class="profile-links">${d.links.map(l => `<a href="${escHtml(l)}" target="_blank" rel="noopener">${escHtml(l)}</a>`).join(' · ')}</div></div>` : ''}
-      ${(d.socials || []).length ? `<div class="profile-sec"><div class="profile-sec-title">Socials</div><div>${d.socials.map(s => escHtml(s)).join(' · ')}</div></div>` : ''}
-      ${(d.analyzedRepos || []).length ? `<div class="profile-sec"><div class="profile-sec-title">GitHub Repos</div><div>${d.analyzedRepos.map(r => `<div class="repo-row"><span class="repo-name">${escHtml(r.full_name || '')}</span><span class="repo-status ${escHtml(r.status || '')}">${escHtml(r.status || '')}</span></div>`).join('')}</div></div>` : ''}
-      <div class="profile-foot">Last researched: ${d.lastResearchAt ? new Date(d.lastResearchAt).toLocaleString() : 'never'}</div>
+      ${(d.summary || []).length ? `<div class="profile-sec"><div class="profile-sec-title">Deep-Dive Insights</div><div>${d.summary.map(s => `<div class="profile-bullet">• ${escHtml(s)}</div>`).join('')}</div></div>` : ''}
+      ${(d.links || []).length ? `<div class="profile-sec"><div class="profile-sec-title">Primary Links</div><div class="profile-links">${d.links.map(l => `<a href="${escHtml(l)}" target="_blank" rel="noopener">${escHtml(l)}</a>`).join(' · ')}</div></div>` : ''}
+      ${(d.socials || []).length ? `<div class="profile-sec"><div class="profile-sec-title">Social Handles</div><div>${d.socials.map(s => `<span class="tech-chip" style="background:rgba(255,255,255,0.06);">${escHtml(s)}</span>`).join(' ')}</div></div>` : ''}
+      ${discovered.length ? `
+        <div class="profile-sec">
+          <div class="profile-sec-title">🌐 Discovered Links Network (${discovered.length})</div>
+          <div class="profile-links" style="display:flex;flex-direction:column;gap:4px;max-height:160px;overflow-y:auto;">
+            ${discovered.map(l => `<a href="${escHtml(l.url)}" target="_blank" rel="noopener" title="${escHtml(l.url)}">🔗 ${escHtml(l.label || l.url)} <span style="opacity:0.6;font-size:10px;">(${escHtml(l.source || 'web')})</span></a>`).join('')}
+          </div>
+        </div>` : ''}
+      ${(d.githubRepos || []).length ? `
+        <div class="profile-sec">
+          <div class="profile-sec-title">🐙 GitHub Repositories (${d.githubRepos.length})</div>
+          <div style="display:flex;flex-direction:column;gap:4px;">
+            ${d.githubRepos.map(r => `
+              <div class="repo-row" style="display:flex;align-items:center;justify-content:space-between;background:rgba(255,255,255,0.03);padding:4px 8px;border-radius:4px;">
+                <a href="${escHtml(r.url || `https://github.com/${r.name}`)}" target="_blank" rel="noopener" style="font-weight:600;font-size:12px;color:var(--accent-blue);text-decoration:none;">${escHtml(r.name)}</a>
+                <span class="repo-stars" style="font-size:11px;color:var(--text-sub);">⭐ ${r.stars}</span>
+              </div>`).join('')}
+          </div>
+        </div>` : ''}
+      <div class="profile-foot" style="margin-top:12px;font-size:11px;color:var(--text-sub);">Last researched: ${d.lastResearchAt ? new Date(d.lastResearchAt).toLocaleString('en-IN') : 'never'}</div>
     </div>`;
 }
 
@@ -2983,10 +3042,8 @@ async function sendStalkMessage() {
     loadingMsg.innerHTML = '<div class="ws-msg-role">Bob 🕵️</div><div class="ws-msg-text">⏳ Profile create kar raha hu…</div>';
     el.appendChild(loadingMsg); el.scrollTop = el.scrollHeight;
     try {
-      // Extract name and link from the text using a simple heuristic
       const urlMatch = text.match(/https?:\/\/[^\s]+/);
       const link = urlMatch ? urlMatch[0] : null;
-      // Name: first words before URL or whole text (max 60 chars)
       const name = text.replace(link || '', '').replace(/[\-–:|,]/g, ' ').trim().split('\n')[0].substring(0, 60) || 'Unknown';
       const { profile } = await apiFetch('/api/stalking', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: name || text.substring(0,60), link, notes: text }) });
       el.removeChild(loadingMsg);
@@ -3005,28 +3062,35 @@ async function sendStalkMessage() {
   try {
     const data = await apiFetch(`/api/stalking/${currentStalk.id}/chat`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ message: text }) });
     appendWsMsg(el, 'assistant', 'Bob 🕵️', data.reply);
-  } catch (err) { appendWsMsg(el, 'assistant', 'Bob', '⚠️ ' + err.message); }
+  } catch (err) { appendWsMsg(el, 'assistant', 'Bob 🕵️', '⚠️ ' + err.message); }
   input.disabled = false; input.focus();
 }
 
-document.getElementById('add-stalk-btn').addEventListener('click', () => {
-  openModal('🕵️ Add Profile', `
+function openAddStalkModal() {
+  openModal('🕵️ Add Person to Stalk', `
     <div class="modal-form">
-      <label>Name *<input id="sk-name" type="text" placeholder="Rahul Sharma" /></label>
-      <label>LinkedIn / Site Link<input id="sk-link" type="url" placeholder="https://linkedin.com/in/..." /></label>
-      <label>Notes<textarea id="sk-notes" rows="3" placeholder="Kuch bhi pehle se pata ho…"></textarea></label>
-      <button id="sk-save" class="btn-primary" style="width:100%;">Start Deep-Dive</button>
+      <label>Name / Username *<input id="sk-name" type="text" placeholder="e.g. Rahul Sharma or @rahul" /></label>
+      <label>LinkedIn / GitHub / Site Link<input id="sk-link" type="url" placeholder="https://linkedin.com/in/... or https://github.com/..." /></label>
+      <label>Notes / Context<textarea id="sk-notes" rows="3" placeholder="Pehle se kya pata hai, ya kis topic pe deep-dive karwani hai..."></textarea></label>
+      <button id="sk-save" class="btn-primary" style="width:100%;">Start Deep-Dive Research</button>
     </div>`);
   document.getElementById('sk-save').addEventListener('click', async () => {
     const name = document.getElementById('sk-name').value.trim();
-    if (!name) { alert('Name required'); return; }
+    const link = document.getElementById('sk-link').value.trim();
+    if (!name && !link) { alert('Provide a name or link to stalk.'); return; }
     try {
-      await apiFetch('/api/stalking', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, link: document.getElementById('sk-link').value.trim(), notes: document.getElementById('sk-notes').value.trim() }) });
+      const { profile } = await apiFetch('/api/stalking', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, link, notes: document.getElementById('sk-notes').value.trim() }) });
       closeModal();
       await loadStalking();
+      if (profile && profile.id) {
+        await selectStalk(String(profile.id));
+      }
     } catch (err) { alert(err.message); }
   });
-});
+}
+
+document.getElementById('add-stalk-btn')?.addEventListener('click', openAddStalkModal);
+document.getElementById('add-stalk-btn-sidebar')?.addEventListener('click', openAddStalkModal);
 
 // ═══════════════════════════════════════════════════════
 // ROUTINES ENGINE

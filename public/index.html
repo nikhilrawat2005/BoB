@@ -267,7 +267,7 @@
           </div>
         </section>
 
-        <!-- Stalking workspace -->
+        <!-- Stalking workspace (3-col layout) -->
         <section class="view view-workspace" id="view-stalking">
           <div class="view-header">
             <div>
@@ -275,25 +275,38 @@
               <p class="view-sub">Kisi bhi person / LinkedIn profile ko deep-dive karke profile card banao.</p>
             </div>
             <div class="view-header-actions">
-              <button id="add-stalk-btn" class="btn-small">＋ Add Profile</button>
+              <button id="add-stalk-btn" class="btn-small btn-accent">＋ Add Profile</button>
               <button class="view-close icon-btn" title="Close (back to chat)">✕</button>
             </div>
           </div>
-          <div class="stalk-workspace">
+          <div class="hack-workspace">
             <aside class="ws-col ws-list-col">
-              <div class="ws-col-title">Profiles</div>
+              <div class="ws-col-title">
+                <span>Profiles</span>
+                <button id="add-stalk-btn-sidebar" class="ws-col-add-btn" title="Add Person">＋</button>
+              </div>
               <div id="stalk-list" class="ws-list">
                 <div class="empty-msg">No profiles yet. Add one to start deep-dive.</div>
               </div>
             </aside>
-            <main class="ws-col ws-stalk-main">
-              <div id="stalk-profile-card" class="profile-card-placeholder">Select a profile to see the deep-dive card.</div>
-              <div id="stalk-chat-messages" class="ws-chat-messages"></div>
-              <div class="ws-chat-input-row">
+            <main class="ws-col ws-chat-col">
+              <div class="ws-chat-header" id="stalk-chat-header">
+                <span>Select a profile to open its private chat</span>
+              </div>
+              <div id="stalk-chat-messages" class="ws-chat-messages">
+                <div class="empty-msg">👈 Left list me se koi person select karo ya naya add karo.</div>
+              </div>
+              <div class="ws-chat-input-row" id="stalk-chat-input-row">
                 <textarea id="stalk-chat-input" rows="1" placeholder="Person ka naam aur LinkedIn/GitHub URL do, ya left me se select karo…"></textarea>
                 <button id="stalk-send-btn" class="btn-small">Send</button>
               </div>
             </main>
+            <aside class="ws-col ws-knowledge-col">
+              <div class="ws-col-title">📊 Intelligence Report</div>
+              <div id="stalk-profile-card" class="ws-knowledge">
+                <div class="empty-msg">Right side me selected person ka deep-dive profile card, summary, GitHub repos aur link network khulega.</div>
+              </div>
+            </aside>
           </div>
         </section>
 

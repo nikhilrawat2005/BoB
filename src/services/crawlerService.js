@@ -142,6 +142,24 @@ async function scrapeURL(targetUrl, timeoutMs = 8000) {
       if (text) headings.push(`${el.tagName.toUpperCase()}: ${text}`);
     });
 
+    // Extract outgoing links for network crawling
+    const links = [];
+    const seenLinks = new Set();
+    $('a[href]').each((_, el) => {
+      if (links.length >= 30) return;
+      const rawHref = $(el).attr('href');
+      if (!rawHref) return;
+      try {
+        const parsedUrl = new URL(rawHref, targetUrl);
+        if (parsedUrl.protocol !== 'http:' && parsedUrl.protocol !== 'https:') return;
+        const href = parsedUrl.href.split('#')[0];
+        if (seenLinks.has(href) || isUselessUrl(href)) return;
+        seenLinks.add(href);
+        const linkText = $(el).text().trim().replace(/\s+/g, ' ').slice(0, 100);
+        links.push({ url: href, text: linkText || parsedUrl.hostname });
+      } catch (e) { /* ignore invalid URLs */ }
+    });
+
     return {
       url: targetUrl,
       title,
@@ -150,6 +168,7 @@ async function scrapeURL(targetUrl, timeoutMs = 8000) {
       jsonLd: jsonLdBlocks,
       scripts: scripts.slice(0, 10),
       stylesheets: stylesheets.slice(0, 10),
+      links,
       contentSnippet: cleanText.slice(0, 5000), // First 5000 chars for context
       fullTextLength: cleanText.length,
     };
