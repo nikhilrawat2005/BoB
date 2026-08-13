@@ -127,6 +127,9 @@ function extractTopic(m) {
   // Pattern 0: Topic AFTER "regarding / related to / about / for / ke regarding" (e.g. "find repos regarding ai models")
   const pAfterKeyword = cleaned.match(/(?:(?:ke\s+)?regarding|related\s+to|about|for|ke\s+baare\s+me|ke\s+liye)\s+([A-Za-z0-9][A-Za-z0-9 .&+_\/-]{1,50})/i);
 
+  // Pattern 0b: Multi-word topic BEFORE "regarding / ke liye / related" (e.g. "cloud computing regarding repos do")
+  const pBeforeRegarding = cleaned.match(/^([A-Za-z][A-Za-z0-9 .&+_\/-]{2,50}?)\s+(?:ke\s+(?:regarding|related|liye|baare)|regarding|related\s+to)/i);
+
   // Pattern 1: Topic BEFORE "ke regarding / related / pe / par / ke liye / ke baare me" (e.g. "location tracking ke regarding repos find karo")
   const pHinglishBefore = cleaned.match(/([A-Za-z0-9][A-Za-z0-9 .&+_\/-]{1,50})\s+(?:ke\s+(?:regarding|related|liye|baare\s+me|par|pe)|pe|par|related\s+to)/i);
 
@@ -139,7 +142,8 @@ function extractTopic(m) {
   // Pattern 4: Direct noun phrase (e.g. "location tracking repos")
   const pNoun = cleaned.match(/([A-Za-z0-9][A-Za-z0-9 .&+_\/-]{1,50})\s+(?:repos?|projects?|repositories)/i);
 
-  let topic = (pAfterKeyword && pAfterKeyword[1]) ||
+  let topic = (pBeforeRegarding && pBeforeRegarding[1]) ||
+              (pAfterKeyword && pAfterKeyword[1]) ||
               (pHinglishBefore && pHinglishBefore[1]) ||
               (pEnglishAfter && pEnglishAfter[1]) ||
               (pVerbs && (pVerbs[2] || pVerbs[1])) ||
@@ -150,7 +154,7 @@ function extractTopic(m) {
   do {
     prev = topic;
     topic = topic
-      .replace(/(?:\brelated\b|\brepo\b|\brepos?\b|\bprojects?\b|\bregarding\b|\bke?\b|\bka\b|\bki\b|\bko\b|\bme\b|\bpe\b|\bpar\b|\bdo\b|\bkarke\b|\bbatao\b|\bbata\b|\bchahiye\b|\bdhoondo?\b|\bdhundho?\b|\bfind\b|\bsearch\b|\bkaro\b|\bhai\b|\bhain\b|\bgood\b|\bgreat\b|\bacha\b|\baccha\b|\bacche\b|\bkoi\b|\bone\b|\bany\b|\bsome\b|\bnhi\b|\bnahi\b)\s*$/i, '')
+      .replace(/(?:\brelated\b|\brepo\b|\brepos?\b|\bprojects?\b|\bregarding\b|\bke?\b|\bka\b|\bki\b|\bko\b|\bme\b|\bpe\b|\bpar\b|\bdo\b|\bkarke\b|\bbatao\b|\bbata\b|\bchahiye\b|\bdhoondo?\b|\bdhundho?\b|\bfind\b|\bsearch\b|\bkaro\b|\bhai\b|\bhain\b|\bgood\b|\bgreat\b|\bacha\b|\baccha\b|\bacche\b|\bkoi\b|\bone\b|\bany\b|\bsome\b|\bnhi\b|\bnahi\b|\bplz\b|\bplease\b|\bplease\s+do\b|\bdo\s+karo\b)\s*$/i, '')
       .replace(/^(?:github|git|pe|par|me|se|ke|ka|ki|ko|the|a|an|some|best|top|kya|koi|good|acha|accha|any|abhi|mere|mera|apne|apna|apni|sab|saare|find|search|dhundh|dhoond|khoj|kar|sakte|ho)\s+/i, '')
       .trim();
   } while (topic !== prev);
@@ -202,8 +206,15 @@ async function fetchGitHub(message) {
     } else if (res.items && res.items.length) {
       const lines = [];
       lines.push(`🐙 GITHUB SEARCH "${topic}" (REAL GitHub API, sorted by stars) — Sirf inki details use karo, kuch invent mat karo:`);
-      res.items.forEach((r, i) => lines.push(`${i + 1}. [${r.full_name}](https://github.com/${r.full_name}) — ${r.language || 'N/A'} ⭐${r.stars} (${r.forks} forks)\n   🔗 https://github.com/${r.full_name}\n   ${r.description ? r.description.slice(0, 160) : '(no description)'}`));
-      lines.push('- RULE: Ye hi real results hain. Koi aur repo/star/link mat banao. Links hamesha clean Markdown format me output karo: [owner/repo](https://github.com/owner/repo). Kabhi URL ke andar extra outer brackets ya HTML tags (like <strong>) mat lagao.');
+      res.items.forEach((r, i) => {
+        const repoUrl = r.html_url || `https://github.com/${r.full_name}`;
+        lines.push(
+          `${i + 1}. [${r.full_name}](${repoUrl}) — ${r.language || 'N/A'} ⭐${r.stars} (${r.forks} forks)` +
+          `\n   🔗 ${repoUrl}` +
+          `\n   ${r.description ? r.description.slice(0, 160) : '(no description)'}`
+        );
+      });
+      lines.push('⚠️ RULE: Ye hi real results hain. Koi aur repo/star/link mat banao. Links hamesha clean Markdown format me output karo: [owner/repo](exact_url). NEVER add extra outer brackets, tags, or malformed URL structures.');
       blocks.push(lines.join('\n'));
     } else {
       blocks.push(`🐙 GITHUB SEARCH "${topic}" (REAL API): koi repo nahi mili is topic pe — honestly bolo, fake repo/link mat banao.`);
@@ -697,8 +708,14 @@ You are only allowed to promise Master Nikhil things that are ACTUALLY built. Th
 ━━━ 🐙 GITHUB RULE — ONLY REAL REPOS & CLEAN LINKS, NEVER INVENT ━━━
 - Jab bhi GitHub ka sawaal aaye (profile, "mera github study kar", repo count, repos list, followers, "ye repo kya hai", koi github link paste), upar ka "🐙 GITHUB PROFILE" ya "📦 GITHUB REPO ANALYSIS" block REAL API data hai.
 - SIRF wahi repos/languages/stars/counts/descriptions mention karo jo block me hain. Koi repo, link, count, language, ya stars apne dimaag se mat banao.
-- Links ALWAYS write in clean, standard Markdown format: [owner/repo](https://github.com/owner/repo) or plain URL https://github.com/owner/repo.
-- NEVER wrap URLs in extra outer brackets (e.g. ([https://...]) is INVALID) and NEVER insert HTML tags (like <strong> or %3C/strong%3E) inside link targets.
+
+🔗 LINK FORMAT — CRITICAL RULE (READ THIS CAREFULLY):
+  CORRECT ✅ : [kubernetes/kubernetes](https://github.com/kubernetes/kubernetes)
+  WRONG ❌   : ([https://github.com/kubernetes/kubernetes]**) — outer brackets + ** BANNED
+  WRONG ❌   : [name]([https://github.com/...]) — URL inside brackets BANNED
+  WRONG ❌   : <strong> tags, %3C, \) outside URL, HTML entities in URLs — ALL BANNED
+  RULE: Copy the EXACT URL from the "🔗" line in the context block — word-for-word. Do NOT reconstruct or modify the URL in any way.
+
 - Koi repo block me nahi hai → wo exist nahi karti (ya private hai) → kabhi mat batao, aur uska fake link mat do.
 - Repo ke baare me detail (code, tech stack) batate waqt ONLY actual file content use karo jo block me hai.
 - Agar koi GitHub block nahi aaya (fetch fail / rate limit), khul ke bolo: "GitHub fetch abhi fail hua" — guess mat karo.
