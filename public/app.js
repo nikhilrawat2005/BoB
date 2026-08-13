@@ -1222,10 +1222,21 @@ function renderTextContent(text) {
     return stashToken();
   });
 
-  // Auto-link URLs (clickable) — runs after code stash so links inside code stay raw
-  html = html.replace(/(https?:\/\/[^\s<>"']+)/g, (url) => {
+  // ── Markdown links [text](url) → clickable <a> — MUST run before plain URL auto-linker
+  html = html.replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, (_, linkText, url) => {
+    // Strip any accidental trailing punctuation from URL
+    const cleanUrl = url.replace(/[.,;:!?%3C%3E]+$/, '').replace(/%3C.*$/, '').replace(/\)+$/, (m) => {
+      const opens  = (url.match(/\(/g) || []).length;
+      const closes = (url.match(/\)/g) || []).length;
+      return closes > opens ? '' : m;
+    });
+    return `<a href="${cleanUrl}" target="_blank" rel="noopener noreferrer" class="md-link">${linkText}</a>`;
+  });
+
+  // Auto-link bare URLs (clickable) — runs after Markdown link step so [text](url) is already consumed
+  html = html.replace(/(https?:\/\/[^\s<>"'(\[]+)/g, (url) => {
+    // Skip if this URL is already inside an href (already linked by Markdown pass)
     let clean = url.replace(/[.,;:!?]+$/, '');
-    // Drop trailing closing brackets only if they aren't balanced by opens
     clean = clean.replace(/[)\]}]+$/, (m) => {
       const opens  = (clean.match(/[(\[{]/g) || []).length;
       const closes = (clean.match(/[)\]}]/g) || []).length;

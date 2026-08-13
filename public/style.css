@@ -1201,6 +1201,23 @@ body.persona-builder #model-selector { display: none !important; }
 }
 .msg-text-content .md-table tr:last-child td { border-bottom: none; }
 
+/* Clickable links inside Bob's messages */
+.msg-text-content a,
+.msg-text-content a.md-link {
+  color: #7c9fff;
+  text-decoration: none;
+  font-weight: 500;
+  border-bottom: 1px solid rgba(124, 159, 255, 0.35);
+  transition: color 0.15s, border-color 0.15s;
+  word-break: break-all;
+}
+.msg-text-content a:hover,
+.msg-text-content a.md-link:hover {
+  color: #a8c0ff;
+  border-bottom-color: rgba(168, 192, 255, 0.7);
+  text-decoration: none;
+}
+
 /* Chart cards (inline Chart.js charts) */
 .chart-card {
   background: rgba(13, 15, 20, 0.7);
