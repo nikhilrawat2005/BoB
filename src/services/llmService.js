@@ -3,12 +3,12 @@ const fetch = require('node-fetch');
 const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions';
 
 // ---------------------------------------------------------------------------
-// API Key Pool — reads OPENROUTER_API_KEY1 … OPENROUTER_API_KEY11 from .env
+// API Key Pool — reads OPENROUTER_API_KEY1 … OPENROUTER_API_KEY30 from .env
 // Rotates through them round-robin so no single key hits rate limits.
 // Keys that are empty / missing are skipped automatically.
 // ---------------------------------------------------------------------------
 const _rawKeys = [];
-for (let i = 1; i <= 11; i++) {
+for (let i = 1; i <= 30; i++) {
   const k = process.env[`OPENROUTER_API_KEY${i}`];
   if (k && k.trim()) _rawKeys.push(k.trim());
 }
