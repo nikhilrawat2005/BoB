@@ -1,69 +1,73 @@
 ================================================================================
-BOB MEMORY ARCHITECTURE & DOMAIN SEPARATION PLAN
+BOB DYNAMIC CACHE & DOMAIN-ISOLATED MEMORY ARCHITECTURE PLAN
 ================================================================================
 
-1. THE CURRENT PROBLEM (WHY BOB FEELS HEAVY & OVERLOADED)
+1. THE CORE IDEA: DYNAMIC CACHE MEMORY (SWAPPING ON DEMAND)
 --------------------------------------------------------------------------------
-- Greedy Auto-Extraction: Every single user message triggers intent classification
-  and attempts to extract "facts" regardless of whether the message is casual,
-  temporary, or technical code debugging.
-- Global Bleed: Stalker lookups, hackathon discussions, and everyday chats all
-  dump into the same single monthly memory file and global facts list.
-- Background Bloat: Post-chat background summarizer runs on every turn, packing
-  unnecessary context into LLM system prompts, increasing token consumption,
-  latency, and confusing Bob across different contexts.
+Instead of feeding Bob an ever-growing bloated context containing all past chats,
+hackathons, stalker profiles, and monthly files, Bob uses a "Dynamic Cache Memory"
+model that changes depending on WHERE you are chatting:
+
+A. STALKER WORKSPACE (Single Person Context Cache)
+   - When chatting about "Person A":
+     -> Cache Memory loads ONLY Person A's structured card + recent messages with Person A.
+     -> Person B, Person C, Hackathons, and general chats are NOT loaded.
+     -> ZERO cross-contamination or leaking of other people's data.
+
+B. HACKATHON WORKSPACE (Single Hackathon Context Cache)
+   - When chatting inside "Hackathon X":
+     -> Cache Memory wipes clean and loads ONLY Hackathon X's rules, dates, team,
+        and problem statement + recent session messages.
+     -> Other hackathons and external entities stay out of the prompt.
+
+C. BOB MAIN CHAT (Curated Master Memory Profile)
+   - Uses Master Nikhil's Clean Core Memory (user-editable points list).
+   - Only includes personal facts that Master has verified or explicitly commanded
+     Bob to remember.
 
 
-2. DOMAIN SEPARATION MODEL (5 ISOLATED MEMORY STORES)
+2. MASTER MEMORY CONTROL & ZERO GREEDY EXTRACTION
 --------------------------------------------------------------------------------
+- Explicit-Only Memory Triggers:
+  Bob will NEVER try to guess or automatically extract facts on random casual
+  messages. Memory will ONLY be recorded when Master explicitly commands:
+    * "Bob yaad rakh..." / "Yaad rakhna ki..." / "Yaad kar lo..."
+    * "Remember that..." / "Note this down..." / "Save in memory..."
+  Or when Master manually creates/edits points directly in the Memory Panel.
 
-[STORE 1] CORE BOB / MASTER PROFILE (Long-Term Personal Memory)
-  - Scope: Master Nikhil's personal preferences, core skills, identity, habits.
-  - Examples: "Nikhil prefers clean code", "Uses Windows Powershell", "3rd year CS".
-  - Trigger: Explicit facts or direct commands like "Bob remember that...".
-  - Storage: `users/{userId}/facts` (deduplicated, high-signal only).
-  - Used In: Main Bob chat & Builder consultations only.
-
-[STORE 2] STALKER / DOSSIER INTEL MEMORY (Entity-Isolated)
-  - Scope: Per-person profile intelligence (LinkedIn, GitHub repos, discovered links).
-  - Isolation: Each researched person has their own isolated document/card.
-  - Storage: `users/{userId}/stalking/{targetId}`.
-  - Advantage: Person research NEVER leaks into Bob's core persona or other chats.
-
-[STORE 3] HACKATHON WORKSPACE MEMORY (Project-Isolated)
-  - Scope: Problem statements, team members, tech stack decisions, deadlines.
-  - Isolation: Scoped strictly to the specific hackathon session.
-  - Storage: `users/{userId}/hackathons/{hackathonId}`.
-  - Advantage: SIH rules/prompts will not interfere with other project chats.
-
-[STORE 4] LIVE PULSE & MARKET TEMPORAL CACHE (Short-Lived / Expiring)
-  - Scope: Real-time weather, stock tickers, trending news snippets.
-  - Lifecycle: TTL-based (auto-expires in 6-24 hours).
-  - Storage: In-memory cache or Redis/transient store.
-  - Advantage: Zero permanent memory footprint.
-
-[STORE 5] EPHEMERAL CHAT WINDOW (Session Context)
-  - Scope: Last 10-15 messages in the active chat session.
-  - Lifecycle: Session-scoped. Does NOT automatically synthesize into permanent
-    monthly facts unless explicitly tagged or important milestones are hit.
+- All-In-One Memory Point Editor (Implemented in Step 1):
+  * All past memory chunks, monthly notes, and facts are combined into a clean,
+    single editable list of points.
+  * Master can click ✏️ to edit inline or ✕ to delete useless points.
+  * Button: "📦 Combine & Import All Stored Memory" consolidates previous auto-chunks.
 
 
-3. CONTROLLED EXTRACTION RULES (STOP GREEDY FACT SAVING)
+3. WORKFLOW & TOKEN OPTIMIZATION BREAKDOWN
 --------------------------------------------------------------------------------
-- Strict Threshold: Only save facts when user explicitly says "Remember...",
-  "Note this...", or provides high-confidence profile attributes.
-- No Auto-Summarizing Trivial Chats: Routine greetings ("hi", "kaise ho"), quick
-  questions, or code snippets will skip the background memory pipeline.
-- Separate Workspace Scopes in Chat API:
-  When chat is inside Hackathon Workspace -> search Hackathon memory only.
-  When chat is inside Stalking Workspace -> search Stalker entity memory only.
-  When chat is in Main Bob -> search Core Master facts only.
+Before:
+  User Message -> [LLM Intent Classifier] -> [Fetch All Facts + Past Months + Hackathons + Stalkers]
+               -> [Main Chat LLM Call] -> [LLM Monthly Summarizer] -> [LLM Behavior Engine]
+  Total Cost: ~3,000 to 5,000 tokens per message (4+ API calls)
+
+After (Dynamic Cache):
+  User Message -> [Direct Regex Trigger Check] -> [Load Target Cache Only]
+               -> [Single Lightweight LLM Call (300-600 tokens)]
+  Total Cost: ~400 to 700 tokens per message (1 single API call)
+  👉 Token Savings: 85% - 90% reduction! Keys last 10x longer.
 
 
-4. NEXT STEPS FOR EXECUTION
+4. IMPLEMENTATION CHECKLIST & PHASES
 --------------------------------------------------------------------------------
-Step 1: Update `memoryService.js` to support namespace/scope tags (`core`, `hackathon`, `stalker`).
-Step 2: Add scope parameter to `chat.js` so Bob injects only the relevant domain memory.
-Step 3: Add threshold filter to `memoryManager.js` to stop greedy per-message extractions.
-Step 4: Provide clean per-module memory inspection in the UI.
+[x] Phase 1 (Completed):
+    - Disabled automatic intent classification on every message in chat.js.
+    - Disabled background session summarizer on every message.
+    - Replaced with fast regex explicit memory triggers ("yaad rakhna", "remember that").
+    - Added Memory Point Manager (inline ✏️ Edit, ✕ Delete, ＋ Add Fact).
+    - Added "📦 Combine & Import All Stored Memory" endpoint & button to consolidate
+      all past monthly chunks into clean individual editable points.
+
+[ ] Phase 2 (Next Step):
+    - Implement Dynamic Cache Swapper middleware for Stalker & Hackathon private chats.
+    - Ensure switching workspace tabs swaps the active LLM context in real time.
+    - Add per-entity memory snapshot export.
 ================================================================================

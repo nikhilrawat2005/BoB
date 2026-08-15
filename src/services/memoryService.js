@@ -76,6 +76,51 @@ async function deleteFact(userId, factId) {
   await db.collection('users').doc(userId).collection('facts').doc(factId).delete();
 }
 
+async function updateFact(userId, factId, text) {
+  const ref = db.collection('users').doc(userId).collection('facts').doc(factId);
+  const now = Date.now();
+  await ref.set({ text, updatedAt: now }, { merge: true });
+  return { id: factId, text, updatedAt: now };
+}
+
+async function consolidateAllMemory(userId) {
+  const existingFacts = await listFacts(userId);
+  const seenTexts = new Set(existingFacts.map(f => String(f.text || '').trim().toLowerCase()));
+  const addedPoints = [];
+
+  try {
+    const snapMonths = await db.collection('users').doc(userId).collection('memoryMonths').get();
+    for (const doc of snapMonths.docs) {
+      const data = doc.data() || {};
+      const chunks = data.chunks || [];
+      for (const chunk of chunks) {
+        const rawPoints = String(chunk.points || '');
+        const lines = rawPoints
+          .split(/\r?\n/)
+          .map(l => l.replace(/^[-*•\d.)\s]+/, '').trim())
+          .filter(Boolean);
+
+        for (const line of lines) {
+          if (line.length > 3 && !seenTexts.has(line.toLowerCase())) {
+            seenTexts.add(line.toLowerCase());
+            const newFact = await addFact(userId, line);
+            addedPoints.push(newFact);
+          }
+        }
+      }
+    }
+  } catch (err) {
+    console.error('[Memory] Error consolidating monthly chunks:', err.message);
+  }
+
+  const allFacts = await listFacts(userId);
+  return {
+    totalFacts: allFacts.length,
+    newlyImported: addedPoints.length,
+    facts: allFacts,
+  };
+}
+
 async function saveWeeklySummary(userId, weekId, summaryData) {
   const ref = db.collection('users').doc(userId).collection('weeklySummaries').doc(weekId);
   const now = Date.now();
@@ -266,6 +311,8 @@ module.exports = {
   addFactUnique,
   listFacts,
   deleteFact,
+  updateFact,
+  consolidateAllMemory,
   saveWeeklySummary,
   listWeeklySummaries,
   getMessagesSince,

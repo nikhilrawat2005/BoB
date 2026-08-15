@@ -378,23 +378,24 @@
 
         <!-- Memory workspace -->
         <section class="view" id="view-memory">
-          <div class="side-panel workspace-panel">
+          <div class="side-panel workspace-panel memory-full-panel">
             <div class="panel-header">
-              <span>Bob's Memory</span>
+              <span>🧠 Bob's Core Memory (Master Profile)</span>
               <button class="panel-close view-close" title="Close">✕</button>
             </div>
             <div class="panel-body">
+              <div style="margin-bottom: 12px; display: flex; gap: 8px; flex-wrap: wrap;">
+                <button id="memory-consolidate-btn" class="btn-small btn-accent" title="Combine all past memories & chunks into editable points">📦 Combine & Import All Stored Memory</button>
+              </div>
               <div class="add-fact-row">
-                <input id="fact-input" type="text" placeholder="Add a fact about you..." />
-                <button id="add-fact-btn" class="btn-small">Add</button>
+                <input id="fact-input" type="text" placeholder="Add a custom fact about you (e.g. 'Prefers dark mode', 'Working on Bob AI')..." />
+                <button id="add-fact-btn" class="btn-small">＋ Add</button>
+              </div>
+              <div class="panel-section-title" style="display:flex; justify-content:space-between; align-items:center;">
+                <span>📝 All Memory Points (<span id="facts-count">0</span>)</span>
+                <span style="font-size:10px; color:var(--text3); font-weight:normal;">Click ✏️ to edit inline</span>
               </div>
               <div id="facts-list" class="facts-list"></div>
-
-              <div class="panel-section-title">📅 Monthly Memory Files</div>
-              <div id="monthly-files-list" class="facts-list">
-                <div class="empty-msg">No monthly memory files yet.</div>
-              </div>
-              <button id="memory-refresh-btn" class="btn-small" style="width:100%;margin-top:8px;">🔄 Summarize my memory now</button>
             </div>
           </div>
         </section>

@@ -2138,37 +2138,111 @@ async function downloadMonthlyFile(monthId) {
   }
 }
 
-document.getElementById('memory-refresh-btn').addEventListener('click', async () => {
-  const btn = document.getElementById('memory-refresh-btn');
-  btn.disabled = true;
-  btn.textContent = '⏳ Summarizing…';
-  try {
-    await apiFetch('/api/memory/refresh', { method: 'POST' });
-    await loadFacts();
-    await loadMonthlyFiles();
-    btn.textContent = '✅ Done!';
-    setTimeout(() => { btn.textContent = '🔄 Summarize my memory now'; btn.disabled = false; }, 2000);
-  } catch (err) {
-    btn.disabled = false;
-    btn.textContent = '🔄 Summarize my memory now';
-    alert('Failed: ' + err.message);
-  }
-});
+// ── Memory Consolidate & Editable Facts ──────────────────
+const memoryConsolidateBtn = document.getElementById('memory-consolidate-btn');
+if (memoryConsolidateBtn) {
+  memoryConsolidateBtn.addEventListener('click', async () => {
+    memoryConsolidateBtn.disabled = true;
+    memoryConsolidateBtn.textContent = '⏳ Combining all stored memories…';
+    try {
+      const res = await apiFetch('/api/memory/consolidate', { method: 'POST' });
+      await loadFacts();
+      memoryConsolidateBtn.textContent = `✅ Combined! (${res.newlyImported || 0} imported)`;
+      setTimeout(() => {
+        memoryConsolidateBtn.textContent = '📦 Combine & Import All Stored Memory';
+        memoryConsolidateBtn.disabled = false;
+      }, 3000);
+    } catch (err) {
+      memoryConsolidateBtn.disabled = false;
+      memoryConsolidateBtn.textContent = '📦 Combine & Import All Stored Memory';
+      alert('Failed: ' + err.message);
+    }
+  });
+}
 
-// Facts
+// Facts / Memory Points Manager
 async function loadFacts() {
   const list = document.getElementById('facts-list');
+  const countEl = document.getElementById('facts-count');
   try {
     const { facts } = await apiFetch('/api/memory/facts');
-    if (!facts.length) { list.innerHTML = '<div class="empty-msg">No facts saved yet.</div>'; return; }
-    list.innerHTML = facts.map(f => `
-      <div class="fact-item">
-        <span>${escHtml(f.text)}</span>
-        <button class="fact-delete" data-id="${f.id}" title="Delete">✕</button>
+    const items = facts || [];
+    if (countEl) countEl.textContent = items.length;
+    if (!items.length) {
+      list.innerHTML = '<div class="empty-msg">No memory points saved yet. Click "Combine & Import" above or add one below!</div>';
+      return;
+    }
+
+    list.innerHTML = items.map(f => `
+      <div class="fact-item" id="fact-item-${f.id}">
+        <span class="fact-text" id="fact-text-${f.id}">${escHtml(f.text)}</span>
+        <div class="fact-item-actions" id="fact-actions-${f.id}">
+          <button class="fact-edit-btn" data-id="${f.id}" title="Edit this point">✏️</button>
+          <button class="fact-delete" data-id="${f.id}" title="Delete this point">✕</button>
+        </div>
       </div>
     `).join('');
+
+    // Attach Delete
     list.querySelectorAll('.fact-delete').forEach(btn => {
       btn.addEventListener('click', () => deleteFact(btn.dataset.id));
+    });
+
+    // Attach Inline Edit
+    list.querySelectorAll('.fact-edit-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const id = btn.dataset.id;
+        const itemEl = document.getElementById(`fact-item-${id}`);
+        const textEl = document.getElementById(`fact-text-${id}`);
+        const actionsEl = document.getElementById(`fact-actions-${id}`);
+        const currentText = textEl.textContent.trim();
+
+        textEl.style.display = 'none';
+        actionsEl.style.display = 'none';
+
+        const editWrap = document.createElement('div');
+        editWrap.id = `fact-edit-wrap-${id}`;
+        editWrap.style.display = 'flex';
+        editWrap.style.gap = '6px';
+        editWrap.style.flex = '1';
+        editWrap.style.alignItems = 'center';
+        editWrap.innerHTML = `
+          <input class="fact-edit-input" id="fact-input-${id}" value="${escHtml(currentText)}" />
+          <button class="fact-save-btn" id="fact-save-${id}">Save</button>
+          <button class="fact-cancel-btn" id="fact-cancel-${id}">Cancel</button>
+        `;
+
+        itemEl.appendChild(editWrap);
+
+        const inputEl = document.getElementById(`fact-input-${id}`);
+        inputEl.focus();
+
+        const saveEdit = async () => {
+          const newText = inputEl.value.trim();
+          if (!newText) return;
+          try {
+            await apiFetch(`/api/memory/facts/${id}`, {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ text: newText }),
+            });
+            await loadFacts();
+          } catch (err) {
+            alert('Failed to update: ' + err.message);
+          }
+        };
+
+        document.getElementById(`fact-save-${id}`).addEventListener('click', saveEdit);
+        inputEl.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter') saveEdit();
+          if (e.key === 'Escape') loadFacts();
+        });
+        document.getElementById(`fact-cancel-${id}`).addEventListener('click', () => {
+          editWrap.remove();
+          textEl.style.display = '';
+          actionsEl.style.display = '';
+        });
+      });
     });
   } catch (err) {
     list.innerHTML = `<div class="empty-msg">Error: ${err.message}</div>`;

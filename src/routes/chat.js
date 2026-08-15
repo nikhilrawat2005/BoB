@@ -336,18 +336,23 @@ router.post('/', requireAuth, async (req, res) => {
     //    (they are independent, so we don't serialise their latency)
     behaviorEngine.updateBehaviorProfile(req.userId, promptMessage).catch(err => console.error(err));
 
-    const [intent, mediaEnrichment, liveBlock, webpageBlock, githubBlock] = await Promise.all([
-      memoryManager.classifyIntent(promptMessage),
+    // Explicit memory command check (zero extra LLM calls)
+    const isExplicitMemoryCommand = /(yaad\s*(rakh|rakhna|kar\s*lo|karo)|remember\s*(this|that|to)|note\s*this|save\s*in\s*memory)/i.test(promptMessage);
+    if (isExplicitMemoryCommand) {
+      const cleanFact = promptMessage
+        .replace(/^(bob|bhai|hey|please)?\s*(yaad\s*(rakh|rakhna|kar\s*lo|karo)|remember\s*(this|that|to)|note\s*this|save\s*in\s*memory)\s*(ki|that|:|,)?\s*/i, '')
+        .trim();
+      if (cleanFact.length > 3) {
+        await memory.addFactUnique(req.userId, cleanFact);
+      }
+    }
+
+    const [mediaEnrichment, liveBlock, webpageBlock, githubBlock] = await Promise.all([
       enrichMessageWithMedia(promptMessage),
       fetchLiveData(promptMessage),
       fetchWebpage(promptMessage),
       fetchGitHub(promptMessage),
     ]);
-
-    // If new fact detected automatically, store it in memory facts (deduped)
-    if (intent.isNewFact && intent.extractedFact) {
-      await memory.addFactUnique(req.userId, intent.extractedFact);
-    }
 
     const allImageUrls = [
       ...userImageUrls,
@@ -357,14 +362,10 @@ router.post('/', requireAuth, async (req, res) => {
       console.log(`[Chat] Media detected: ${mediaEnrichment.detectedTypes.join(', ')} — ${allImageUrls.length} image(s) for vision`);
     }
 
-    // 2. Pull recent history, facts, and layered month-memory context
-    //    (recent does NOT include the current message yet — we append it once below)
-    const currentMonthId = memoryManager.isoMonthKey(new Date());
-    const [recent, facts, currentMonth, pastMonths] = await Promise.all([
+    // 2. Pull recent history and facts
+    const [recent, facts] = await Promise.all([
       memory.getRecentMessages(req.userId, sessionId, 20),
       memory.listFacts(req.userId),
-      memory.getMonthMemory(req.userId, currentMonthId),
-      intent.isHistoryQuery ? memory.listMonthMemory(req.userId, 6) : Promise.resolve([]),
     ]);
 
     // 3. Save user's message
@@ -818,9 +819,6 @@ ${memoryContext}${mediaEnrichment.mediaContext}${documentContext}`;
         console.error('[Chat] Title generation error:', titleErr.message);
       }
     }
-
-    // 9. Trigger non-blocking background weekly chat summarizer job
-    memoryManager.summarizeUserSessions(req.userId).catch(err => console.error('Background summary error:', err));
 
     res.json({ reply: text, model: usedModel, scheduledTasks: createdTasks, updatedTitle });
   } catch (err) {

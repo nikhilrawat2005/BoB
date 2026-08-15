@@ -748,11 +748,17 @@ body.persona-builder #model-selector { display: none !important; }
 .btn-small { padding: 8px 14px; background: var(--accent); border: none; border-radius: var(--radius-sm); color: #fff; font-size: 13px; font-weight: 500; cursor: pointer; white-space: nowrap; transition: opacity var(--transition); }
 .btn-small:hover { opacity: 0.85; }
 
-.facts-list { display: flex; flex-direction: column; gap: 8px; }
-.fact-item { background: var(--surface); border: 1px solid var(--border2); border-radius: var(--radius-sm); padding: 10px 12px; font-size: 13px; display: flex; align-items: flex-start; gap: 8px; }
-.fact-item span { flex: 1; line-height: 1.5; }
-.fact-delete { background: none; border: none; color: var(--text3); cursor: pointer; font-size: 14px; padding: 0 2px; flex-shrink: 0; transition: color var(--transition); }
-.fact-delete:hover { color: var(--red); }
+.facts-list { display: flex; flex-direction: column; gap: 8px; max-height: 65vh; overflow-y: auto; padding-right: 4px; }
+.fact-item { background: var(--surface); border: 1px solid var(--border2); border-radius: var(--radius-sm); padding: 10px 12px; font-size: 13px; display: flex; align-items: flex-start; gap: 10px; transition: border-color 0.2s; }
+.fact-item:hover { border-color: var(--accent); }
+.fact-item .fact-text { flex: 1; line-height: 1.5; word-break: break-word; color: var(--text); }
+.fact-item-actions { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+.fact-edit-btn, .fact-delete { background: none; border: none; color: var(--text3); cursor: pointer; font-size: 13px; padding: 2px 4px; border-radius: 4px; transition: all var(--transition); }
+.fact-edit-btn:hover { color: var(--accent); background: rgba(108,99,255,0.1); }
+.fact-delete:hover { color: var(--red); background: rgba(239,68,68,0.1); }
+.fact-edit-input { flex: 1; background: var(--bg); border: 1px solid var(--accent); border-radius: var(--radius-sm); color: var(--text); padding: 6px 10px; font-size: 13px; outline: none; }
+.fact-save-btn { background: var(--green); border: none; border-radius: var(--radius-sm); color: #fff; padding: 5px 9px; font-size: 11px; font-weight: 600; cursor: pointer; }
+.fact-cancel-btn { background: var(--surface2); border: 1px solid var(--border2); border-radius: var(--radius-sm); color: var(--text2); padding: 5px 9px; font-size: 11px; cursor: pointer; }
 .empty-msg { font-size: 13px; color: var(--text3); text-align: center; padding: 24px 0; }
 
 /* Files panel */

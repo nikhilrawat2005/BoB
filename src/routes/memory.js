@@ -39,6 +39,30 @@ router.delete('/facts/:id', requireAuth, async (req, res) => {
   }
 });
 
+// PUT /api/memory/facts/:id  { text }
+router.put('/facts/:id', requireAuth, async (req, res) => {
+  const { text } = req.body;
+  if (!text || typeof text !== 'string') {
+    return res.status(400).json({ error: 'Valid text is required' });
+  }
+  try {
+    const updated = await memory.updateFact(req.userId, req.params.id, text.trim());
+    res.json({ success: true, fact: updated });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/memory/consolidate — combine all monthly chunks + facts into individual editable points
+router.post('/consolidate', requireAuth, async (req, res) => {
+  try {
+    const result = await memory.consolidateAllMemory(req.userId);
+    res.json({ success: true, ...result });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // POST /api/memory/refresh  — manually run monthly summarizer + finalize stale months
 router.post('/refresh', requireAuth, async (req, res) => {
   try {
