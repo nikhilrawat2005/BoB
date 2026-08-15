@@ -1,0 +1,69 @@
+================================================================================
+BOB MEMORY ARCHITECTURE & DOMAIN SEPARATION PLAN
+================================================================================
+
+1. THE CURRENT PROBLEM (WHY BOB FEELS HEAVY & OVERLOADED)
+--------------------------------------------------------------------------------
+- Greedy Auto-Extraction: Every single user message triggers intent classification
+  and attempts to extract "facts" regardless of whether the message is casual,
+  temporary, or technical code debugging.
+- Global Bleed: Stalker lookups, hackathon discussions, and everyday chats all
+  dump into the same single monthly memory file and global facts list.
+- Background Bloat: Post-chat background summarizer runs on every turn, packing
+  unnecessary context into LLM system prompts, increasing token consumption,
+  latency, and confusing Bob across different contexts.
+
+
+2. DOMAIN SEPARATION MODEL (5 ISOLATED MEMORY STORES)
+--------------------------------------------------------------------------------
+
+[STORE 1] CORE BOB / MASTER PROFILE (Long-Term Personal Memory)
+  - Scope: Master Nikhil's personal preferences, core skills, identity, habits.
+  - Examples: "Nikhil prefers clean code", "Uses Windows Powershell", "3rd year CS".
+  - Trigger: Explicit facts or direct commands like "Bob remember that...".
+  - Storage: `users/{userId}/facts` (deduplicated, high-signal only).
+  - Used In: Main Bob chat & Builder consultations only.
+
+[STORE 2] STALKER / DOSSIER INTEL MEMORY (Entity-Isolated)
+  - Scope: Per-person profile intelligence (LinkedIn, GitHub repos, discovered links).
+  - Isolation: Each researched person has their own isolated document/card.
+  - Storage: `users/{userId}/stalking/{targetId}`.
+  - Advantage: Person research NEVER leaks into Bob's core persona or other chats.
+
+[STORE 3] HACKATHON WORKSPACE MEMORY (Project-Isolated)
+  - Scope: Problem statements, team members, tech stack decisions, deadlines.
+  - Isolation: Scoped strictly to the specific hackathon session.
+  - Storage: `users/{userId}/hackathons/{hackathonId}`.
+  - Advantage: SIH rules/prompts will not interfere with other project chats.
+
+[STORE 4] LIVE PULSE & MARKET TEMPORAL CACHE (Short-Lived / Expiring)
+  - Scope: Real-time weather, stock tickers, trending news snippets.
+  - Lifecycle: TTL-based (auto-expires in 6-24 hours).
+  - Storage: In-memory cache or Redis/transient store.
+  - Advantage: Zero permanent memory footprint.
+
+[STORE 5] EPHEMERAL CHAT WINDOW (Session Context)
+  - Scope: Last 10-15 messages in the active chat session.
+  - Lifecycle: Session-scoped. Does NOT automatically synthesize into permanent
+    monthly facts unless explicitly tagged or important milestones are hit.
+
+
+3. CONTROLLED EXTRACTION RULES (STOP GREEDY FACT SAVING)
+--------------------------------------------------------------------------------
+- Strict Threshold: Only save facts when user explicitly says "Remember...",
+  "Note this...", or provides high-confidence profile attributes.
+- No Auto-Summarizing Trivial Chats: Routine greetings ("hi", "kaise ho"), quick
+  questions, or code snippets will skip the background memory pipeline.
+- Separate Workspace Scopes in Chat API:
+  When chat is inside Hackathon Workspace -> search Hackathon memory only.
+  When chat is inside Stalking Workspace -> search Stalker entity memory only.
+  When chat is in Main Bob -> search Core Master facts only.
+
+
+4. NEXT STEPS FOR EXECUTION
+--------------------------------------------------------------------------------
+Step 1: Update `memoryService.js` to support namespace/scope tags (`core`, `hackathon`, `stalker`).
+Step 2: Add scope parameter to `chat.js` so Bob injects only the relevant domain memory.
+Step 3: Add threshold filter to `memoryManager.js` to stop greedy per-message extractions.
+Step 4: Provide clean per-module memory inspection in the UI.
+================================================================================

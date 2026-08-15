@@ -263,69 +263,15 @@ async function loadSessions() {
 }
 
 // ═══════════════════════════════════════════════════════
-// NOTIFICATIONS
+// NOTIFICATIONS (Cleaned / Disabled)
 // ═══════════════════════════════════════════════════════
 
 async function loadNotifications() {
-  try {
-    const { notifications } = await apiFetch('/api/notifications');
-    renderHqNotifications(notifications || []);
-  } catch (err) {
-    console.error('loadNotifications error:', err);
-  }
+  // Notifications view/card removed from HQ
 }
 
-function renderHqNotifications(notifications) {
-  const strip = document.getElementById('hq-notifications');
-  if (!strip) return;
-  const recent = notifications.slice(0, 5);
-  if (!recent.length) {
-    strip.innerHTML = '';
-    return;
-  }
-
-  strip.innerHTML = `
-    <div class="hq-notif-head">🔔 Live Updates <span class="hq-notif-count">${notifications.length}</span></div>
-    <div class="hq-notif-strip">
-      ${recent.map(n => `
-        <div class="hq-notif-card ${!n.read ? 'unread' : ''}" data-id="${n.id}">
-          <div class="hq-notif-title">${escHtml(n.title)}</div>
-          <div class="hq-notif-msg">${escHtml(n.message)}</div>
-          <div class="hq-notif-actions">
-            <button class="btn-notif-reply" data-id="${n.id}" data-snippet="${escHtml(n.promptSnippet || n.message)}">💬 Reply in Chat</button>
-            <button class="btn-notif-del" data-id="${n.id}" title="Dismiss">✕</button>
-          </div>
-        </div>
-      `).join('')}
-      ${notifications.length > 5 ? `<button class="hq-notif-all" id="hq-notif-all">View all ${notifications.length} →</button>` : ''}
-    </div>
-  `;
-
-  strip.querySelectorAll('.btn-notif-reply').forEach(btn => {
-    btn.addEventListener('click', async () => {
-      const notifId = btn.dataset.id;
-      const snippet = btn.dataset.snippet;
-      await apiFetch(`/api/notifications/${notifId}`, { method: 'DELETE' });
-      closeViews();
-      await createNewSession();
-      const mi = document.getElementById('message-input');
-      mi.value = snippet;
-      mi.dispatchEvent(new Event('input'));
-      await sendMessage();
-      await loadNotifications();
-      await loadSessions();
-    });
-  });
-
-  strip.querySelectorAll('.btn-notif-del').forEach(btn => {
-    btn.addEventListener('click', async () => {
-      await apiFetch(`/api/notifications/${btn.dataset.id}`, { method: 'DELETE' });
-      await loadNotifications();
-    });
-  });
-
-  const allBtn = strip.querySelector('#hq-notif-all');
-  if (allBtn) allBtn.addEventListener('click', () => { showView('notifications'); loadNotificationsFull(); });
+function renderHqNotifications() {
+  // Strip removed from HQ
 }
 
 function renderSessions(sessions) {
@@ -2509,7 +2455,6 @@ async function loadHQSummary() {
 function renderHQ(data) {
   const c = data.cards || {};
   const grid = document.getElementById('hq-grid');
-  const notifs = c.notifications || {};
   const hacks = c.hackathons || {};
   const stalks = c.stalking || {};
   const routs = c.routines || {};
@@ -2518,7 +2463,7 @@ function renderHQ(data) {
   const months = c.months || [];
 
   const cards = [
-    hqCard({ id: 'notifications', icon: '🔔', title: 'Notifications', color: (notifs.unread || 0) > 0 ? 'green' : 'grey', badge: `${notifs.unread || 0} unread`, meta: `total ${notifs.count || 0}`, items: (notifs.items || []).slice(0, 3).map(n => ({ text: n.title, sub: new Date(n.createdAt).toLocaleString(), dot: n.read ? 'grey' : 'green' })), action: 'Open Notification Center' }),
+    hqCard({ id: 'keys', icon: '🔑', title: 'Keys Limit', color: 'amber', badge: 'OpenRouter', meta: 'key health · auto-refresh', items: [], action: 'Open Keys Management' }),
     hqCard({ id: 'hackathons', icon: '🏆', title: 'Hackathons', color: (hacks.active || 0) > 0 ? 'green' : 'amber', badge: `${hacks.count || 0}`, meta: `active ${hacks.active || 0} · tracking ${hacks.tracking || 0} · 🟢 ${hacks.participating || 0}`, items: (hacks.items || []).slice(0, 3).map(h => ({ text: h.title, sub: `${h.status} · ${fmtDate(h.endDate)}`, dot: h.statusColor })), action: 'Open Hackathon Workspace' }),
     hqCard({ id: 'stalking', icon: '🕵️', title: 'Stalking', color: (stalks.researching || 0) > 0 ? 'amber' : 'green', badge: `${stalks.count || 0}`, meta: `ready ${stalks.ready || 0} · researching ${stalks.researching || 0}`, items: (stalks.items || []).slice(0, 3).map(s => ({ text: s.name, sub: s.status, dot: s.status === 'ready' ? 'green' : (s.status === 'researching' ? 'amber' : 'grey') })), action: 'Open Stalking Workspace' }),
     hqCard({ id: 'routines', icon: '⏰', title: 'Routines', color: (routs.dueSoon || 0) > 0 ? 'green' : 'amber', badge: `${routs.active || 0} active`, meta: `total ${routs.count || 0} · due soon ${routs.dueSoon || 0}`, items: (routs.items || []).slice(0, 3).map(r => ({ text: r.title, sub: `${r.workspace || ''} · every ${r.intervalHours}h`, dot: r.active ? 'green' : 'grey' })), action: 'Open Routines Engine' }),
@@ -2527,8 +2472,6 @@ function renderHQ(data) {
     hqCard({ id: 'files', icon: '📁', title: 'Files', color: 'grey', badge: `${files.length}`, meta: 'uploaded files', items: files.slice(0, 3).map(f => ({ text: f.filename || f.id, sub: '', dot: 'grey' })), action: 'Open Files Workspace' }),
     hqCard({ id: 'live', icon: '📈', title: 'Live Pulse', color: 'green', badge: 'live', meta: 'weather · news · stocks', items: [], action: 'Open Live' }),
     hqCard({ id: 'builder', icon: '🏗️', title: 'Bob the Builder', color: 'amber', badge: collabMode ? 'ON' : 'off', meta: 'Builder collaboration · plan-confirm first', items: [], action: 'Start new project' }),
-    hqCard({ id: 'selfedit', icon: '🧬', title: 'Self-Edit Engine', color: (c.selfEdits && c.selfEdits.pending) > 0 ? 'green' : 'grey', badge: `${(c.selfEdits && c.selfEdits.pending) || 0} pending`, meta: `applied ${(c.selfEdits && c.selfEdits.applied) || 0} · total ${(c.selfEdits && c.selfEdits.count) || 0}`, items: (c.selfEdits && c.selfEdits.items || []).slice(0, 3).map(e => ({ text: e.title, sub: `${e.file} · ${e.status}`, dot: e.status === 'applied' ? 'green' : (e.status === 'pending' ? 'amber' : 'grey') })), action: 'Open Self-Edit Engine' }),
-    hqCard({ id: 'keys', icon: '🔑', title: 'Keys Limit', color: 'amber', badge: 'OpenRouter', meta: 'key health · auto-refresh', items: [], action: 'Open Keys Management' }),
   ];
 
   grid.innerHTML = `<div class="hq-grid-inner">${cards.join('')}</div>`;
@@ -2539,12 +2482,6 @@ function renderHQ(data) {
 }
 
 function openHqCard(id) {
-  if (id === 'notifications') { showView('notifications'); loadNotificationsFull(); loadNotifications(); return; }
-  if (id === 'vault') { openVaultPanel(); return; }
-  if (id === 'memory') { showView('memory'); loadFacts(); loadMonthlyFiles(); return; }
-  if (id === 'files') { showView('files'); loadFiles(); return; }
-  if (id === 'builder') { startBobBuilderCollab(); return; }
-  if (id === 'selfedit') { showView('selfedit'); loadSelfEdits(); return; }
   if (id === 'keys') {
     showView('keys');
     loadKeys();
@@ -2552,59 +2489,15 @@ function openHqCard(id) {
     keysRefreshTimer = setInterval(loadKeys, 60000);
     return;
   }
+  if (id === 'vault') { openVaultPanel(); return; }
+  if (id === 'memory') { showView('memory'); loadFacts(); loadMonthlyFiles(); return; }
+  if (id === 'files') { showView('files'); loadFiles(); return; }
+  if (id === 'builder') { startBobBuilderCollab(); return; }
   if (id === 'hackathons') { showView('hackathons'); loadHackathons(); return; }
   if (id === 'stalking') { showView('stalking'); loadStalking(); return; }
   if (id === 'routines') { showView('routines'); loadRoutines(); return; }
   if (id === 'live') { showView('live'); loadLive(); return; }
   if (id === 'hq') { showView('hq'); loadHQSummary(); return; }
-}
-
-// ═══════════════════════════════════════════════════════
-// NOTIFICATION CENTER (pop-out page)
-// ═══════════════════════════════════════════════════════
-
-async function loadNotificationsFull() {
-  const list = document.getElementById('notifications-full');
-  try {
-    const { notifications } = await apiFetch('/api/notifications');
-    if (!notifications.length) { list.innerHTML = '<div class="empty-msg">No notifications yet.</div>'; return; }
-    list.innerHTML = notifications.map(n => `
-      <div class="notif-card ${!n.read ? 'unread' : ''}" data-id="${n.id}">
-        <div class="notif-card-head">
-          <span class="notif-card-title">${escHtml(n.title)}</span>
-          <span class="notif-card-time">${new Date(n.createdAt).toLocaleString()}</span>
-        </div>
-        <div class="notif-card-msg">${escHtml(n.message)}</div>
-        <div class="notif-actions">
-          <button class="btn-notif-reply" data-id="${n.id}" data-snippet="${escHtml(n.promptSnippet || n.message)}">💬 Reply in Chat</button>
-          <button class="btn-notif-del" data-id="${n.id}">✕ Delete</button>
-        </div>
-      </div>
-    `).join('');
-
-    list.querySelectorAll('.btn-notif-reply').forEach(btn => btn.addEventListener('click', async () => {
-      const notifId = btn.dataset.id;
-      const snippet = btn.dataset.snippet;
-      await apiFetch(`/api/notifications/${notifId}`, { method: 'DELETE' });
-      closeViews();
-      await createNewSession();
-      const mi = document.getElementById('message-input');
-      mi.value = snippet;
-      mi.dispatchEvent(new Event('input'));
-      await sendMessage();
-      await loadNotifications();
-      await loadSessions();
-      await loadNotificationsFull();
-    }));
-
-    list.querySelectorAll('.btn-notif-del').forEach(btn => btn.addEventListener('click', async () => {
-      await apiFetch(`/api/notifications/${btn.dataset.id}`, { method: 'DELETE' });
-      await loadNotifications();
-      await loadNotificationsFull();
-    }));
-  } catch (err) {
-    list.innerHTML = `<div class="empty-msg">Error: ${escHtml(err.message)}</div>`;
-  }
 }
 
 // ═══════════════════════════════════════════════════════
@@ -3525,74 +3418,7 @@ function formatBytes(bytes) {
   return (bytes / 1048576).toFixed(1) + ' MB';
 }
 
-// -------------------------------------------------------
-// SELF-EDIT ENGINE (view)
-// -------------------------------------------------------
-
-async function loadSelfEdits() {
-  const list = document.getElementById('selfedit-list');
-  try {
-    const { edits } = await apiFetch('/api/self-edit');
-    if (!edits.length) { list.innerHTML = '<div class="empty-msg">Abhi koi self-edit proposal nahi. "Bob improve yourself" bolo, ya review run karo.</div>'; return; }
-    list.innerHTML = edits.map(e => `
-      <div class="selfedit-card ${e.status}">
-        <div class="selfedit-head">
-          <span class="selfedit-title">${escHtml(e.title)}</span>
-          <span class="selfedit-status status-${escHtml(e.status)}">${escHtml(e.status)}${e.type === 'manual' ? ' · manual' : ''}</span>
-        </div>
-        <div class="selfedit-file">📄 ${escHtml(e.file)}</div>
-        ${e.reason ? `<div class="selfedit-reason">${escHtml(e.reason)}</div>` : ''}
-        ${e.diff ? `<pre class="selfedit-diff">${escHtml(e.diff)}</pre>` : ''}
-        ${e.error ? `<div class="selfedit-error">Error: ${escHtml(e.error)}</div>` : ''}
-        ${e.gitLog ? `<div class="selfedit-git">${escHtml(e.gitLog)}</div>` : ''}
-        <div class="selfedit-actions">
-          ${e.status === 'pending' && e.type === 'manual' ? `<button class="btn-small" data-se-approve="${e.id}">✔ Approve</button>` : ''}
-          ${e.status === 'pending' || e.status === 'approved' ? `<button class="btn-small" data-se-apply="${e.id}">🚀 Apply</button>` : ''}
-          ${e.status === 'pending' ? `<button class="btn-small btn-danger" data-se-reject="${e.id}">✕ Reject</button>` : ''}
-          ${e.status === 'failed' ? `<button class="btn-small" data-se-retry="${e.id}">🔁 Retry apply</button>` : ''}
-        </div>
-      </div>
-    `).join('');
-
-    list.querySelectorAll('[data-se-approve]').forEach(b => b.addEventListener('click', async () => {
-      await apiFetch(`/api/self-edit/${b.dataset.seApprove}/approve`, { method: 'POST' });
-      await loadSelfEdits();
-    }));
-    list.querySelectorAll('[data-se-apply]').forEach(b => b.addEventListener('click', async () => {
-      const btn = b; btn.disabled = true; btn.textContent = '⏳ Applying…';
-      try {
-        await apiFetch(`/api/self-edit/${b.dataset.seApply}/apply`, { method: 'POST' });
-        await loadSelfEdits();
-      } catch (err) {
-        btn.disabled = false; btn.textContent = '🚀 Apply';
-        alert('Apply failed: ' + err.message);
-      }
-    }));
-    list.querySelectorAll('[data-se-reject]').forEach(b => b.addEventListener('click', async () => {
-      await apiFetch(`/api/self-edit/${b.dataset.seReject}/reject`, { method: 'POST' });
-      await loadSelfEdits();
-    }));
-    list.querySelectorAll('[data-se-retry]').forEach(b => b.addEventListener('click', async () => {
-      await apiFetch(`/api/self-edit/${b.dataset.seRetry}/apply`, { method: 'POST' });
-      await loadSelfEdits();
-    }));
-  } catch (err) {
-    list.innerHTML = `<div class="empty-msg">Error: ${escHtml(err.message)}</div>`;
-  }
-}
-
-document.addEventListener('click', async (e) => {
-  if (e.target && e.target.id === 'selfedit-run-btn') {
-    e.target.disabled = true; e.target.textContent = '🧪 Running review…';
-    try {
-      await apiFetch('/api/self-edit/run', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) });
-    } catch (err) { console.error('self-edit run:', err.message); }
-    setTimeout(async () => {
-      e.target.disabled = false; e.target.textContent = 'Refresh now';
-      await loadKeys();
-    }, 2000);
-  }
-});
+// ═══════════════════════════════════════════════════════
 
 // ═══════════════════════════════════════════════════════
 // KEYS LIMIT ENGINE (view)
