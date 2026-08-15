@@ -1750,11 +1750,22 @@ body.persona-builder #model-selector { display: none !important; }
 
 /* -- Workspace layouts -------------------------------- */
 .view-workspace .view-body { padding: 0; }
+.view-header-left { display: flex; align-items: center; gap: 10px; }
+.ws-panel-toggle { flex-shrink: 0; color: var(--text2); }
+.ws-panel-toggle:hover { color: var(--text); background: var(--surface); }
 .hack-workspace {
   flex: 1;
   display: grid;
   grid-template-columns: 280px 1fr 300px;
   min-height: 0;
+  transition: grid-template-columns 0.25s ease;
+}
+.hack-workspace.list-collapsed {
+  grid-template-columns: 0 1fr 300px;
+}
+.hack-workspace.list-collapsed .ws-list-col {
+  overflow: hidden;
+  border-right: none;
 }
 .stalk-workspace {
   flex: 1;

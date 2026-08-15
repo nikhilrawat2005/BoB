@@ -2285,6 +2285,14 @@ document.getElementById('sidebar-toggle').addEventListener('click', () => {
   sidebar.classList.toggle('collapsed');
 });
 
+// ── Workspace Left-Panel Toggles (☰ next to workspace title) ──────────────
+document.getElementById('hack-panel-toggle').addEventListener('click', () => {
+  document.querySelector('#view-hackathons .hack-workspace').classList.toggle('list-collapsed');
+});
+document.getElementById('stalk-panel-toggle').addEventListener('click', () => {
+  document.querySelector('#view-stalking .hack-workspace').classList.toggle('list-collapsed');
+});
+
 // ═══════════════════════════════════════════════════════
 // SECRET VAULT
 // ═══════════════════════════════════════════════════════
