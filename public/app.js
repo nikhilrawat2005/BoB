@@ -2856,13 +2856,6 @@ function renderFilesGrid() {
       : `<span class="file-card-badge file-card-badge--media">📦 Asset</span>`;
     const extBadge = ext ? `<span class="file-card-ext-badge">.${ext.toUpperCase()}</span>` : '';
 
-    // For PDFs and office docs stored as Cloudinary 'raw', direct URL often
-    // can't be rendered by the browser. Route them through Google Docs Viewer.
-    const docExts = ['pdf', 'doc', 'docx', 'ppt', 'pptx', 'xls', 'xlsx'];
-    const openUrl = docExts.includes(ext)
-      ? `https://docs.google.com/viewer?url=${encodeURIComponent(f.url)}`
-      : f.url;
-
     return `
       <div class="file-card" id="file-card-${f.id}">
         <div class="file-card-body">
@@ -2882,12 +2875,12 @@ function renderFilesGrid() {
           ${snippet ? `<div class="file-card-preview-snippet">${escHtml(snippet)}…</div>` : ''}
         </div>
         <div class="file-card-actions">
-          <a href="${openUrl}" class="file-action-btn file-action-btn--open" title="Open file" target="_blank" rel="noopener">
+          <button class="file-action-btn file-action-btn--open" data-open-id="${f.id}" title="Open file in browser">
             <span class="file-action-icon">🌐</span><span class="file-action-label">Open</span>
-          </a>
-          <a href="${f.url}" class="file-action-btn file-action-btn--download" title="Download file" download="${escHtml(name)}" target="_blank" rel="noopener">
+          </button>
+          <button class="file-action-btn file-action-btn--download" data-download-id="${f.id}" title="Download file">
             <span class="file-action-icon">⬇️</span><span class="file-action-label">Download</span>
-          </a>
+          </button>
           <button class="file-action-btn file-action-btn--delete" data-delete-id="${f.id}" title="Delete permanently">
             <span class="file-action-icon">🗑️</span><span class="file-action-label">Delete</span>
           </button>
@@ -2896,6 +2889,27 @@ function renderFilesGrid() {
     `;
   }).join('');
 
+  // Attach Open listeners (Streams file directly with inline disposition so PDFs render natively)
+  grid.querySelectorAll('[data-open-id]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const fileId = btn.dataset.openId;
+      const url = `/api/files/${fileId}/view?token=${encodeURIComponent(idToken || '')}`;
+      window.open(url, '_blank', 'noopener');
+    });
+  });
+
+  // Attach Download listeners (Streams file directly with attachment disposition)
+  grid.querySelectorAll('[data-download-id]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const fileId = btn.dataset.downloadId;
+      const url = `/api/files/${fileId}/download?token=${encodeURIComponent(idToken || '')}`;
+      const a = document.createElement('a');
+      a.href = url;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+    });
+  });
 
   // Attach delete listeners
   grid.querySelectorAll('[data-delete-id]').forEach(btn => {

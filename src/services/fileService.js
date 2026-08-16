@@ -47,6 +47,12 @@ async function listFiles(userId) {
   return snap.docs.map(d => ({ id: d.id, ...d.data() }));
 }
 
+async function getFile(userId, fileId) {
+  const doc = await db.collection('users').doc(userId).collection('files').doc(fileId).get();
+  if (!doc.exists) return null;
+  return { id: doc.id, ...doc.data() };
+}
+
 async function deleteFile(userId, fileId) {
   const ref = db.collection('users').doc(userId).collection('files').doc(fileId);
   const snap = await ref.get();
@@ -88,4 +94,5 @@ async function saveGeneratedFile(userId, buffer, filename, mimeType) {
   return { id: ref.id, ...record };
 }
 
-module.exports = { uploadFile, listFiles, deleteFile, saveGeneratedFile };
+module.exports = { uploadFile, listFiles, getFile, deleteFile, saveGeneratedFile };
+

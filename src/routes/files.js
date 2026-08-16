@@ -50,6 +50,85 @@ router.post('/upload', requireAuth, upload.single('file'), async (req, res) => {
   }
 });
 
+// Helper map for clean MIME types
+const MIME_MAP = {
+  pdf: 'application/pdf',
+  png: 'image/png',
+  jpg: 'image/jpeg',
+  jpeg: 'image/jpeg',
+  webp: 'image/webp',
+  gif: 'image/gif',
+  svg: 'image/svg+xml',
+  bmp: 'image/bmp',
+  ico: 'image/x-icon',
+  txt: 'text/plain; charset=utf-8',
+  md: 'text/markdown; charset=utf-8',
+  json: 'application/json',
+  csv: 'text/csv; charset=utf-8',
+  tsv: 'text/tab-separated-values; charset=utf-8',
+  js: 'text/javascript; charset=utf-8',
+  py: 'text/x-python; charset=utf-8',
+  html: 'text/html; charset=utf-8',
+  css: 'text/css; charset=utf-8',
+  mp3: 'audio/mpeg',
+  wav: 'audio/wav',
+  mp4: 'video/mp4',
+  webm: 'video/webm',
+  docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  doc: 'application/msword',
+  xls: 'application/vnd.ms-excel',
+  ppt: 'application/vnd.ms-powerpoint',
+};
+
+// GET /api/files/:id/view  (Streams file with inline disposition so browser renders it natively)
+router.get('/:id/view', requireAuth, async (req, res) => {
+  try {
+    const file = await fileService.getFile(req.userId, req.params.id);
+    if (!file || !file.url) return res.status(404).send('File not found');
+
+    const ext = (path.extname(file.originalName || '').slice(1) || '').toLowerCase();
+    const contentType = MIME_MAP[ext] || file.mimeType || 'application/octet-stream';
+
+    const response = await fetch(file.url);
+    if (!response.ok) return res.redirect(file.url);
+
+    res.setHeader('Content-Type', contentType);
+    res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(file.originalName || 'file')}"`);
+    res.setHeader('Cache-Control', 'public, max-age=86400');
+
+    const arrayBuffer = await response.arrayBuffer();
+    res.send(Buffer.from(arrayBuffer));
+  } catch (err) {
+    console.error('[files/view] error:', err.message);
+    res.status(500).send('Error viewing file: ' + err.message);
+  }
+});
+
+// GET /api/files/:id/download (Streams file with attachment disposition to force download)
+router.get('/:id/download', requireAuth, async (req, res) => {
+  try {
+    const file = await fileService.getFile(req.userId, req.params.id);
+    if (!file || !file.url) return res.status(404).send('File not found');
+
+    const ext = (path.extname(file.originalName || '').slice(1) || '').toLowerCase();
+    const contentType = MIME_MAP[ext] || file.mimeType || 'application/octet-stream';
+
+    const response = await fetch(file.url);
+    if (!response.ok) return res.redirect(file.url);
+
+    res.setHeader('Content-Type', contentType);
+    res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(file.originalName || 'download')}"`);
+
+    const arrayBuffer = await response.arrayBuffer();
+    res.send(Buffer.from(arrayBuffer));
+  } catch (err) {
+    console.error('[files/download] error:', err.message);
+    res.status(500).send('Error downloading file: ' + err.message);
+  }
+});
+
 // GET /api/files
 router.get('/', requireAuth, async (req, res) => {
   try {
