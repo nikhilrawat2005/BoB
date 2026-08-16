@@ -50,7 +50,7 @@ async function getRecentMessages(userId, sessionId, limit = 20) {
   return snap.docs.map(d => d.data());
 }
 
-const VALID_CATEGORIES = ['habits', 'main', 'hackathons', 'stalker', 'vault', 'builder', 'links'];
+const VALID_CATEGORIES = ['habits', 'main', 'hackathons', 'stalker', 'vault', 'builder'];
 
 function detectCategory(text, explicitCategory) {
   if (explicitCategory && VALID_CATEGORIES.includes(explicitCategory)) {
@@ -111,18 +111,6 @@ function detectCategory(text, explicitCategory) {
     t.includes('system setup')
   ) {
     return 'builder';
-  }
-  if (
-    t.startsWith('[link]') ||
-    t.startsWith('[links]') ||
-    t.startsWith('[url]') ||
-    t.includes('http://') ||
-    t.includes('https://') ||
-    t.includes('www.') ||
-    t.includes('bookmark') ||
-    t.includes('reference link')
-  ) {
-    return 'links';
   }
   return 'main';
 }

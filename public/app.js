@@ -2191,14 +2191,6 @@ const MEMORY_CATEGORIES = {
     desc: 'Vibecoding setups, architecture notes, tech stacks & DSA progress',
     emptyMsg: 'No builder or codebase knowledge recorded yet.',
   },
-  links: {
-    key: 'links',
-    title: 'Links & Resources',
-    tag: '[Link]',
-    icon: '🔗',
-    desc: 'Curated URLs, bookmarks, documentation references & web links',
-    emptyMsg: 'No links or bookmarks recorded yet.',
-  },
 };
 
 let allMemoryFacts = [];
