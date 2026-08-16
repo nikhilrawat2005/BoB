@@ -2191,6 +2191,14 @@ const MEMORY_CATEGORIES = {
     desc: 'Vibecoding setups, architecture notes, tech stacks & DSA progress',
     emptyMsg: 'No builder or codebase knowledge recorded yet.',
   },
+  links: {
+    key: 'links',
+    title: 'Links & Resources',
+    tag: '[Link]',
+    icon: '🔗',
+    desc: 'Curated URLs, bookmarks, documentation references & web links',
+    emptyMsg: 'No links or bookmarks recorded yet.',
+  },
 };
 
 let allMemoryFacts = [];
@@ -2743,21 +2751,344 @@ function copyCategoryFacts(catKey, triggerBtn) {
   });
 }
 
-// Files
+// ═══════════════════════════════════════════════════════
+// FILE VAULT & STORAGE WORKSPACE
+// ═══════════════════════════════════════════════════════
+
+let allUploadedFiles = [];
+let activeFileFilter = 'all';
+let activePreviewFile = null;
+
+function getFileExtension(filename) {
+  const parts = String(filename || '').split('.');
+  return parts.length > 1 ? parts.pop().toLowerCase() : '';
+}
+
+function getFileIcon(filename, resourceType) {
+  const ext = getFileExtension(filename);
+  if (['pdf'].includes(ext)) return '📄';
+  if (['doc', 'docx'].includes(ext)) return '📝';
+  if (['xls', 'xlsx', 'csv', 'tsv'].includes(ext)) return '📊';
+  if (['ppt', 'pptx'].includes(ext)) return '📑';
+  if (['jpg', 'jpeg', 'png', 'gif', 'webp', 'ico'].includes(ext) || resourceType === 'image') return '🖼️';
+  if (['mp3', 'wav', 'ogg', 'm4a', 'aac'].includes(ext)) return '🎵';
+  if (['mp4', 'webm', 'mov', 'mkv'].includes(ext) || resourceType === 'video') return '🎬';
+  if (['js', 'ts', 'jsx', 'tsx', 'py', 'cpp', 'c', 'java', 'cs', 'go', 'rs', 'php', 'swift', 'kt', 'sql', 'sh', 'bash', 'css', 'html', 'json', 'xml', 'yaml', 'yml'].includes(ext)) return '💻';
+  if (['txt', 'md', 'toml'].includes(ext)) return '📋';
+  return '📁';
+}
+
+function getFileCategory(filename, resourceType) {
+  const ext = getFileExtension(filename);
+  if (['pdf', 'doc', 'docx', 'ppt', 'pptx', 'txt', 'md'].includes(ext)) return 'docs';
+  if (['xls', 'xlsx', 'csv', 'tsv'].includes(ext)) return 'sheets';
+  if (['js', 'ts', 'jsx', 'tsx', 'py', 'cpp', 'c', 'java', 'cs', 'go', 'rs', 'php', 'swift', 'kt', 'sql', 'sh', 'bash', 'css', 'html', 'json', 'xml', 'yaml', 'yml'].includes(ext)) return 'code';
+  if (['jpg', 'jpeg', 'png', 'gif', 'webp', 'mp3', 'wav', 'ogg', 'm4a', 'mp4', 'webm', 'mov'].includes(ext) || resourceType === 'image' || resourceType === 'video') return 'media';
+  return 'docs';
+}
+
 async function loadFiles() {
-  const list = document.getElementById('files-list');
+  const totalEl    = document.getElementById('file-stat-total');
+  const storageEl  = document.getElementById('file-stat-storage');
+  const countAllEl = document.getElementById('tab-count-all');
+  const readableEl = document.getElementById('file-stat-readable');
+  const assetsEl   = document.getElementById('file-stat-assets');
+
   try {
     const { files } = await apiFetch('/api/files');
-    if (!files || !files.length) { list.innerHTML = '<div class="empty-msg">No files uploaded yet.</div>'; return; }
-    list.innerHTML = files.map(f => `
-      <div class="file-item">
-        <a href="${f.url}" target="_blank" rel="noopener">${escHtml(f.originalName || f.publicId)}</a>
-        <div class="file-meta">${f.resourceType} · ${formatBytes(f.sizeBytes)} · ${new Date(f.createdAt).toLocaleDateString()}</div>
-      </div>
-    `).join('');
+    allUploadedFiles = files || [];
+
+    const readableCount = allUploadedFiles.filter(f => f.textExtracted).length;
+    const assetsCount   = allUploadedFiles.length - readableCount;
+
+    if (totalEl)    totalEl.textContent    = allUploadedFiles.length;
+    if (countAllEl) countAllEl.textContent = allUploadedFiles.length;
+    if (readableEl) readableEl.textContent = readableCount;
+    if (assetsEl)   assetsEl.textContent   = assetsCount;
+
+    const totalBytes = allUploadedFiles.reduce((acc, f) => acc + (Number(f.sizeBytes) || 0), 0);
+    if (storageEl) storageEl.textContent = formatBytes(totalBytes);
+
+    renderFilesGrid();
   } catch (err) {
-    list.innerHTML = `<div class="empty-msg">Error: ${err.message}</div>`;
+    const grid = document.getElementById('files-grid-list');
+    if (grid) grid.innerHTML = `<div class="empty-msg">Error loading files: ${err.message}</div>`;
   }
+}
+
+
+function renderFilesGrid() {
+  const grid = document.getElementById('files-grid-list');
+  const searchInput = document.getElementById('file-vault-search');
+  const query = searchInput ? searchInput.value.trim().toLowerCase() : '';
+
+  if (!grid) return;
+
+  let items = allUploadedFiles;
+
+  if (activeFileFilter !== 'all') {
+    items = items.filter(f => getFileCategory(f.originalName || f.publicId, f.resourceType) === activeFileFilter);
+  }
+
+  if (query) {
+    items = items.filter(f => {
+      const name = (f.originalName || f.publicId || '').toLowerCase();
+      const ext  = (f.extractedText || '').toLowerCase();
+      return name.includes(query) || ext.includes(query);
+    });
+  }
+
+  if (!items.length) {
+    grid.innerHTML = '<div class="empty-msg" style="grid-column: 1 / -1;">No files found matching your filter. Upload one above!</div>';
+    return;
+  }
+
+  grid.innerHTML = items.map(f => {
+    const name = f.originalName || f.publicId || 'Untitled File';
+    const ext  = getFileExtension(name);
+    const icon = getFileIcon(name, f.resourceType);
+    const size = formatBytes(f.sizeBytes || 0);
+    const date = f.createdAt ? new Date(f.createdAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }) : '';
+    const snippet = f.extractedText ? f.extractedText.slice(0, 140).trim() : '';
+
+    const usefulBadge = f.textExtracted
+      ? `<span class="file-card-badge file-card-badge--useful">🤖 AI-Readable</span>`
+      : `<span class="file-card-badge file-card-badge--media">📦 Asset</span>`;
+    const extBadge = ext ? `<span class="file-card-ext-badge">.${ext.toUpperCase()}</span>` : '';
+
+    return `
+      <div class="file-card" id="file-card-${f.id}">
+        <div class="file-card-body">
+          <div class="file-card-top">
+            <div class="file-card-icon-box">${icon}</div>
+            <div style="flex:1; min-width:0;">
+              <div class="file-card-name" title="${escHtml(name)}">${escHtml(name)}</div>
+              <div class="file-card-meta">
+                ${extBadge}
+                <span>${size}</span>
+                <span>•</span>
+                <span>${date}</span>
+              </div>
+              <div class="file-card-badges">${usefulBadge}</div>
+            </div>
+          </div>
+          ${snippet ? `<div class="file-card-preview-snippet" title="${escHtml(snippet)}">${escHtml(snippet)}…</div>` : ''}
+        </div>
+        <div class="file-card-actions">
+          <button class="file-action-btn file-action-btn--preview" data-preview-id="${f.id}" title="Preview &amp; inspect file content">
+            <span class="file-action-icon">👁️</span><span class="file-action-label">Preview</span>
+          </button>
+          <a href="${f.url}" class="file-action-btn file-action-btn--open" title="Open in new tab" target="_blank" rel="noopener">
+            <span class="file-action-icon">🌐</span><span class="file-action-label">Open</span>
+          </a>
+          <a href="${f.url}" class="file-action-btn file-action-btn--download" title="Download file" download="${escHtml(name)}" target="_blank" rel="noopener">
+            <span class="file-action-icon">⬇️</span><span class="file-action-label">Download</span>
+          </a>
+          <button class="file-action-btn file-action-btn--delete" data-delete-id="${f.id}" title="Delete this file permanently">
+            <span class="file-action-icon">🗑️</span><span class="file-action-label">Delete</span>
+          </button>
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  // Attach preview listeners
+  grid.querySelectorAll('[data-preview-id]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const file = allUploadedFiles.find(f => f.id === btn.dataset.previewId);
+      if (file) openFilePreviewModal(file);
+    });
+  });
+
+  // Attach delete listeners
+  grid.querySelectorAll('[data-delete-id]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const file = allUploadedFiles.find(f => f.id === btn.dataset.deleteId);
+      if (file) deleteUploadedFile(file.id, file.originalName || 'file');
+    });
+  });
+}
+
+// ── File Preview Modal ───────────────────────────────────
+function openFilePreviewModal(file) {
+  activePreviewFile = file;
+  const modal = document.getElementById('file-preview-modal');
+  const iconEl = document.getElementById('modal-file-icon');
+  const nameEl = document.getElementById('modal-file-name');
+  const metaEl = document.getElementById('modal-file-meta');
+  const statusEl = document.getElementById('modal-extract-status');
+  const bodyEl = document.getElementById('modal-preview-body');
+  const dlLink = document.getElementById('modal-download-link');
+  const openLink = document.getElementById('modal-open-link');
+
+  if (!modal) return;
+
+  const name = file.originalName || file.publicId || 'File Preview';
+  const icon = getFileIcon(name, file.resourceType);
+  const size = formatBytes(file.sizeBytes || 0);
+  const date = file.createdAt ? new Date(file.createdAt).toLocaleString() : '';
+
+  if (iconEl) iconEl.textContent = icon;
+  if (nameEl) nameEl.textContent = name;
+  if (metaEl) metaEl.textContent = `${file.resourceType || 'file'} · ${size} · Uploaded ${date}`;
+
+  if (statusEl) {
+    if (file.textExtracted) {
+      statusEl.textContent = `✅ Text content extracted & accessible in Bob's AI memory`;
+      statusEl.style.color = 'var(--green)';
+    } else {
+      statusEl.textContent = `ℹ️ Binary / Media asset`;
+      statusEl.style.color = 'var(--text3)';
+    }
+  }
+
+  if (dlLink) {
+    dlLink.href = file.url;
+    dlLink.download = name;
+  }
+  if (openLink) {
+    openLink.href = file.url;
+  }
+
+  // Populate preview body
+  if (bodyEl) {
+    const ext = getFileExtension(name);
+    if (['jpg', 'jpeg', 'png', 'gif', 'webp'].includes(ext) || file.resourceType === 'image') {
+      bodyEl.innerHTML = `<img src="${file.url}" alt="${escHtml(name)}" />`;
+    } else if (file.extractedText) {
+      bodyEl.innerHTML = `
+        <div style="margin-bottom:8px; font-size:12px; color:var(--text3);">📄 Extracted Document Content (${file.extractedText.length} characters):</div>
+        <div class="file-preview-text-block">${escHtml(file.extractedText)}</div>
+      `;
+    } else {
+      bodyEl.innerHTML = `
+        <div style="text-align:center; padding: 40px 20px; color:var(--text2);">
+          <div style="font-size:48px; margin-bottom:12px;">${icon}</div>
+          <div style="font-size:15px; font-weight:600; margin-bottom:6px;">${escHtml(name)}</div>
+          <p style="font-size:13px; color:var(--text3); max-width:400px; margin:0 auto 16px;">This file type does not support direct text preview. You can open it in a new browser tab or download it directly.</p>
+          <a href="${file.url}" target="_blank" rel="noopener" class="btn-small btn-accent" style="text-decoration:none; display:inline-block;">🌐 Open in Browser</a>
+        </div>
+      `;
+    }
+  }
+
+  modal.classList.remove('hidden');
+}
+
+function closeFilePreviewModal() {
+  const modal = document.getElementById('file-preview-modal');
+  if (modal) modal.classList.add('hidden');
+  activePreviewFile = null;
+}
+
+const modalCloseBtn = document.getElementById('modal-preview-close');
+if (modalCloseBtn) modalCloseBtn.addEventListener('click', closeFilePreviewModal);
+
+const modalBackdrop = document.getElementById('file-preview-backdrop');
+if (modalBackdrop) modalBackdrop.addEventListener('click', closeFilePreviewModal);
+
+const modalDeleteBtn = document.getElementById('modal-delete-btn');
+if (modalDeleteBtn) {
+  modalDeleteBtn.addEventListener('click', () => {
+    if (activePreviewFile) {
+      deleteUploadedFile(activePreviewFile.id, activePreviewFile.originalName || 'file');
+    }
+  });
+}
+
+// ── Delete File Handler ──────────────────────────────────
+async function deleteUploadedFile(fileId, fileName) {
+  if (!confirm(`Are you sure you want to delete "${fileName}"?\nThis will remove it from Bob's storage permanently.`)) {
+    return;
+  }
+  try {
+    await apiFetch(`/api/files/${fileId}`, { method: 'DELETE' });
+    closeFilePreviewModal();
+    await loadFiles();
+  } catch (err) {
+    alert('Failed to delete file: ' + err.message);
+  }
+}
+
+// ── Search & Filter Tabs Listeners ───────────────────────
+const fileVaultSearch = document.getElementById('file-vault-search');
+if (fileVaultSearch) {
+  fileVaultSearch.addEventListener('input', () => renderFilesGrid());
+}
+
+const fileFilterTabs = document.getElementById('file-filter-tabs');
+if (fileFilterTabs) {
+  fileFilterTabs.querySelectorAll('.file-tab-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      fileFilterTabs.querySelectorAll('.file-tab-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      activeFileFilter = btn.dataset.filter || 'all';
+      renderFilesGrid();
+    });
+  });
+}
+
+const fileVaultRefreshBtn = document.getElementById('file-vault-refresh-btn');
+if (fileVaultRefreshBtn) {
+  fileVaultRefreshBtn.addEventListener('click', () => loadFiles());
+}
+
+// ── Upload Handlers ──────────────────────────────────────
+const fileVaultUploadInput = document.getElementById('file-vault-upload-input');
+const fileVaultUploadBtn   = document.getElementById('file-vault-upload-btn');
+const dropzoneSelectBtn    = document.getElementById('dropzone-select-btn');
+const fileDropzone         = document.getElementById('file-dropzone');
+const dropzoneProgress     = document.getElementById('dropzone-upload-progress');
+
+if (fileVaultUploadBtn && fileVaultUploadInput) {
+  fileVaultUploadBtn.addEventListener('click', () => fileVaultUploadInput.click());
+}
+
+if (dropzoneSelectBtn && fileVaultUploadInput) {
+  dropzoneSelectBtn.addEventListener('click', () => fileVaultUploadInput.click());
+}
+
+async function handleFileUploadProcess(file) {
+  if (!file) return;
+  if (dropzoneProgress) dropzoneProgress.classList.remove('hidden');
+
+  try {
+    const uploaded = await uploadFileRecord(file);
+    if (uploaded) {
+      await loadFiles();
+    }
+  } catch (err) {
+    alert('Upload error: ' + err.message);
+  } finally {
+    if (dropzoneProgress) dropzoneProgress.classList.add('hidden');
+    if (fileVaultUploadInput) fileVaultUploadInput.value = '';
+  }
+}
+
+if (fileVaultUploadInput) {
+  fileVaultUploadInput.addEventListener('change', (e) => {
+    const file = e.target.files && e.target.files[0];
+    if (file) handleFileUploadProcess(file);
+  });
+}
+
+// Drag and drop on dropzone
+if (fileDropzone) {
+  fileDropzone.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    fileDropzone.classList.add('dragover');
+  });
+
+  fileDropzone.addEventListener('dragleave', () => {
+    fileDropzone.classList.remove('dragover');
+  });
+
+  fileDropzone.addEventListener('drop', (e) => {
+    e.preventDefault();
+    fileDropzone.classList.remove('dragover');
+    const file = e.dataTransfer.files && e.dataTransfer.files[0];
+    if (file) handleFileUploadProcess(file);
+  });
 }
 
 // ═══════════════════════════════════════════════════════

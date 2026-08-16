@@ -434,6 +434,7 @@
                 <button class="cat-tab-btn" data-cat="stalker">🕵️ Stalker</button>
                 <button class="cat-tab-btn" data-cat="vault">🔒 Secret Vault</button>
                 <button class="cat-tab-btn" data-cat="builder">🛠️ Builder</button>
+                <button class="cat-tab-btn" data-cat="links">🔗 Links & Resources</button>
               </div>
 
               <div class="add-fact-row" style="margin-top: 12px;">
@@ -482,20 +483,102 @@
           </div>
         </section>
 
-        <!-- Files workspace -->
+        <!-- Files workspace (Full Document & File Management Vault) -->
         <section class="view" id="view-files">
-          <div class="side-panel workspace-panel">
-            <div class="panel-header">
-              <span>Uploaded Files</span>
-              <button class="panel-close view-close" title="Close">✕</button>
+          <div class="view-header">
+            <div>
+              <h2 class="view-title">📁 File Vault & Storage</h2>
+              <p class="view-sub">Manage uploaded documents, inspect content, download, and delete unused files</p>
             </div>
-            <div class="panel-body">
-              <div id="files-list" class="files-list">
-                <div class="empty-msg">No files uploaded yet.</div>
+            <div class="view-header-actions">
+              <input type="file" id="file-vault-upload-input" style="display:none;" />
+              <button id="file-vault-upload-btn" class="btn-small btn-accent" title="Upload a new file">📤 Upload File</button>
+              <button id="file-vault-refresh-btn" class="btn-small" style="background:var(--surface2); border:1px solid var(--border2);" title="Refresh files list">🔄 Refresh</button>
+              <button class="view-close icon-btn" title="Close (back to chat)">✕</button>
+            </div>
+          </div>
+
+          <div class="view-body file-vault-body">
+            <!-- Summary Bar -->
+            <div class="file-summary-bar">
+              <div class="file-stats-group">
+                <div class="file-stat-pill">
+                  <span>📊 Total Files:</span> <strong id="file-stat-total">0</strong>
+                </div>
+                <div class="file-stat-pill">
+                  <span>💾 Storage Used:</span> <strong id="file-stat-storage">0 KB</strong>
+                </div>
+                <div class="file-stat-pill file-stat-pill--useful">
+                  <span>🤖 AI-Readable:</span> <strong id="file-stat-readable">0</strong>
+                </div>
+                <div class="file-stat-pill file-stat-pill--waste">
+                  <span>📦 Assets Only:</span> <strong id="file-stat-assets">0</strong>
+                </div>
               </div>
+              <div class="file-search-wrap">
+                <input type="text" id="file-vault-search" placeholder="🔍 Search files by name or type..." />
+              </div>
+            </div>
+
+            <!-- Drag & Drop Upload Zone -->
+            <div class="file-dropzone" id="file-dropzone">
+              <div class="file-dropzone-inner">
+                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                <div class="dropzone-text">
+                  <strong>Click to upload or drag & drop files here</strong>
+                  <span>Supports PDF, DOCX, XLSX, TXT, MD, CSV, Code, Images & Audio</span>
+                </div>
+                <button class="btn-small btn-accent" id="dropzone-select-btn" type="button">Browse Computer</button>
+              </div>
+              <div id="dropzone-upload-progress" class="dropzone-progress hidden">
+                <div class="spinner"></div>
+                <span id="dropzone-progress-text">Uploading and analyzing file…</span>
+              </div>
+            </div>
+
+            <!-- Filter Categories -->
+            <div class="file-filter-tabs" id="file-filter-tabs">
+              <button class="file-tab-btn active" data-filter="all">All Files (<span id="tab-count-all">0</span>)</button>
+              <button class="file-tab-btn" data-filter="docs">📄 Documents & PDFs</button>
+              <button class="file-tab-btn" data-filter="sheets">📊 Sheets & CSV</button>
+              <button class="file-tab-btn" data-filter="code">💻 Code & Text</button>
+              <button class="file-tab-btn" data-filter="media">🖼️ Media / Images</button>
+            </div>
+
+            <!-- Files Grid / List -->
+            <div id="files-grid-list" class="files-grid-list">
+              <div class="empty-msg">Loading files…</div>
             </div>
           </div>
         </section>
+
+        <!-- File Content Preview Modal -->
+        <div id="file-preview-modal" class="file-preview-modal hidden">
+          <div class="file-preview-backdrop" id="file-preview-backdrop"></div>
+          <div class="file-preview-dialog">
+            <div class="file-preview-header">
+              <div class="file-preview-header-info">
+                <span id="modal-file-icon" style="font-size:20px;">📄</span>
+                <div>
+                  <h3 id="modal-file-name" class="modal-file-name">Document Title</h3>
+                  <span id="modal-file-meta" class="modal-file-meta">PDF · 1.2 MB</span>
+                </div>
+              </div>
+              <button class="icon-btn" id="modal-preview-close">✕</button>
+            </div>
+            <div class="file-preview-body" id="modal-preview-body">
+              <!-- Content injected here (Text preview / Image preview / Download frame) -->
+            </div>
+            <div class="file-preview-footer">
+              <span id="modal-extract-status" class="modal-extract-status"></span>
+              <div class="file-preview-footer-actions">
+                <a id="modal-download-link" class="btn-small" style="background:var(--surface2); border:1px solid var(--border2); text-decoration:none;" target="_blank" download>⬇️ Download</a>
+                <a id="modal-open-link" class="btn-small btn-accent" style="text-decoration:none;" target="_blank" rel="noopener">🌐 Open in New Tab</a>
+                <button id="modal-delete-btn" class="btn-small" style="background:rgba(239,68,68,0.2); border:1px solid rgba(239,68,68,0.4); color:#fca5a5;">🗑️ Delete File</button>
+              </div>
+            </div>
+          </div>
+        </div>
 
         <!-- Secret Vault workspace -->
         <section class="view" id="view-vault">
