@@ -2849,12 +2849,19 @@ function renderFilesGrid() {
     const icon = getFileIcon(name, f.resourceType);
     const size = formatBytes(f.sizeBytes || 0);
     const date = f.createdAt ? new Date(f.createdAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }) : '';
-    const snippet = f.extractedText ? f.extractedText.slice(0, 140).trim() : '';
+    const snippet = f.extractedText ? f.extractedText.slice(0, 120).trim() : '';
 
     const usefulBadge = f.textExtracted
       ? `<span class="file-card-badge file-card-badge--useful">🤖 AI-Readable</span>`
       : `<span class="file-card-badge file-card-badge--media">📦 Asset</span>`;
     const extBadge = ext ? `<span class="file-card-ext-badge">.${ext.toUpperCase()}</span>` : '';
+
+    // For PDFs and office docs stored as Cloudinary 'raw', direct URL often
+    // can't be rendered by the browser. Route them through Google Docs Viewer.
+    const docExts = ['pdf', 'doc', 'docx', 'ppt', 'pptx', 'xls', 'xlsx'];
+    const openUrl = docExts.includes(ext)
+      ? `https://docs.google.com/viewer?url=${encodeURIComponent(f.url)}`
+      : f.url;
 
     return `
       <div class="file-card" id="file-card-${f.id}">
@@ -2872,19 +2879,16 @@ function renderFilesGrid() {
               <div class="file-card-badges">${usefulBadge}</div>
             </div>
           </div>
-          ${snippet ? `<div class="file-card-preview-snippet" title="${escHtml(snippet)}">${escHtml(snippet)}…</div>` : ''}
+          ${snippet ? `<div class="file-card-preview-snippet">${escHtml(snippet)}…</div>` : ''}
         </div>
         <div class="file-card-actions">
-          <button class="file-action-btn file-action-btn--preview" data-preview-id="${f.id}" title="Preview &amp; inspect file content">
-            <span class="file-action-icon">👁️</span><span class="file-action-label">Preview</span>
-          </button>
-          <a href="${f.url}" class="file-action-btn file-action-btn--open" title="Open in new tab" target="_blank" rel="noopener">
+          <a href="${openUrl}" class="file-action-btn file-action-btn--open" title="Open file" target="_blank" rel="noopener">
             <span class="file-action-icon">🌐</span><span class="file-action-label">Open</span>
           </a>
           <a href="${f.url}" class="file-action-btn file-action-btn--download" title="Download file" download="${escHtml(name)}" target="_blank" rel="noopener">
             <span class="file-action-icon">⬇️</span><span class="file-action-label">Download</span>
           </a>
-          <button class="file-action-btn file-action-btn--delete" data-delete-id="${f.id}" title="Delete this file permanently">
+          <button class="file-action-btn file-action-btn--delete" data-delete-id="${f.id}" title="Delete permanently">
             <span class="file-action-icon">🗑️</span><span class="file-action-label">Delete</span>
           </button>
         </div>
@@ -2892,13 +2896,6 @@ function renderFilesGrid() {
     `;
   }).join('');
 
-  // Attach preview listeners
-  grid.querySelectorAll('[data-preview-id]').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const file = allUploadedFiles.find(f => f.id === btn.dataset.previewId);
-      if (file) openFilePreviewModal(file);
-    });
-  });
 
   // Attach delete listeners
   grid.querySelectorAll('[data-delete-id]').forEach(btn => {
