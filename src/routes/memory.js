@@ -14,15 +14,15 @@ router.get('/facts', requireAuth, async (req, res) => {
   }
 });
 
-// POST /api/memory/facts  { text }
+// POST /api/memory/facts  { text, category }
 router.post('/facts', requireAuth, async (req, res) => {
-  const { text } = req.body;
+  const { text, category } = req.body;
   if (!text) return res.status(400).json({ error: 'text is required' });
-  if (typeof text !== 'string' || text.length > 1000) {
-    return res.status(400).json({ error: 'text must be a string under 1000 characters' });
+  if (typeof text !== 'string' || text.length > 2000) {
+    return res.status(400).json({ error: 'text must be a string under 2000 characters' });
   }
   try {
-    const fact = await memory.addFact(req.userId, text);
+    const fact = await memory.addFact(req.userId, text, category);
     res.json({ fact });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -39,15 +39,51 @@ router.delete('/facts/:id', requireAuth, async (req, res) => {
   }
 });
 
-// PUT /api/memory/facts/:id  { text }
+// PUT /api/memory/facts/:id  { text, category }
 router.put('/facts/:id', requireAuth, async (req, res) => {
-  const { text } = req.body;
+  const { text, category } = req.body;
   if (!text || typeof text !== 'string') {
     return res.status(400).json({ error: 'Valid text is required' });
   }
   try {
-    const updated = await memory.updateFact(req.userId, req.params.id, text.trim());
+    const updated = await memory.updateFact(req.userId, req.params.id, text.trim(), category);
     res.json({ success: true, fact: updated });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PUT /api/memory/facts/:id/category { category }
+router.put('/facts/:id/category', requireAuth, async (req, res) => {
+  const { category } = req.body;
+  if (!category) return res.status(400).json({ error: 'category is required' });
+  try {
+    const updated = await memory.updateFactCategory(req.userId, req.params.id, category);
+    res.json({ success: true, fact: updated });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/memory/bulk-category  { category, points: [...] | content: "..." }
+router.post('/bulk-category', requireAuth, async (req, res) => {
+  const { category, points, content } = req.body;
+  if (!category) return res.status(400).json({ error: 'category is required' });
+  try {
+    const inputPoints = points || content || [];
+    const result = await memory.saveCategoryFacts(req.userId, category, inputPoints);
+    res.json({ success: true, ...result });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/memory/bulk-all  { factsByCategory }
+router.post('/bulk-all', requireAuth, async (req, res) => {
+  const { factsByCategory } = req.body;
+  try {
+    const result = await memory.saveAllFactsBulk(req.userId, factsByCategory || {});
+    res.json(result);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

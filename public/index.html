@@ -378,24 +378,106 @@
 
         <!-- Memory workspace -->
         <section class="view" id="view-memory">
-          <div class="side-panel workspace-panel memory-full-panel">
-            <div class="panel-header">
-              <span>🧠 Bob's Core Memory (Master Profile)</span>
-              <button class="panel-close view-close" title="Close">✕</button>
+          <div class="view-header">
+            <div>
+              <h2 class="view-title" id="memory-main-title">🧠 Bob's Memory Hub</h2>
+              <p class="view-sub" id="memory-main-sub">Domain-isolated memory cards & full-page document editor</p>
             </div>
-            <div class="panel-body">
-              <div style="margin-bottom: 12px; display: flex; gap: 8px; flex-wrap: wrap;">
-                <button id="memory-consolidate-btn" class="btn-small btn-accent" title="Combine all past memories & chunks into editable points">📦 Combine & Import All Stored Memory</button>
+            <div class="view-header-actions">
+              <button id="memory-consolidate-btn" class="btn-small btn-accent" title="Combine all past memories & chunks into editable points">📦 Combine & Import</button>
+              <button id="memory-all-doc-btn" class="btn-small" style="background:var(--surface2); border:1px solid var(--border2);" title="Open entire memory database as editable document page">📄 All Memory Document</button>
+              <button class="view-close icon-btn" title="Close (back to chat)">✕</button>
+            </div>
+          </div>
+
+          <div class="view-body memory-view-body">
+            <!-- 1. DASHBOARD VIEW: CATEGORY CARDS GRID -->
+            <div id="memory-dashboard-view" class="memory-subview">
+              <div class="memory-summary-bar">
+                <div class="memory-stats-badge">
+                  <span>📊 Total Saved Points:</span> <strong id="facts-total-count">0</strong>
+                </div>
+                <div class="memory-search-wrap">
+                  <input type="text" id="memory-global-search" placeholder="🔍 Search across all memory cards..." />
+                </div>
               </div>
-              <div class="add-fact-row">
-                <input id="fact-input" type="text" placeholder="Add a custom fact about you (e.g. 'Prefers dark mode', 'Working on Bob AI')..." />
-                <button id="add-fact-btn" class="btn-small">＋ Add</button>
+
+              <div class="memory-cards-grid" id="memory-cards-grid">
+                <!-- Cards dynamically populated -->
               </div>
-              <div class="panel-section-title" style="display:flex; justify-content:space-between; align-items:center;">
-                <span>📝 All Memory Points (<span id="facts-count">0</span>)</span>
-                <span style="font-size:10px; color:var(--text3); font-weight:normal;">Click ✏️ to edit inline</span>
+            </div>
+
+            <!-- 2. CATEGORY DETAIL VIEW -->
+            <div id="memory-category-view" class="memory-subview hidden">
+              <div class="category-nav-bar">
+                <button id="memory-back-to-cards-btn" class="memory-back-btn">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
+                  <span>← Back to Memory Cards</span>
+                </button>
+                <div class="category-title-badge">
+                  <span id="cat-view-icon">🎯</span>
+                  <span id="cat-view-title" style="font-weight:600;">Habits & Preferences</span>
+                  <span class="cat-count-pill" id="cat-view-count">0 points</span>
+                </div>
+                <div class="category-actions-right">
+                  <button id="cat-doc-edit-btn" class="btn-small btn-accent" title="Edit all points in this card as a single document page">📝 Bulk Edit Page</button>
+                  <button id="cat-copy-all-btn" class="btn-small" style="background:var(--surface2); border:1px solid var(--border2);" title="Copy all points in this card to clipboard">📋 Copy All</button>
+                </div>
               </div>
-              <div id="facts-list" class="facts-list"></div>
+
+              <!-- Quick category switch tabs -->
+              <div class="memory-cat-tabs" id="memory-cat-tabs">
+                <button class="cat-tab-btn" data-cat="all">All Points</button>
+                <button class="cat-tab-btn" data-cat="habits">🎯 Habits/Preferences</button>
+                <button class="cat-tab-btn" data-cat="main">🧠 Main Memory</button>
+                <button class="cat-tab-btn" data-cat="hackathons">🏆 Hackathons</button>
+                <button class="cat-tab-btn" data-cat="stalker">🕵️ Stalker</button>
+                <button class="cat-tab-btn" data-cat="vault">🔒 Secret Vault</button>
+                <button class="cat-tab-btn" data-cat="builder">🛠️ Builder</button>
+              </div>
+
+              <div class="add-fact-row" style="margin-top: 12px;">
+                <input id="fact-input" type="text" placeholder="Add a new point to this card..." />
+                <button id="add-fact-btn" class="btn-small">＋ Add Point</button>
+              </div>
+
+              <div class="category-search-row">
+                <input type="text" id="cat-fact-search" placeholder="🔍 Filter points in this card..." />
+                <span class="cat-filter-count" id="cat-filter-count"></span>
+              </div>
+
+              <div id="facts-list" class="facts-list" style="margin-top: 10px;"></div>
+            </div>
+
+            <!-- 3. FULL-PAGE DOCUMENT TEXT EDITOR -->
+            <div id="memory-document-view" class="memory-subview hidden">
+              <div class="doc-editor-header">
+                <div class="doc-editor-left">
+                  <button id="doc-back-btn" class="memory-back-btn">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
+                    <span>← Back to Card View</span>
+                  </button>
+                  <div class="doc-title-info">
+                    <h3 id="doc-editor-title" style="margin:0; font-size:16px;">📝 Page Editor</h3>
+                    <p style="margin:2px 0 0; font-size:12px; color:var(--text3);">One point per line. Copy, paste, edit or rearrange whole text and save in one click.</p>
+                  </div>
+                </div>
+                <div class="doc-editor-actions">
+                  <button id="doc-copy-btn" class="btn-small" style="background:var(--surface2); border:1px solid var(--border2);" title="Copy whole text to clipboard">📋 Copy Entire Document</button>
+                  <button id="doc-clean-btn" class="btn-small" style="background:var(--surface2); border:1px solid var(--border2);" title="Remove empty lines and clean bullet markers">🧹 Clean Lines</button>
+                  <button id="doc-save-btn" class="btn-small btn-accent" title="Save changes to database">💾 Save All Changes</button>
+                </div>
+              </div>
+
+              <div class="doc-stats-bar">
+                <span id="doc-stats-lines">Lines: 0</span>
+                <span id="doc-stats-chars">Characters: 0</span>
+                <span id="doc-copy-toast" class="doc-toast hidden">✅ Copied to clipboard!</span>
+              </div>
+
+              <div class="doc-editor-body">
+                <textarea id="doc-editor-textarea" class="doc-textarea" placeholder="Type or paste memory points here (one point per line)..." spellcheck="false"></textarea>
+              </div>
             </div>
           </div>
         </section>

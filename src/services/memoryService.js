@@ -50,37 +50,208 @@ async function getRecentMessages(userId, sessionId, limit = 20) {
   return snap.docs.map(d => d.data());
 }
 
-async function addFact(userId, text) {
+const VALID_CATEGORIES = ['habits', 'main', 'hackathons', 'stalker', 'vault', 'builder'];
+
+function detectCategory(text, explicitCategory) {
+  if (explicitCategory && VALID_CATEGORIES.includes(explicitCategory)) {
+    return explicitCategory;
+  }
+  const t = String(text || '').toLowerCase().trim();
+  if (
+    t.startsWith('[habit/preference]') ||
+    t.startsWith('[habit]') ||
+    t.startsWith('[preference]') ||
+    t.includes('prefers ') ||
+    t.includes('habit/preference') ||
+    t.includes('habits / preferences')
+  ) {
+    return 'habits';
+  }
+  if (
+    t.includes('hackathon') ||
+    t.includes('devpost') ||
+    t.includes('unstop') ||
+    t.includes('problem statement') ||
+    t.includes('hackathon rules') ||
+    t.includes('team member') ||
+    t.includes('submission deadline')
+  ) {
+    return 'hackathons';
+  }
+  if (
+    t.includes('stalker') ||
+    t.includes('instagram.com') ||
+    t.includes('linkedin.com') ||
+    t.includes('github.com/') ||
+    t.includes('twitter.com') ||
+    t.includes('x.com/') ||
+    t.includes('target profile') ||
+    t.includes('crawled') ||
+    t.includes('profiles to be stored') ||
+    t.includes('profiles are:')
+  ) {
+    return 'stalker';
+  }
+  if (
+    t.includes('secret vault') ||
+    t.includes('vault') ||
+    t.includes('passcode') ||
+    t.includes('confidential') ||
+    t.includes('private key') ||
+    t.includes('secret:') ||
+    t.includes('pin:')
+  ) {
+    return 'vault';
+  }
+  if (
+    t.includes('builder') ||
+    t.includes('codebase') ||
+    t.includes('architecture') ||
+    t.includes('vibecoding') ||
+    t.includes('backend') ||
+    t.includes('frontend') ||
+    t.includes('tech stack') ||
+    t.includes('learning dsa') ||
+    t.includes('data structures and algorithms') ||
+    t.includes('system setup')
+  ) {
+    return 'builder';
+  }
+  return 'main';
+}
+
+async function addFact(userId, text, category = null) {
   const ref = db.collection('users').doc(userId).collection('facts').doc();
   const now = Date.now();
-  await ref.set({ text, createdAt: now });
-  return { id: ref.id, text, createdAt: now };
+  const cat = detectCategory(text, category);
+  const factData = { text: String(text).trim(), category: cat, createdAt: now, updatedAt: now };
+  await ref.set(factData);
+  return { id: ref.id, ...factData };
 }
 
 // Adds a fact only if an identical one doesn't already exist (case-insensitive).
 // Returns null when skipped — used by auto-extraction paths to avoid duplicates.
-async function addFactUnique(userId, text) {
+async function addFactUnique(userId, text, category = null) {
   const snap = await db.collection('users').doc(userId).collection('facts').get();
   const needle = String(text).trim().toLowerCase();
   const exists = snap.docs.some(d => (String(d.data().text || '').trim().toLowerCase() === needle));
   if (exists) return null;
-  return addFact(userId, text);
+  return addFact(userId, text, category);
 }
 
 async function listFacts(userId) {
   const snap = await db.collection('users').doc(userId).collection('facts').orderBy('createdAt', 'asc').get();
-  return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+  return snap.docs.map(d => {
+    const data = d.data() || {};
+    const text = data.text || '';
+    const category = detectCategory(text, data.category);
+    return {
+      id: d.id,
+      text,
+      category,
+      createdAt: data.createdAt || 0,
+      updatedAt: data.updatedAt || data.createdAt || 0,
+    };
+  });
 }
 
 async function deleteFact(userId, factId) {
   await db.collection('users').doc(userId).collection('facts').doc(factId).delete();
 }
 
-async function updateFact(userId, factId, text) {
+async function updateFact(userId, factId, text, category = null) {
   const ref = db.collection('users').doc(userId).collection('facts').doc(factId);
   const now = Date.now();
-  await ref.set({ text, updatedAt: now }, { merge: true });
-  return { id: factId, text, updatedAt: now };
+  const cat = detectCategory(text, category);
+  const updateData = { text: String(text).trim(), category: cat, updatedAt: now };
+  await ref.set(updateData, { merge: true });
+  return { id: factId, ...updateData };
+}
+
+async function updateFactCategory(userId, factId, category) {
+  if (!VALID_CATEGORIES.includes(category)) {
+    throw new Error(`Invalid category: ${category}`);
+  }
+  const ref = db.collection('users').doc(userId).collection('facts').doc(factId);
+  const now = Date.now();
+  await ref.set({ category, updatedAt: now }, { merge: true });
+  return { id: factId, category, updatedAt: now };
+}
+
+/**
+ * Bulk saves / replaces all facts of a specific category from raw lines/points
+ */
+async function saveCategoryFacts(userId, category, points) {
+  if (!VALID_CATEGORIES.includes(category)) {
+    throw new Error(`Invalid category: ${category}`);
+  }
+  
+  // Clean points array
+  const cleanPoints = (Array.isArray(points) ? points : String(points || '').split(/\r?\n/))
+    .map(p => p.replace(/^[-*•\d.)\s]+/, '').trim())
+    .filter(p => p.length > 0);
+
+  // Fetch all existing facts
+  const existingFacts = await listFacts(userId);
+  
+  // Find docs that currently belong to this category
+  const toDelete = existingFacts.filter(f => f.category === category);
+  
+  // Delete old docs of this category
+  const batchSize = 100;
+  for (let i = 0; i < toDelete.length; i += batchSize) {
+    const chunk = toDelete.slice(i, i + batchSize);
+    const batch = db.batch();
+    chunk.forEach(f => {
+      batch.delete(db.collection('users').doc(userId).collection('facts').doc(f.id));
+    });
+    await batch.commit();
+  }
+
+  // Insert new points
+  const now = Date.now();
+  const added = [];
+  for (let i = 0; i < cleanPoints.length; i += batchSize) {
+    const chunk = cleanPoints.slice(i, i + batchSize);
+    const batch = db.batch();
+    chunk.forEach((pt, idx) => {
+      let finalPoint = pt;
+      // Auto-tag habits if not already tagged
+      if (category === 'habits' && !finalPoint.toLowerCase().startsWith('[habit/preference]')) {
+        finalPoint = `[Habit/Preference]: ${finalPoint}`;
+      }
+      const ref = db.collection('users').doc(userId).collection('facts').doc();
+      const docData = {
+        text: finalPoint,
+        category,
+        createdAt: now + i + idx,
+        updatedAt: now + i + idx,
+      };
+      batch.set(ref, docData);
+      added.push({ id: ref.id, ...docData });
+    });
+    await batch.commit();
+  }
+
+  const updatedAll = await listFacts(userId);
+  return {
+    category,
+    savedCount: added.length,
+    facts: updatedAll,
+  };
+}
+
+/**
+ * Bulk saves all facts organized by category map: { habits: [...], main: [...], ... }
+ */
+async function saveAllFactsBulk(userId, factsByCategory) {
+  for (const cat of VALID_CATEGORIES) {
+    if (factsByCategory && Array.isArray(factsByCategory[cat])) {
+      await saveCategoryFacts(userId, cat, factsByCategory[cat]);
+    }
+  }
+  const updatedAll = await listFacts(userId);
+  return { success: true, totalFacts: updatedAll.length, facts: updatedAll };
 }
 
 async function consolidateAllMemory(userId) {
@@ -312,6 +483,10 @@ module.exports = {
   listFacts,
   deleteFact,
   updateFact,
+  updateFactCategory,
+  saveCategoryFacts,
+  saveAllFactsBulk,
+  detectCategory,
   consolidateAllMemory,
   saveWeeklySummary,
   listWeeklySummaries,

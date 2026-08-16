@@ -2138,7 +2138,76 @@ async function downloadMonthlyFile(monthId) {
   }
 }
 
-// ── Memory Consolidate & Editable Facts ──────────────────
+// ═══════════════════════════════════════════════════════
+// MEMORY HUB: CARDS, CATEGORY VIEW & BULK DOCUMENT EDITOR
+// ═══════════════════════════════════════════════════════
+
+const MEMORY_CATEGORIES = {
+  habits: {
+    key: 'habits',
+    title: 'Habits & Preferences',
+    tag: '[Habit/Preference]',
+    icon: '🎯',
+    desc: 'Working habits, communication tone, coding preferences & active personal goals',
+    emptyMsg: 'No habits or preferences recorded yet.',
+  },
+  main: {
+    key: 'main',
+    title: 'Main Memory',
+    tag: '[Main]',
+    icon: '🧠',
+    desc: 'Core profile facts, resume, life context & verified personal background',
+    emptyMsg: 'No core memory facts recorded yet.',
+  },
+  hackathons: {
+    key: 'hackathons',
+    title: 'Hackathons',
+    tag: '[Hackathons]',
+    icon: '🏆',
+    desc: 'Competitions, problem statements, teams, rules & pitches',
+    emptyMsg: 'No hackathon knowledge recorded yet.',
+  },
+  stalker: {
+    key: 'stalker',
+    title: 'Stalker Intelligence',
+    tag: '[Stalker]',
+    icon: '🕵️',
+    desc: 'Target profiles, social handles (IG, LinkedIn, GitHub), and crawled research',
+    emptyMsg: 'No stalker profiles or research data recorded yet.',
+  },
+  vault: {
+    key: 'vault',
+    title: 'Secret Vault',
+    tag: '[Vault]',
+    icon: '🔒',
+    desc: 'Protected notes, confidential keys & secure memory pointers',
+    emptyMsg: 'No secret vault memories recorded yet.',
+  },
+  builder: {
+    key: 'builder',
+    title: 'Builder & Codebase',
+    tag: '[Builder]',
+    icon: '🛠️',
+    desc: 'Vibecoding setups, architecture notes, tech stacks & DSA progress',
+    emptyMsg: 'No builder or codebase knowledge recorded yet.',
+  },
+};
+
+let allMemoryFacts = [];
+let activeMemoryCat = 'all';
+let activeDocEditCat = 'all';
+
+function showMemorySubview(name) {
+  const dashEl = document.getElementById('memory-dashboard-view');
+  const catEl  = document.getElementById('memory-category-view');
+  const docEl  = document.getElementById('memory-document-view');
+
+  if (dashEl) dashEl.classList.toggle('hidden', name !== 'dashboard');
+  if (catEl)  catEl.classList.toggle('hidden', name !== 'category');
+  if (docEl)  docEl.classList.toggle('hidden', name !== 'document');
+}
+
+// ── Consolidate Memory Button ────────────────────────────
 const memoryConsolidateBtn = document.getElementById('memory-consolidate-btn');
 if (memoryConsolidateBtn) {
   memoryConsolidateBtn.addEventListener('click', async () => {
@@ -2149,134 +2218,529 @@ if (memoryConsolidateBtn) {
       await loadFacts();
       memoryConsolidateBtn.textContent = `✅ Combined! (${res.newlyImported || 0} imported)`;
       setTimeout(() => {
-        memoryConsolidateBtn.textContent = '📦 Combine & Import All Stored Memory';
+        memoryConsolidateBtn.textContent = '📦 Combine & Import';
         memoryConsolidateBtn.disabled = false;
       }, 3000);
     } catch (err) {
       memoryConsolidateBtn.disabled = false;
-      memoryConsolidateBtn.textContent = '📦 Combine & Import All Stored Memory';
+      memoryConsolidateBtn.textContent = '📦 Combine & Import';
       alert('Failed: ' + err.message);
     }
   });
 }
 
-// Facts / Memory Points Manager
+// ── All Memory Document Editor Button ────────────────────
+const memoryAllDocBtn = document.getElementById('memory-all-doc-btn');
+if (memoryAllDocBtn) {
+  memoryAllDocBtn.addEventListener('click', () => {
+    openDocumentEditor('all');
+  });
+}
+
+// ── Global Search in Dashboard ───────────────────────────
+const memoryGlobalSearch = document.getElementById('memory-global-search');
+if (memoryGlobalSearch) {
+  memoryGlobalSearch.addEventListener('input', () => {
+    renderMemoryCardsGrid(memoryGlobalSearch.value.trim().toLowerCase());
+  });
+}
+
+// ── Load & Distribute Facts ──────────────────────────────
 async function loadFacts() {
-  const list = document.getElementById('facts-list');
-  const countEl = document.getElementById('facts-count');
+  const totalCountEl = document.getElementById('facts-total-count');
   try {
     const { facts } = await apiFetch('/api/memory/facts');
-    const items = facts || [];
-    if (countEl) countEl.textContent = items.length;
-    if (!items.length) {
-      list.innerHTML = '<div class="empty-msg">No memory points saved yet. Click "Combine & Import" above or add one below!</div>';
-      return;
+    allMemoryFacts = facts || [];
+    if (totalCountEl) totalCountEl.textContent = allMemoryFacts.length;
+
+    renderMemoryCardsGrid();
+
+    // If currently inside category view, re-render it
+    const catEl = document.getElementById('memory-category-view');
+    if (catEl && !catEl.classList.contains('hidden')) {
+      renderCategoryFactsList();
+    }
+  } catch (err) {
+    console.error('Error loading memory facts:', err);
+  }
+}
+
+// ── Render 6 Category Cards Grid ─────────────────────────
+function renderMemoryCardsGrid(filterQuery = '') {
+  const grid = document.getElementById('memory-cards-grid');
+  if (!grid) return;
+
+  const cardKeys = Object.keys(MEMORY_CATEGORIES);
+
+  grid.innerHTML = cardKeys.map(key => {
+    const cat = MEMORY_CATEGORIES[key];
+    let catFacts = allMemoryFacts.filter(f => (f.category || 'main') === key);
+
+    if (filterQuery) {
+      catFacts = catFacts.filter(f => (f.text || '').toLowerCase().includes(filterQuery));
     }
 
-    list.innerHTML = items.map(f => `
+    const count = catFacts.length;
+    const previews = catFacts.slice(0, 2);
+
+    return `
+      <div class="memory-card" id="mem-card-${key}">
+        <div>
+          <div class="memory-card-header">
+            <div class="memory-card-title-group">
+              <div class="memory-card-icon">${cat.icon}</div>
+              <div>
+                <div class="memory-card-name">${escHtml(cat.title)}</div>
+                <span class="memory-card-count-badge">${count} point${count === 1 ? '' : 's'}</span>
+              </div>
+            </div>
+          </div>
+          <div class="memory-card-desc">${escHtml(cat.desc)}</div>
+          <div class="memory-card-preview">
+            ${previews.length > 0
+              ? previews.map(p => `<div class="memory-card-preview-item" title="${escHtml(p.text)}">${escHtml(p.text)}</div>`).join('')
+              : `<div class="memory-card-preview-empty">${escHtml(cat.emptyMsg)}</div>`
+            }
+          </div>
+        </div>
+        <div class="memory-card-actions">
+          <button class="memory-card-btn-open" data-open-cat="${key}">📂 Open Card</button>
+          <button class="memory-card-btn-icon" data-doc-cat="${key}" title="Edit as Document Page">📝 Edit Page</button>
+          <button class="memory-card-btn-icon" data-copy-cat="${key}" title="Copy Card Content">📋 Copy</button>
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  // Attach card action listeners
+  grid.querySelectorAll('[data-open-cat]').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      openCategoryView(btn.dataset.openCat);
+    });
+  });
+
+  grid.querySelectorAll('.memory-card').forEach(card => {
+    card.addEventListener('click', () => {
+      const key = card.id.replace('mem-card-', '');
+      openCategoryView(key);
+    });
+  });
+
+  grid.querySelectorAll('[data-doc-cat]').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      openDocumentEditor(btn.dataset.docCat);
+    });
+  });
+
+  grid.querySelectorAll('[data-copy-cat]').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      copyCategoryFacts(btn.dataset.copyCat, btn);
+    });
+  });
+}
+
+// ── Category Detail View ─────────────────────────────────
+function openCategoryView(catKey) {
+  activeMemoryCat = catKey || 'habits';
+  showMemorySubview('category');
+
+  const cat = MEMORY_CATEGORIES[activeMemoryCat] || {
+    title: 'All Memory Points',
+    icon: '📝',
+  };
+
+  const titleEl = document.getElementById('cat-view-title');
+  const iconEl  = document.getElementById('cat-view-icon');
+  const inputEl = document.getElementById('fact-input');
+
+  if (titleEl) titleEl.textContent = cat.title;
+  if (iconEl)  iconEl.textContent  = cat.icon;
+  if (inputEl) inputEl.placeholder = `Add a new point to ${cat.title}...`;
+
+  // Update tabs active state
+  document.querySelectorAll('#memory-cat-tabs .cat-tab-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.cat === activeMemoryCat);
+  });
+
+  renderCategoryFactsList();
+}
+
+function renderCategoryFactsList() {
+  const list = document.getElementById('facts-list');
+  const countEl = document.getElementById('cat-view-count');
+  const filterCountEl = document.getElementById('cat-filter-count');
+  const searchInput = document.getElementById('cat-fact-search');
+  const query = searchInput ? searchInput.value.trim().toLowerCase() : '';
+
+  if (!list) return;
+
+  let items = allMemoryFacts;
+  if (activeMemoryCat !== 'all') {
+    items = items.filter(f => (f.category || 'main') === activeMemoryCat);
+  }
+
+  if (countEl) countEl.textContent = `${items.length} points`;
+
+  if (query) {
+    items = items.filter(f => (f.text || '').toLowerCase().includes(query));
+    if (filterCountEl) filterCountEl.textContent = `(${items.length} matching)`;
+  } else {
+    if (filterCountEl) filterCountEl.textContent = '';
+  }
+
+  if (!items.length) {
+    list.innerHTML = `<div class="empty-msg">No points found in this card. Add a point above or use Bulk Edit Page!</div>`;
+    return;
+  }
+
+  list.innerHTML = items.map(f => {
+    const fCat = f.category || 'main';
+    const catMeta = MEMORY_CATEGORIES[fCat] || { icon: '📝', title: 'Main' };
+
+    return `
       <div class="fact-item" id="fact-item-${f.id}">
+        <span class="fact-cat-badge" title="Category: ${catMeta.title}">${catMeta.icon}</span>
         <span class="fact-text" id="fact-text-${f.id}">${escHtml(f.text)}</span>
         <div class="fact-item-actions" id="fact-actions-${f.id}">
+          <select class="fact-cat-select" data-id="${f.id}" title="Move to another category card">
+            ${Object.keys(MEMORY_CATEGORIES).map(k => `
+              <option value="${k}" ${k === fCat ? 'selected' : ''}>${MEMORY_CATEGORIES[k].icon} ${MEMORY_CATEGORIES[k].title}</option>
+            `).join('')}
+          </select>
           <button class="fact-edit-btn" data-id="${f.id}" title="Edit this point">✏️</button>
           <button class="fact-delete" data-id="${f.id}" title="Delete this point">✕</button>
         </div>
       </div>
-    `).join('');
+    `;
+  }).join('');
 
-    // Attach Delete
-    list.querySelectorAll('.fact-delete').forEach(btn => {
-      btn.addEventListener('click', () => deleteFact(btn.dataset.id));
+  // Category relocate select listener
+  list.querySelectorAll('.fact-cat-select').forEach(sel => {
+    sel.addEventListener('change', async () => {
+      const factId = sel.dataset.id;
+      const newCat = sel.value;
+      try {
+        await apiFetch(`/api/memory/facts/${factId}/category`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ category: newCat }),
+        });
+        await loadFacts();
+      } catch (err) {
+        alert('Failed to change category: ' + err.message);
+      }
     });
+  });
 
-    // Attach Inline Edit
-    list.querySelectorAll('.fact-edit-btn').forEach(btn => {
-      btn.addEventListener('click', () => {
-        const id = btn.dataset.id;
-        const itemEl = document.getElementById(`fact-item-${id}`);
-        const textEl = document.getElementById(`fact-text-${id}`);
-        const actionsEl = document.getElementById(`fact-actions-${id}`);
-        const currentText = textEl.textContent.trim();
+  // Delete listener
+  list.querySelectorAll('.fact-delete').forEach(btn => {
+    btn.addEventListener('click', () => deleteFact(btn.dataset.id));
+  });
 
-        textEl.style.display = 'none';
-        actionsEl.style.display = 'none';
+  // Inline edit listener
+  list.querySelectorAll('.fact-edit-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const id = btn.dataset.id;
+      const itemEl = document.getElementById(`fact-item-${id}`);
+      const textEl = document.getElementById(`fact-text-${id}`);
+      const actionsEl = document.getElementById(`fact-actions-${id}`);
+      const currentText = textEl.textContent.trim();
 
-        const editWrap = document.createElement('div');
-        editWrap.id = `fact-edit-wrap-${id}`;
-        editWrap.style.display = 'flex';
-        editWrap.style.gap = '6px';
-        editWrap.style.flex = '1';
-        editWrap.style.alignItems = 'center';
-        editWrap.innerHTML = `
-          <input class="fact-edit-input" id="fact-input-${id}" value="${escHtml(currentText)}" />
-          <button class="fact-save-btn" id="fact-save-${id}">Save</button>
-          <button class="fact-cancel-btn" id="fact-cancel-${id}">Cancel</button>
-        `;
+      textEl.style.display = 'none';
+      actionsEl.style.display = 'none';
 
-        itemEl.appendChild(editWrap);
+      const editWrap = document.createElement('div');
+      editWrap.id = `fact-edit-wrap-${id}`;
+      editWrap.style.display = 'flex';
+      editWrap.style.gap = '6px';
+      editWrap.style.flex = '1';
+      editWrap.style.alignItems = 'center';
+      editWrap.innerHTML = `
+        <input class="fact-edit-input" id="fact-input-${id}" value="${escHtml(currentText)}" />
+        <button class="fact-save-btn" id="fact-save-${id}">Save</button>
+        <button class="fact-cancel-btn" id="fact-cancel-${id}">Cancel</button>
+      `;
 
-        const inputEl = document.getElementById(`fact-input-${id}`);
-        inputEl.focus();
+      itemEl.appendChild(editWrap);
 
-        const saveEdit = async () => {
-          const newText = inputEl.value.trim();
-          if (!newText) return;
-          try {
-            await apiFetch(`/api/memory/facts/${id}`, {
-              method: 'PUT',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ text: newText }),
-            });
-            await loadFacts();
-          } catch (err) {
-            alert('Failed to update: ' + err.message);
-          }
-        };
+      const inputEl = document.getElementById(`fact-input-${id}`);
+      inputEl.focus();
 
-        document.getElementById(`fact-save-${id}`).addEventListener('click', saveEdit);
-        inputEl.addEventListener('keydown', (e) => {
-          if (e.key === 'Enter') saveEdit();
-          if (e.key === 'Escape') loadFacts();
-        });
-        document.getElementById(`fact-cancel-${id}`).addEventListener('click', () => {
-          editWrap.remove();
-          textEl.style.display = '';
-          actionsEl.style.display = '';
-        });
+      const saveEdit = async () => {
+        const newText = inputEl.value.trim();
+        if (!newText) return;
+        try {
+          await apiFetch(`/api/memory/facts/${id}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ text: newText }),
+          });
+          await loadFacts();
+        } catch (err) {
+          alert('Failed to update: ' + err.message);
+        }
+      };
+
+      document.getElementById(`fact-save-${id}`).addEventListener('click', saveEdit);
+      inputEl.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') saveEdit();
+        if (e.key === 'Escape') renderCategoryFactsList();
+      });
+      document.getElementById(`fact-cancel-${id}`).addEventListener('click', () => {
+        editWrap.remove();
+        textEl.style.display = '';
+        actionsEl.style.display = '';
       });
     });
-  } catch (err) {
-    list.innerHTML = `<div class="empty-msg">Error: ${err.message}</div>`;
-  }
+  });
 }
 
-document.getElementById('add-fact-btn').addEventListener('click', async () => {
-  const input = document.getElementById('fact-input');
-  const text  = input.value.trim();
-  if (!text) return;
-  try {
-    await apiFetch('/api/memory/facts', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text }),
-    });
-    input.value = '';
-    await loadFacts();
-  } catch (err) {
-    alert('Failed to add fact: ' + err.message);
-  }
-});
+// ── Navigation Listeners ─────────────────────────────────
+const backToCardsBtn = document.getElementById('memory-back-to-cards-btn');
+if (backToCardsBtn) {
+  backToCardsBtn.addEventListener('click', () => {
+    showMemorySubview('dashboard');
+  });
+}
 
-document.getElementById('fact-input').addEventListener('keydown', (e) => {
-  if (e.key === 'Enter') document.getElementById('add-fact-btn').click();
-});
+const catFactSearch = document.getElementById('cat-fact-search');
+if (catFactSearch) {
+  catFactSearch.addEventListener('input', () => {
+    renderCategoryFactsList();
+  });
+}
+
+// Category Tabs Click
+const memoryCatTabs = document.getElementById('memory-cat-tabs');
+if (memoryCatTabs) {
+  memoryCatTabs.querySelectorAll('.cat-tab-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      openCategoryView(btn.dataset.cat);
+    });
+  });
+}
+
+// Add Fact Button
+const addFactBtn = document.getElementById('add-fact-btn');
+if (addFactBtn) {
+  addFactBtn.addEventListener('click', async () => {
+    const input = document.getElementById('fact-input');
+    let text = input.value.trim();
+    if (!text) return;
+
+    // If in habits view and not prefixed, add tag
+    if (activeMemoryCat === 'habits' && !text.toLowerCase().startsWith('[habit/preference]')) {
+      text = `[Habit/Preference]: ${text}`;
+    }
+
+    try {
+      await apiFetch('/api/memory/facts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text, category: activeMemoryCat !== 'all' ? activeMemoryCat : null }),
+      });
+      input.value = '';
+      await loadFacts();
+    } catch (err) {
+      alert('Failed to add point: ' + err.message);
+    }
+  });
+}
+
+const factInputEl = document.getElementById('fact-input');
+if (factInputEl) {
+  factInputEl.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      const addBtn = document.getElementById('add-fact-btn');
+      if (addBtn) addBtn.click();
+    }
+  });
+}
 
 async function deleteFact(id) {
   try {
     await apiFetch(`/api/memory/facts/${id}`, { method: 'DELETE' });
     await loadFacts();
   } catch (err) {
-    alert('Failed to delete fact: ' + err.message);
+    alert('Failed to delete point: ' + err.message);
   }
+}
+
+// ── Full-Page Document Editor ────────────────────────────
+function openDocumentEditor(targetCat) {
+  activeDocEditCat = targetCat || 'habits';
+  showMemorySubview('document');
+
+  const titleEl = document.getElementById('doc-editor-title');
+  const textarea = document.getElementById('doc-editor-textarea');
+
+  let targetFacts = allMemoryFacts;
+  let catTitle = 'All Memory Database';
+
+  if (activeDocEditCat !== 'all') {
+    const cat = MEMORY_CATEGORIES[activeDocEditCat] || { title: activeDocEditCat, icon: '📝' };
+    catTitle = `${cat.icon} ${cat.title}`;
+    targetFacts = allMemoryFacts.filter(f => (f.category || 'main') === activeDocEditCat);
+  }
+
+  if (titleEl) titleEl.textContent = `📝 Document Editor: ${catTitle}`;
+
+  // Populate textarea with plain lines
+  const lines = targetFacts.map(f => f.text || '').filter(Boolean);
+  textarea.value = lines.join('\n');
+
+  updateDocStats();
+  textarea.focus();
+}
+
+function updateDocStats() {
+  const textarea = document.getElementById('doc-editor-textarea');
+  const linesEl  = document.getElementById('doc-stats-lines');
+  const charsEl  = document.getElementById('doc-stats-chars');
+
+  if (!textarea) return;
+  const content = textarea.value;
+  const lines = content.split('\n').filter(l => l.trim().length > 0);
+
+  if (linesEl) linesEl.textContent = `Lines/Points: ${lines.length}`;
+  if (charsEl) charsEl.textContent = `Characters: ${content.length}`;
+}
+
+const docTextarea = document.getElementById('doc-editor-textarea');
+if (docTextarea) {
+  docTextarea.addEventListener('input', updateDocStats);
+}
+
+// Document Editor Back Button
+const docBackBtn = document.getElementById('doc-back-btn');
+if (docBackBtn) {
+  docBackBtn.addEventListener('click', () => {
+    if (activeDocEditCat === 'all') {
+      showMemorySubview('dashboard');
+    } else {
+      openCategoryView(activeDocEditCat);
+    }
+  });
+}
+
+// Document Copy Button
+const docCopyBtn = document.getElementById('doc-copy-btn');
+if (docCopyBtn) {
+  docCopyBtn.addEventListener('click', () => {
+    const textarea = document.getElementById('doc-editor-textarea');
+    const toast = document.getElementById('doc-copy-toast');
+    if (!textarea) return;
+
+    navigator.clipboard.writeText(textarea.value).then(() => {
+      if (toast) {
+        toast.classList.remove('hidden');
+        setTimeout(() => toast.classList.add('hidden'), 2500);
+      }
+    }).catch(err => {
+      alert('Copy failed: ' + err.message);
+    });
+  });
+}
+
+// Document Clean Lines Button
+const docCleanBtn = document.getElementById('doc-clean-btn');
+if (docCleanBtn) {
+  docCleanBtn.addEventListener('click', () => {
+    const textarea = document.getElementById('doc-editor-textarea');
+    if (!textarea) return;
+    const cleanLines = textarea.value
+      .split(/\r?\n/)
+      .map(l => l.replace(/^[-*•\d.)\s]+/, '').trim())
+      .filter(l => l.length > 0);
+    textarea.value = cleanLines.join('\n');
+    updateDocStats();
+  });
+}
+
+// Document Save Button
+const docSaveBtn = document.getElementById('doc-save-btn');
+if (docSaveBtn) {
+  docSaveBtn.addEventListener('click', async () => {
+    const textarea = document.getElementById('doc-editor-textarea');
+    if (!textarea) return;
+
+    docSaveBtn.disabled = true;
+    docSaveBtn.textContent = '⏳ Saving All Points…';
+
+    const points = textarea.value
+      .split(/\r?\n/)
+      .map(l => l.replace(/^[-*•\d.)\s]+/, '').trim())
+      .filter(l => l.length > 0);
+
+    try {
+      if (activeDocEditCat === 'all') {
+        // Group points by category detection or send to all
+        await apiFetch('/api/memory/bulk-category', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ category: 'main', points }),
+        });
+      } else {
+        await apiFetch('/api/memory/bulk-category', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ category: activeDocEditCat, points }),
+        });
+      }
+
+      await loadFacts();
+      docSaveBtn.textContent = '✅ Saved Successfully!';
+
+      setTimeout(() => {
+        docSaveBtn.disabled = false;
+        docSaveBtn.textContent = '💾 Save All Changes';
+        if (activeDocEditCat === 'all') {
+          showMemorySubview('dashboard');
+        } else {
+          openCategoryView(activeDocEditCat);
+        }
+      }, 1000);
+    } catch (err) {
+      docSaveBtn.disabled = false;
+      docSaveBtn.textContent = '💾 Save All Changes';
+      alert('Save failed: ' + err.message);
+    }
+  });
+}
+
+// Category Detail Bulk Edit & Copy All Buttons
+const catDocEditBtn = document.getElementById('cat-doc-edit-btn');
+if (catDocEditBtn) {
+  catDocEditBtn.addEventListener('click', () => {
+    openDocumentEditor(activeMemoryCat);
+  });
+}
+
+const catCopyAllBtn = document.getElementById('cat-copy-all-btn');
+if (catCopyAllBtn) {
+  catCopyAllBtn.addEventListener('click', () => {
+    copyCategoryFacts(activeMemoryCat, catCopyAllBtn);
+  });
+}
+
+function copyCategoryFacts(catKey, triggerBtn) {
+  let facts = allMemoryFacts;
+  if (catKey !== 'all') {
+    facts = facts.filter(f => (f.category || 'main') === catKey);
+  }
+  const text = facts.map(f => f.text || '').filter(Boolean).join('\n');
+  navigator.clipboard.writeText(text).then(() => {
+    const orig = triggerBtn ? triggerBtn.textContent : '';
+    if (triggerBtn) {
+      triggerBtn.textContent = '✅ Copied!';
+      setTimeout(() => { triggerBtn.textContent = orig; }, 2000);
+    }
+  }).catch(err => {
+    alert('Copy failed: ' + err.message);
+  });
 }
 
 // Files
@@ -2564,7 +3028,7 @@ function openHqCard(id) {
     return;
   }
   if (id === 'vault') { openVaultPanel(); return; }
-  if (id === 'memory') { showView('memory'); loadFacts(); loadMonthlyFiles(); return; }
+  if (id === 'memory') { showView('memory'); showMemorySubview('dashboard'); loadFacts(); loadMonthlyFiles(); return; }
   if (id === 'files') { showView('files'); loadFiles(); return; }
   if (id === 'builder') { startBobBuilderCollab(); return; }
   if (id === 'hackathons') { showView('hackathons'); loadHackathons(); return; }
