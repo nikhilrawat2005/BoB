@@ -95,14 +95,11 @@ function tickAuth(req, res, next) {
   // If Vercel Cron invoked it directly or valid secret matches
   if (isVercelCron) return next();
 
-  if (cronSecret) {
-    if (provided === cronSecret || headerSecret === cronSecret || querySecret === cronSecret) {
-      return next();
-    }
-    return res.status(401).json({ error: 'Unauthorized cron call (CRON_SECRET mismatch)' });
+  if (cronSecret && (provided === cronSecret || headerSecret === cronSecret || querySecret === cronSecret)) {
+    return next();
   }
 
-  // Fallback if CRON_SECRET is not set: check if Bearer token present or fallback to requireAuth
+  // Fallback: check Firebase authentication (e.g. frontend client 30s polling)
   return requireAuth(req, res, next);
 }
 

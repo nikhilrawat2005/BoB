@@ -362,10 +362,14 @@ router.post('/', requireAuth, async (req, res) => {
       console.log(`[Chat] Media detected: ${mediaEnrichment.detectedTypes.join(', ')} — ${allImageUrls.length} image(s) for vision`);
     }
 
-    // 2. Pull recent history and facts
-    const [recent, facts] = await Promise.all([
+    // 2. Pull recent history, facts, and monthly memory
+    const currentMonthId = memoryManager.isoMonthKey(new Date());
+    const isHistoryQuery = /(past\s*month|last\s*month|history|pehle\s*kya|pichle\s*mahine|previous\s*month|purani\s*yaad|kya\s*baat\s*huyi\s*thi)/i.test(promptMessage);
+    const [recent, facts, currentMonth, pastMonths] = await Promise.all([
       memory.getRecentMessages(req.userId, sessionId, 20),
       memory.listFacts(req.userId),
+      memory.getMonthMemory(req.userId, currentMonthId).catch(() => null),
+      isHistoryQuery ? memory.listMonthMemory(req.userId, 6).catch(() => []) : Promise.resolve([]),
     ]);
 
     // 3. Save user's message
@@ -415,7 +419,7 @@ router.post('/', requireAuth, async (req, res) => {
     if (currentMonth && currentMonth.chunks && currentMonth.chunks.length) {
       contextBlocks.push(`🧠 CURRENT MONTH MEMORY (${currentMonthId}) — everything Bob remembers about Master Nikhil this month (appended every 3 days, nothing overwritten):\n${currentMonth.chunks.map(c => c.points).join('\n')}`);
     }
-    if (intent.isHistoryQuery && pastMonths.length) {
+    if (isHistoryQuery && pastMonths && pastMonths.length) {
       const pastBlocks = pastMonths.filter(m => m.id !== currentMonthId && m.chunks && m.chunks.length);
       if (pastBlocks.length) {
         contextBlocks.push(`📚 PAST MONTH MEMORIES (queried because Master asked about history):\n${pastBlocks.map(m => `[${m.id} ${memoryManager.monthLabel(m.id)}]:\n${m.chunks.map(c => c.points).join('\n')}`).join('\n\n')}`);
