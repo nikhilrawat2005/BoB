@@ -2304,12 +2304,25 @@ if (memoryGlobalSearch) {
   });
 }
 
+let cachedSessions = [];
+let cachedHackathons = [];
+let cachedStalkerProfiles = [];
+
 // ── Load & Distribute Facts ──────────────────────────────
 async function loadFacts() {
   const totalCountEl = document.getElementById('facts-total-count');
   try {
-    const { facts } = await apiFetch('/api/memory/facts');
-    allMemoryFacts = facts || [];
+    const [factsRes, sessRes, hackRes, stalkRes] = await Promise.all([
+      apiFetch('/api/memory/facts'),
+      apiFetch('/api/sessions').catch(() => ({ sessions: [] })),
+      apiFetch('/api/hackathons').catch(() => ({ hackathons: [] })),
+      apiFetch('/api/stalking').catch(() => ({ profiles: [] })),
+    ]);
+    allMemoryFacts = factsRes.facts || [];
+    cachedSessions = (sessRes.sessions || []).filter(s => !s.title?.startsWith('🏆') && !s.title?.startsWith('🕵️'));
+    cachedHackathons = hackRes.hackathons || [];
+    cachedStalkerProfiles = stalkRes.profiles || [];
+
     if (totalCountEl) totalCountEl.textContent = allMemoryFacts.length;
 
     renderMemoryCardsGrid();
@@ -2462,34 +2475,87 @@ function renderCategoryFactsList() {
     if (filterCountEl) filterCountEl.textContent = '';
   }
 
-  if (!items.length) {
-    list.innerHTML = `<div class="empty-msg">No points found in this card. Add a point above or use Bulk Edit Page!</div>`;
-    return;
+  // Group facts by Page (sourceTitle) & Entity Cards
+  const pageMap = new Map();
+
+  // 1. Pre-populate Entity Cards based on active category
+  if (activeMemoryCat === 'main') {
+    cachedSessions.forEach(s => {
+      const title = s.title || `Chat ${s.id.slice(-5)}`;
+      pageMap.set(title.toLowerCase(), {
+        title,
+        type: 'chat',
+        category: 'main',
+        sessionId: s.id,
+        facts: [],
+      });
+    });
+  } else if (activeMemoryCat === 'hackathons') {
+    cachedHackathons.forEach(h => {
+      const title = h.title || 'Hackathon Project';
+      pageMap.set(title.toLowerCase(), {
+        title,
+        type: 'hackathon',
+        category: 'hackathons',
+        entityId: h.id,
+        facts: [],
+      });
+    });
+  } else if (activeMemoryCat === 'stalker') {
+    cachedStalkerProfiles.forEach(p => {
+      const title = p.name || 'Target Profile';
+      pageMap.set(title.toLowerCase(), {
+        title,
+        type: 'stalker',
+        category: 'stalker',
+        entityId: p.id,
+        facts: [],
+      });
+    });
+  } else if (activeMemoryCat === 'habits') {
+    pageMap.set('habits & preferences', {
+      title: 'Habits & Preferences',
+      type: 'habits',
+      category: 'habits',
+      facts: [],
+    });
   }
 
-  // Group facts by Page (sourceTitle)
-  const pageMap = new Map();
+  // 2. Populate facts into their respective pages
   items.forEach(f => {
     const fCat = f.category || 'main';
-    const defaultTitle = fCat === 'stalker' ? 'Stalker Intelligence' : fCat === 'hackathons' ? 'Hackathons' : fCat === 'habits' ? 'Habits & Preferences' : 'Main Memory';
-    const pageTitle = f.sourceTitle || defaultTitle;
-    if (!pageMap.has(pageTitle)) {
-      pageMap.set(pageTitle, {
+    const rawTitle = (f.sourceTitle || '').trim();
+    const defaultTitle = fCat === 'stalker' ? 'Stalker Intelligence' : fCat === 'hackathons' ? 'Hackathons' : fCat === 'habits' ? 'Habits & Preferences' : 'General Profile & Background';
+    let pageTitle = rawTitle || defaultTitle;
+    if (fCat === 'main' && (pageTitle === 'Main Memory' || !rawTitle)) {
+      pageTitle = 'General Profile & Background';
+    }
+
+    const key = pageTitle.toLowerCase();
+    if (!pageMap.has(key)) {
+      pageMap.set(key, {
         title: pageTitle,
         type: f.sourceType || (fCat === 'stalker' ? 'stalker' : fCat === 'hackathons' ? 'hackathon' : 'chat'),
         category: fCat,
+        sessionId: f.sessionId || null,
         facts: [],
       });
     }
-    pageMap.get(pageTitle).facts.push(f);
+    pageMap.get(key).facts.push(f);
   });
 
   const pages = Array.from(pageMap.values());
+
+  if (!pages.length) {
+    list.innerHTML = `<div class="empty-msg">No chats or memory pages found. Add a point above to start!</div>`;
+    return;
+  }
 
   list.innerHTML = `
     <div class="memory-pages-container">
       ${pages.map(page => {
         const pageIcon = getPageIcon(page.type, page.category);
+        const hasFacts = page.facts.length > 0;
         return `
           <div class="memory-page-box" data-page-title="${escHtml(page.title)}">
             <div class="memory-page-header">
@@ -2501,30 +2567,33 @@ function renderCategoryFactsList() {
               </div>
               <div class="memory-page-actions">
                 <button class="btn-small btn-edit-page" data-cat="${activeMemoryCat}" data-page="${escHtml(page.title)}" title="Edit page as document">📝 Edit Page</button>
-                <button class="btn-small btn-add-to-page" data-cat="${activeMemoryCat}" data-page="${escHtml(page.title)}" title="Add point to this page" style="background:var(--surface2); border:1px solid var(--border2); color:var(--text);">＋ Add</button>
+                <button class="btn-small btn-add-to-page" data-cat="${activeMemoryCat}" data-page="${escHtml(page.title)}" data-session-id="${page.sessionId || ''}" title="Add point to this page" style="background:var(--surface2); border:1px solid var(--border2); color:var(--text);">＋ Add</button>
                 <button class="btn-small btn-copy-page" data-page="${escHtml(page.title)}" title="Copy page content" style="background:var(--surface2); border:1px solid var(--border2); color:var(--text);">📋 Copy</button>
               </div>
             </div>
             <div class="memory-page-facts-list">
-              ${page.facts.map(f => {
-                const fCat = f.category || 'main';
-                const catMeta = MEMORY_CATEGORIES[fCat] || { icon: '📝', title: 'Main' };
-                return `
-                  <div class="fact-item" id="fact-item-${f.id}">
-                    <span class="fact-cat-badge" title="Category: ${catMeta.title}">${catMeta.icon}</span>
-                    <span class="fact-text" id="fact-text-${f.id}">${escHtml(f.text)}</span>
-                    <div class="fact-item-actions" id="fact-actions-${f.id}">
-                      <select class="fact-cat-select" data-id="${f.id}" title="Move to another category card">
-                        ${Object.keys(MEMORY_CATEGORIES).map(k => `
-                          <option value="${k}" ${k === fCat ? 'selected' : ''}>${MEMORY_CATEGORIES[k].icon} ${MEMORY_CATEGORIES[k].title}</option>
-                        `).join('')}
-                      </select>
-                      <button class="fact-edit-btn" data-id="${f.id}" title="Edit this point">✏️</button>
-                      <button class="fact-delete" data-id="${f.id}" title="Delete this point">✕</button>
-                    </div>
-                  </div>
-                `;
-              }).join('')}
+              ${hasFacts
+                ? page.facts.map(f => {
+                    const fCat = f.category || 'main';
+                    const catMeta = MEMORY_CATEGORIES[fCat] || { icon: '📝', title: 'Main' };
+                    return `
+                      <div class="fact-item" id="fact-item-${f.id}">
+                        <span class="fact-cat-badge" title="Category: ${catMeta.title}">${catMeta.icon}</span>
+                        <span class="fact-text" id="fact-text-${f.id}">${escHtml(f.text)}</span>
+                        <div class="fact-item-actions" id="fact-actions-${f.id}">
+                          <select class="fact-cat-select" data-id="${f.id}" title="Move to another category card">
+                            ${Object.keys(MEMORY_CATEGORIES).map(k => `
+                              <option value="${k}" ${k === fCat ? 'selected' : ''}>${MEMORY_CATEGORIES[k].icon} ${MEMORY_CATEGORIES[k].title}</option>
+                            `).join('')}
+                          </select>
+                          <button class="fact-edit-btn" data-id="${f.id}" title="Edit this point">✏️</button>
+                          <button class="fact-delete" data-id="${f.id}" title="Delete this point">✕</button>
+                        </div>
+                      </div>
+                    `;
+                  }).join('')
+                : `<div class="memory-card-preview-empty" style="padding:12px 16px; color:var(--text-muted); font-size:13px;">No memory points saved for this chat yet. <a href="javascript:void(0)" class="quick-add-link" data-page="${escHtml(page.title)}" data-session-id="${page.sessionId || ''}" style="color:var(--primary); font-weight:600; text-decoration:underline;">＋ Add key takeaway</a></div>`
+              }
             </div>
           </div>
         `;
@@ -2540,11 +2609,13 @@ function renderCategoryFactsList() {
     });
   });
 
-  list.querySelectorAll('.btn-add-to-page').forEach(btn => {
+  list.querySelectorAll('.quick-add-link, .btn-add-to-page').forEach(btn => {
     btn.addEventListener('click', async (e) => {
       e.stopPropagation();
+      e.preventDefault();
       const pageTitle = btn.dataset.page;
-      const pointText = prompt(`Add a new point to page "${pageTitle}":`);
+      const sessId = btn.dataset.sessionId || null;
+      const pointText = prompt(`Add a new memory point to "${pageTitle}":`);
       if (!pointText || !pointText.trim()) return;
       try {
         await apiFetch('/api/memory/facts', {
@@ -2555,6 +2626,7 @@ function renderCategoryFactsList() {
             category: activeMemoryCat !== 'all' ? activeMemoryCat : null,
             sourceTitle: pageTitle,
             sourceType: activeMemoryCat === 'stalker' ? 'stalker' : activeMemoryCat === 'hackathons' ? 'hackathon' : 'chat',
+            sessionId: sessId,
           }),
         });
         await loadFacts();
