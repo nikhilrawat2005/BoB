@@ -1903,8 +1903,18 @@ async function sendMessage() {
 
       if (data.updatedTitle && currentSession) {
         currentSession.title = data.updatedTitle;
-        document.getElementById('chat-session-title').textContent = data.updatedTitle;
+        const titleEl = document.getElementById('chat-session-title');
+        if (titleEl) titleEl.textContent = data.updatedTitle;
+        const activeItem = document.querySelector(`.session-item[data-id="${currentSession.id}"]`);
+        if (activeItem) {
+          activeItem.dataset.title = data.updatedTitle;
+          const titleSpan = activeItem.querySelector('.session-title');
+          if (titleSpan) titleSpan.textContent = data.updatedTitle;
+        }
         await loadSessions();
+        if (typeof loadFacts === 'function') {
+          loadFacts().catch(() => {});
+        }
       }
     }
 

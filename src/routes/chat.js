@@ -370,42 +370,47 @@ router.post('/', requireAuth, async (req, res) => {
       console.log(`[Chat] Media detected: ${mediaEnrichment.detectedTypes.join(', ')} — ${allImageUrls.length} image(s) for vision`);
     }
 
-    // 2. Pull recent history, facts, and monthly memory
-    const currentMonthId = memoryManager.isoMonthKey(new Date());
-    const isHistoryQuery = /(past\s*month|last\s*month|history|pehle\s*kya|pichle\s*mahine|previous\s*month|purani\s*yaad|kya\s*baat\s*huyi\s*thi)/i.test(promptMessage);
-    const [recent, facts, currentMonth, pastMonths] = await Promise.all([
+    // 2. Pull recent history & Dynamic Scoped Memory (Habits + Current Chat Session Only)
+    const [recent, scopedMem] = await Promise.all([
       memory.getRecentMessages(req.userId, sessionId, 20),
-      memory.listFacts(req.userId),
-      memory.getMonthMemory(req.userId, currentMonthId).catch(() => null),
-      isHistoryQuery ? memory.listMonthMemory(req.userId, 6).catch(() => []) : Promise.resolve([]),
+      memory.getDynamicScopedMemory(req.userId, { sessionId, sessionTitle }),
     ]);
 
     // 3. Save user's message
     await memory.addMessage(req.userId, sessionId, 'user', promptMessage);
 
-    // 2b. Pull HQ workspace context (hackathons, stalking profiles, routines) for proactive awareness
-    const [hacks, stalkers, routineList] = await Promise.all([
-      require('../services/hackathonService').listHackathons(req.userId).catch(() => []),
-      require('../services/stalkingService').listProfiles(req.userId).catch(() => []),
-      require('../services/routineService').listRoutines(req.userId).catch(() => []),
-    ]);
-
     let contextBlocks = [];
     if (liveBlock) {
       contextBlocks.push(liveBlock);
     }
-    if (hacks && hacks.length) {
-      contextBlocks.push(`🏆 HACKATHON WORKSPACE (Master Nikhil ki active hackathons — proactively track, remind, suggest):\n${hacks.map(h => `- ${h.title} [${h.status}${h.participating ? ', participating ✓' : ''}${h.tracking ? ', tracking 🔄' : ''}]${h.endDate ? ` ends ${new Date(h.endDate).toLocaleDateString('en-IN')}` : ''}`).join('\n')}`);
+
+    // Dynamic Memory Slot A: Core Habits & Preferences (Always active)
+    if (scopedMem.habits && scopedMem.habits.length) {
+      contextBlocks.push(`🎯 HABITS & PREFERENCES of Master Nikhil:\n${scopedMem.habits.map(f => `- ${f.text}`).join('\n')}`);
     }
-    if (stalkers && stalkers.length) {
-      contextBlocks.push(`🕵️ STALKING WORKSPACE (profiles Master Nikhil is researching — mention when relevant):\n${stalkers.map(s => `- ${s.name} [${s.status}]${s.link ? ` ${s.link}` : ''}`).join('\n')}`);
+
+    // Dynamic Memory Slot B: Active Chat Session Memory (Only this chat's points)
+    if (scopedMem.scoped && scopedMem.scoped.length) {
+      contextBlocks.push(`💬 CURRENT CHAT MEMORY ("${sessionTitle}"):\n${scopedMem.scoped.map(f => `- ${f.text}`).join('\n')}`);
     }
-    if (routineList && routineList.length) {
-      const activeRoutines = routineList.filter(r => r.active);
-      if (activeRoutines.length) {
-        contextBlocks.push(`⏰ ACTIVE SELF-CHECK ROUTINES (in-progress tracking; next run ${activeRoutines.map(r => r.title).join(', ')}):\n${activeRoutines.map(r => `- ${r.title} (${r.workspace}, every ${r.intervalHours}h, next ${r.nextRunAt ? new Date(r.nextRunAt).toLocaleString('en-IN') : 'soon'})`).join('\n')}`);
+
+    // Entity Workspace on-demand injection (Only when user explicitly asks/mentions)
+    const mentionsHackathons = /\b(hackathon|hackathons|devpost|unstop|participant|participating|submission|prize pool)\b/i.test(promptMessage);
+    if (mentionsHackathons) {
+      const hacks = await require('../services/hackathonService').listHackathons(req.userId).catch(() => []);
+      if (hacks && hacks.length) {
+        contextBlocks.push(`🏆 HACKATHON WORKSPACE (Master Nikhil's active hackathons):\n${hacks.map(h => `- ${h.title} [${h.status}${h.participating ? ', participating ✓' : ''}]${h.endDate ? ` ends ${new Date(h.endDate).toLocaleDateString('en-IN')}` : ''}`).join('\n')}`);
       }
     }
+
+    const mentionsStalker = /\b(stalk|stalking|researched profile|target profile)\b/i.test(promptMessage);
+    if (mentionsStalker) {
+      const stalkers = await require('../services/stalkingService').listProfiles(req.userId).catch(() => []);
+      if (stalkers && stalkers.length) {
+        contextBlocks.push(`🕵️ STALKING WORKSPACE (Researched target profiles):\n${stalkers.map(s => `- ${s.name} [${s.status}]${s.link ? ` ${s.link}` : ''}`).join('\n')}`);
+      }
+    }
+
     if (webpageBlock) {
       contextBlocks.push(webpageBlock);
     }
@@ -420,18 +425,6 @@ router.post('/', requireAuth, async (req, res) => {
     }
     if (autoStats) {
       contextBlocks.push(`📊 AUTO-ANALYSIS of the data Master Nikhil just provided (exact computed values):\n${autoStats}`);
-    }
-    if (facts.length) {
-      contextBlocks.push(`Known facts & habits of Master Nikhil: ${facts.map(f => f.text).join('; ')}`);
-    }
-    if (currentMonth && currentMonth.chunks && currentMonth.chunks.length) {
-      contextBlocks.push(`🧠 CURRENT MONTH MEMORY (${currentMonthId}) — everything Bob remembers about Master Nikhil this month (appended every 3 days, nothing overwritten):\n${currentMonth.chunks.map(c => c.points).join('\n')}`);
-    }
-    if (isHistoryQuery && pastMonths && pastMonths.length) {
-      const pastBlocks = pastMonths.filter(m => m.id !== currentMonthId && m.chunks && m.chunks.length);
-      if (pastBlocks.length) {
-        contextBlocks.push(`📚 PAST MONTH MEMORIES (queried because Master asked about history):\n${pastBlocks.map(m => `[${m.id} ${memoryManager.monthLabel(m.id)}]:\n${m.chunks.map(c => c.points).join('\n')}`).join('\n\n')}`);
-      }
     }
     if (req.body.collab) {
       contextBlocks.push(`🤝 BOB + BUILDER COLLAB MODE (Master Nikhil ne ise ON kiya hai): Master ne explicitly allow kiya hai ki tum Bob the Builder ke saath milke kaam kar sakte ho. Jab bhi coding/project/planning ka kaam ho aur Builder ki help useful lage, apna kaam ek chhota \`\`\`builder {title,instruction} \`\`\` block bana kar Builder ko delegate kar sakte ho. Apne reply me phir batana ki tumne Builder ko kya assign kiya aur kyun. Jab tak Master ye mode ON rakhe, Builder collaboration allowed hai.`);
@@ -810,26 +803,49 @@ ${memoryContext}${mediaEnrichment.mediaContext}${documentContext}`;
       }
     }
 
-    // 8. Smart Chat Naming: If session title is default, generate a 3-5 word descriptive title
+    // 8. Smart Chat Naming: If session title is default or new, generate a 3-5 word descriptive title
     let updatedTitle = null;
-    if (recent.length <= 2) {
+    const isDefaultTitle = !sessionTitle || /^New Chat\b|^Main Chat$/i.test(sessionTitle.trim()) || sessionTitle.trim().length === 0;
+    if (isDefaultTitle || recent.length <= 2) {
       try {
         const titleRes = await callLLM({
           role: 'chat',
           messages: [
-            { role: 'system', content: 'Generate a short, concise, descriptive 3 to 5 word title with 1 relevant emoji for this conversation. Do not use quotes or punctuation. Example: "🐍 Python Script Generator" or "📊 Expense Report Setup".' },
-            { role: 'user', content: `User: ${promptMessage}\nAssistant: ${text}` }
+            { role: 'system', content: 'Generate a short, punchy 3 to 5 word title with 1 relevant leading emoji for this chat based on the user request. Output ONLY the title, no quotes, no extra words. Example: "🐍 Python Web Scraper" or "⚛️ React Auth Guide".' },
+            { role: 'user', content: `User: ${promptMessage.slice(0, 350)}\nAssistant: ${text.slice(0, 250)}` }
           ],
-          temperature: 0.5,
-          max_tokens: 30,
+          temperature: 0.4,
+          max_tokens: 60,
         });
         if (titleRes && titleRes.text) {
-          updatedTitle = titleRes.text.trim().replace(/^["']|["']$/g, '');
-          await memory.updateSessionTitle(req.userId, sessionId, updatedTitle);
-          await memory.syncSessionFactTitles(req.userId, sessionId, updatedTitle);
+          const cleanText = titleRes.text.trim().replace(/^["']|["']$/g, '').replace(/^#+\s*/, '').trim();
+          if (cleanText.length > 2 && cleanText.length < 80) {
+            updatedTitle = cleanText;
+          }
         }
       } catch (titleErr) {
-        console.error('[Chat] Title generation error:', titleErr.message);
+        console.warn('[Chat] Title LLM error (using heuristic fallback):', titleErr.message);
+      }
+
+      // Fallback heuristic if LLM failed or returned invalid string
+      if (!updatedTitle && isDefaultTitle) {
+        const cleanPrompt = promptMessage
+          .replace(/[^\w\s\u0900-\u097F]/gi, ' ')
+          .replace(/\s+/g, ' ')
+          .trim();
+        const stopWords = new Set(['karo', 'batao', 'mujhe', 'karna', 'kaise', 'please', 'help', 'with', 'about', 'want', 'what', 'when', 'where', 'bhai', 'bolo', 'hello', 'hey', 'ka', 'ki', 'ke', 'hai', 'hain', 'mein', 'par', 'ko', 'se']);
+        const words = cleanPrompt.split(' ').filter(w => w.length > 2 && !stopWords.has(w.toLowerCase()));
+        if (words.length) {
+          const capWords = words.slice(0, 4).map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase());
+          updatedTitle = `💬 ${capWords.join(' ')}`;
+        } else {
+          updatedTitle = `💬 Chat ${new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}`;
+        }
+      }
+
+      if (updatedTitle) {
+        await memory.updateSessionTitle(req.userId, sessionId, updatedTitle);
+        await memory.syncSessionFactTitles(req.userId, sessionId, updatedTitle);
       }
     }
 

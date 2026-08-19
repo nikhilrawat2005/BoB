@@ -163,6 +163,25 @@ async function syncSessionFactTitles(userId, sessionId, newTitle) {
   }
 }
 
+async function getDynamicScopedMemory(userId, options = {}) {
+  const all = await listFacts(userId);
+  const habits = all.filter(f => (f.category || 'main') === 'habits');
+
+  let scoped = [];
+  const activeSessionId = options.sessionId;
+  const activeTitle = (options.sessionTitle || '').toLowerCase().trim();
+
+  if (activeSessionId) {
+    scoped = all.filter(f => f.sessionId === activeSessionId || (activeTitle && f.sourceTitle && f.sourceTitle.toLowerCase().trim() === activeTitle && f.category !== 'habits'));
+  } else if (options.category) {
+    scoped = all.filter(f => (f.category || 'main') === options.category);
+  } else if (activeTitle) {
+    scoped = all.filter(f => f.sourceTitle && f.sourceTitle.toLowerCase().trim() === activeTitle && f.category !== 'habits');
+  }
+
+  return { habits, scoped, allCount: all.length };
+}
+
 async function listFacts(userId) {
   const snap = await db.collection('users').doc(userId).collection('facts').orderBy('createdAt', 'asc').get();
   return snap.docs.map(d => {
@@ -569,6 +588,7 @@ module.exports = {
   createSession,
   updateSessionTitle,
   syncSessionFactTitles,
+  getDynamicScopedMemory,
   listSessions,
   deleteSession,
   addMessage,
