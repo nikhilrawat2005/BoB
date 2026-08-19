@@ -37,6 +37,38 @@ router.get('/:id/messages', requireAuth, async (req, res) => {
   }
 });
 
+// PATCH /api/sessions/:id  { title }
+router.patch('/:id', requireAuth, async (req, res) => {
+  try {
+    const { title } = req.body;
+    if (!title || typeof title !== 'string' || title.trim().length === 0) {
+      return res.status(400).json({ error: 'Valid title is required' });
+    }
+    const cleanTitle = title.trim().slice(0, 100);
+    await memory.updateSessionTitle(req.userId, req.params.id, cleanTitle);
+    await memory.syncSessionFactTitles(req.userId, req.params.id, cleanTitle);
+    res.json({ success: true, id: req.params.id, title: cleanTitle });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PUT /api/sessions/:id  { title }
+router.put('/:id', requireAuth, async (req, res) => {
+  try {
+    const { title } = req.body;
+    if (!title || typeof title !== 'string' || title.trim().length === 0) {
+      return res.status(400).json({ error: 'Valid title is required' });
+    }
+    const cleanTitle = title.trim().slice(0, 100);
+    await memory.updateSessionTitle(req.userId, req.params.id, cleanTitle);
+    await memory.syncSessionFactTitles(req.userId, req.params.id, cleanTitle);
+    res.json({ success: true, id: req.params.id, title: cleanTitle });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // DELETE /api/sessions/:id
 router.delete('/:id', requireAuth, async (req, res) => {
   try {

@@ -14,15 +14,15 @@ router.get('/facts', requireAuth, async (req, res) => {
   }
 });
 
-// POST /api/memory/facts  { text, category }
+// POST /api/memory/facts  { text, category, sourceTitle, sourceType, sessionId }
 router.post('/facts', requireAuth, async (req, res) => {
-  const { text, category } = req.body;
+  const { text, category, sourceTitle, sourceType, sessionId } = req.body;
   if (!text) return res.status(400).json({ error: 'text is required' });
   if (typeof text !== 'string' || text.length > 2000) {
     return res.status(400).json({ error: 'text must be a string under 2000 characters' });
   }
   try {
-    const fact = await memory.addFact(req.userId, text, category);
+    const fact = await memory.addFact(req.userId, text, category, { sourceTitle, sourceType, sessionId });
     res.json({ fact });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -39,14 +39,14 @@ router.delete('/facts/:id', requireAuth, async (req, res) => {
   }
 });
 
-// PUT /api/memory/facts/:id  { text, category }
+// PUT /api/memory/facts/:id  { text, category, sourceTitle, sourceType, sessionId }
 router.put('/facts/:id', requireAuth, async (req, res) => {
-  const { text, category } = req.body;
+  const { text, category, sourceTitle, sourceType, sessionId } = req.body;
   if (!text || typeof text !== 'string') {
     return res.status(400).json({ error: 'Valid text is required' });
   }
   try {
-    const updated = await memory.updateFact(req.userId, req.params.id, text.trim(), category);
+    const updated = await memory.updateFact(req.userId, req.params.id, text.trim(), category, { sourceTitle, sourceType, sessionId });
     res.json({ success: true, fact: updated });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -60,6 +60,25 @@ router.put('/facts/:id/category', requireAuth, async (req, res) => {
   try {
     const updated = await memory.updateFactCategory(req.userId, req.params.id, category);
     res.json({ success: true, fact: updated });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/memory/page  { category, sourceTitle, sourceType, sessionId, points: [...] | content: "..." }
+router.post('/page', requireAuth, async (req, res) => {
+  const { category, sourceTitle, sourceType, sessionId, points, content } = req.body;
+  if (!sourceTitle) return res.status(400).json({ error: 'sourceTitle is required' });
+  try {
+    const inputPoints = points || content || [];
+    const result = await memory.savePageFacts(req.userId, {
+      category: category || 'main',
+      sourceTitle,
+      sourceType: sourceType || 'chat',
+      sessionId: sessionId || null,
+      points: inputPoints,
+    });
+    res.json({ success: true, ...result });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

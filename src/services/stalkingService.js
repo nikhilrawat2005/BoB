@@ -347,6 +347,20 @@ async function researchProfile(userId, profId) {
       `🕵️ Stalking complete: ${resolvedName}`,
       `Deep-dive done — ${profileData.summary.length ? profileData.summary[0].slice(0, 120) : 'Profile card ready.'}`
     );
+
+    // Save points into memory under this target user's name page
+    if (Array.isArray(profileData.summary) && profileData.summary.length > 0) {
+      for (const pt of profileData.summary.slice(0, 4)) {
+        if (pt && pt.length > 5) {
+          await memory.addFactUnique(userId, `[Stalker: ${resolvedName}] ${pt}`, 'stalker', {
+            sourceTitle: resolvedName,
+            sourceType: 'stalker',
+            sessionId: prof.chatSessionId || null,
+          }).catch(() => {});
+        }
+      }
+    }
+
     return getProfile(userId, profId);
   } catch (err) {
     await coll(userId).doc(profId).set({ status: 'error', error: err.message, updatedAt: Date.now() }, { merge: true });

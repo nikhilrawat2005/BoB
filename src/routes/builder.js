@@ -311,6 +311,36 @@ router.get('/sessions/:id/messages', requireAuth, async (req, res) => {
   }
 });
 
+// PATCH /api/builder/sessions/:id  { title }
+router.patch('/sessions/:id', requireAuth, async (req, res) => {
+  try {
+    const { title } = req.body;
+    if (!title || typeof title !== 'string' || title.trim().length === 0) {
+      return res.status(400).json({ error: 'Valid title is required' });
+    }
+    const cleanTitle = title.trim().slice(0, 100);
+    await builder.updateBuilderSessionTitle(req.userId, req.params.id, cleanTitle);
+    res.json({ ok: true, id: req.params.id, title: cleanTitle });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PUT /api/builder/sessions/:id  { title }
+router.put('/sessions/:id', requireAuth, async (req, res) => {
+  try {
+    const { title } = req.body;
+    if (!title || typeof title !== 'string' || title.trim().length === 0) {
+      return res.status(400).json({ error: 'Valid title is required' });
+    }
+    const cleanTitle = title.trim().slice(0, 100);
+    await builder.updateBuilderSessionTitle(req.userId, req.params.id, cleanTitle);
+    res.json({ ok: true, id: req.params.id, title: cleanTitle });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // DELETE /api/builder/sessions/:id
 router.delete('/sessions/:id', requireAuth, async (req, res) => {
   try {

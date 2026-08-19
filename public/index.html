@@ -152,7 +152,10 @@
               <span class="persona-orb builder">🏗️</span>Builder
             </button>
           </div>
-          <span id="chat-session-title" class="chat-title">Select a chat</span>
+          <div class="chat-title-wrap" style="display:flex; align-items:center; gap:6px; min-width:0; overflow:hidden;">
+            <span id="chat-session-title" class="chat-title">Select a chat</span>
+            <button id="btn-rename-current-session" class="btn-rename-topbar" title="Rename this chat" style="display:none; background:var(--surface2); border:1px solid var(--border2); color:var(--text2); cursor:pointer; font-size:12px; padding:3px 6px; border-radius:4px; transition:all 0.2s;">✏️ Rename</button>
+          </div>
           <div class="topbar-actions">
             <button id="tts-toggle-btn" class="icon-btn tts-btn" title="Toggle Bob Voice (Hinglish)" style="padding: 4px 10px; font-size: 13px; display: flex; align-items: center; gap: 4px;">
               <span id="tts-icon">🔊</span>

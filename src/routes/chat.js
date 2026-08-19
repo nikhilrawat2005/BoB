@@ -336,6 +336,10 @@ router.post('/', requireAuth, async (req, res) => {
     //    (they are independent, so we don't serialise their latency)
     behaviorEngine.updateBehaviorProfile(req.userId, promptMessage).catch(err => console.error(err));
 
+    // Fetch session title for page-linked memory
+    const sessionSnap = await require('../config/firebase').db.collection('users').doc(req.userId).collection('sessions').doc(sessionId).get().catch(() => null);
+    const sessionTitle = (sessionSnap && sessionSnap.exists && sessionSnap.data()?.title) || 'Main Chat';
+
     // Explicit memory command check (zero extra LLM calls)
     const isExplicitMemoryCommand = /(yaad\s*(rakh|rakhna|kar\s*lo|karo)|remember\s*(this|that|to)|note\s*this|save\s*in\s*memory)/i.test(promptMessage);
     if (isExplicitMemoryCommand) {
@@ -343,7 +347,11 @@ router.post('/', requireAuth, async (req, res) => {
         .replace(/^(bob|bhai|hey|please)?\s*(yaad\s*(rakh|rakhna|kar\s*lo|karo)|remember\s*(this|that|to)|note\s*this|save\s*in\s*memory)\s*(ki|that|:|,)?\s*/i, '')
         .trim();
       if (cleanFact.length > 3) {
-        await memory.addFactUnique(req.userId, cleanFact);
+        await memory.addFactUnique(req.userId, cleanFact, null, {
+          sourceTitle: sessionTitle,
+          sourceType: 'chat',
+          sessionId,
+        });
       }
     }
 
@@ -818,6 +826,7 @@ ${memoryContext}${mediaEnrichment.mediaContext}${documentContext}`;
         if (titleRes && titleRes.text) {
           updatedTitle = titleRes.text.trim().replace(/^["']|["']$/g, '');
           await memory.updateSessionTitle(req.userId, sessionId, updatedTitle);
+          await memory.syncSessionFactTitles(req.userId, sessionId, updatedTitle);
         }
       } catch (titleErr) {
         console.error('[Chat] Title generation error:', titleErr.message);

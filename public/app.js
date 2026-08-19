@@ -301,6 +301,7 @@ function renderSessions(sessions) {
       <div class="session-item ${currentSession?.id === s.id ? 'active' : ''} ${isAutoActive ? 'auto-active' : ''}"
            data-id="${s.id}" data-title="${escHtml(s.title || 'Chat')}">
         <span class="session-title">${escHtml(s.title || 'Chat')}</span>
+        <button class="btn-rename-session" data-id="${s.id}" data-title="${escHtml(s.title || 'Chat')}" title="Rename chat">✏️</button>
         <button class="btn-delete-session" data-id="${s.id}" title="Delete chat">🗑️</button>
       </div>
     `;
@@ -308,8 +309,15 @@ function renderSessions(sessions) {
 
   list.querySelectorAll('.session-item').forEach(el => {
     el.addEventListener('click', (e) => {
-      if (e.target.classList.contains('btn-delete-session')) return;
+      if (e.target.classList.contains('btn-delete-session') || e.target.classList.contains('btn-rename-session')) return;
       selectSession({ id: el.dataset.id, title: el.dataset.title });
+    });
+  });
+
+  list.querySelectorAll('.btn-rename-session').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      await renameSession(btn.dataset.id, btn.dataset.title);
     });
   });
 
@@ -325,6 +333,8 @@ function renderSessions(sessions) {
           clearMessages();
           showWelcome();
           document.getElementById('chat-session-title').textContent = currentPersona === 'builder' ? 'Select a project' : 'Select a chat';
+          const topbarRenameBtn = document.getElementById('btn-rename-current-session');
+          if (topbarRenameBtn) topbarRenameBtn.style.display = 'none';
         }
         await loadSessions();
       }
@@ -332,10 +342,49 @@ function renderSessions(sessions) {
   });
 }
 
+async function renameSession(sessionId, currentTitle = '') {
+  const newTitle = prompt('Enter new chat name:', currentTitle || '');
+  if (!newTitle || !newTitle.trim() || newTitle.trim() === currentTitle) return;
+  const cleanTitle = newTitle.trim();
+
+  try {
+    const url = currentPersona === 'builder' ? `/api/builder/sessions/${sessionId}` : `/api/sessions/${sessionId}`;
+    await apiFetch(url, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title: cleanTitle }),
+    });
+
+    if (currentSession && currentSession.id === sessionId) {
+      currentSession.title = cleanTitle;
+      const titleEl = document.getElementById('chat-session-title');
+      if (titleEl) titleEl.textContent = cleanTitle;
+    }
+    await loadSessions();
+    if (typeof loadFacts === 'function') {
+      loadFacts().catch(() => {});
+    }
+  } catch (err) {
+    alert('Failed to rename: ' + err.message);
+  }
+}
+
+// Topbar rename button listener
+const topbarRenameCurrentSessionBtn = document.getElementById('btn-rename-current-session');
+if (topbarRenameCurrentSessionBtn) {
+  topbarRenameCurrentSessionBtn.addEventListener('click', () => {
+    if (currentSession && currentSession.id) {
+      renameSession(currentSession.id, currentSession.title);
+    }
+  });
+}
+
 async function selectSession(session) {
   closeViews();
   currentSession = session;
   document.getElementById('chat-session-title').textContent = session.title;
+  const topbarRenameBtn = document.getElementById('btn-rename-current-session');
+  if (topbarRenameBtn) topbarRenameBtn.style.display = 'inline-flex';
   document.getElementById('welcome-screen')?.remove();
 
   // Mark active
@@ -2368,6 +2417,18 @@ function openCategoryView(catKey) {
   renderCategoryFactsList();
 }
 
+let activeDocEditPage = null;
+
+function getPageIcon(type, category) {
+  if (type === 'stalker' || category === 'stalker') return '🕵️';
+  if (type === 'hackathon' || category === 'hackathons') return '🏆';
+  if (type === 'chat') return '💬';
+  if (category === 'habits') return '🎯';
+  if (category === 'vault') return '🔒';
+  if (category === 'builder') return '🛠️';
+  return '🧠';
+}
+
 function renderCategoryFactsList() {
   const list = document.getElementById('facts-list');
   const countEl = document.getElementById('cat-view-count');
@@ -2385,7 +2446,7 @@ function renderCategoryFactsList() {
   if (countEl) countEl.textContent = `${items.length} points`;
 
   if (query) {
-    items = items.filter(f => (f.text || '').toLowerCase().includes(query));
+    items = items.filter(f => (f.text || '').toLowerCase().includes(query) || (f.sourceTitle || '').toLowerCase().includes(query));
     if (filterCountEl) filterCountEl.textContent = `(${items.length} matching)`;
   } else {
     if (filterCountEl) filterCountEl.textContent = '';
@@ -2396,26 +2457,115 @@ function renderCategoryFactsList() {
     return;
   }
 
-  list.innerHTML = items.map(f => {
+  // Group facts by Page (sourceTitle)
+  const pageMap = new Map();
+  items.forEach(f => {
     const fCat = f.category || 'main';
-    const catMeta = MEMORY_CATEGORIES[fCat] || { icon: '📝', title: 'Main' };
+    const defaultTitle = fCat === 'stalker' ? 'Stalker Intelligence' : fCat === 'hackathons' ? 'Hackathons' : fCat === 'habits' ? 'Habits & Preferences' : 'Main Memory';
+    const pageTitle = f.sourceTitle || defaultTitle;
+    if (!pageMap.has(pageTitle)) {
+      pageMap.set(pageTitle, {
+        title: pageTitle,
+        type: f.sourceType || (fCat === 'stalker' ? 'stalker' : fCat === 'hackathons' ? 'hackathon' : 'chat'),
+        category: fCat,
+        facts: [],
+      });
+    }
+    pageMap.get(pageTitle).facts.push(f);
+  });
 
-    return `
-      <div class="fact-item" id="fact-item-${f.id}">
-        <span class="fact-cat-badge" title="Category: ${catMeta.title}">${catMeta.icon}</span>
-        <span class="fact-text" id="fact-text-${f.id}">${escHtml(f.text)}</span>
-        <div class="fact-item-actions" id="fact-actions-${f.id}">
-          <select class="fact-cat-select" data-id="${f.id}" title="Move to another category card">
-            ${Object.keys(MEMORY_CATEGORIES).map(k => `
-              <option value="${k}" ${k === fCat ? 'selected' : ''}>${MEMORY_CATEGORIES[k].icon} ${MEMORY_CATEGORIES[k].title}</option>
-            `).join('')}
-          </select>
-          <button class="fact-edit-btn" data-id="${f.id}" title="Edit this point">✏️</button>
-          <button class="fact-delete" data-id="${f.id}" title="Delete this point">✕</button>
-        </div>
-      </div>
-    `;
-  }).join('');
+  const pages = Array.from(pageMap.values());
+
+  list.innerHTML = `
+    <div class="memory-pages-container">
+      ${pages.map(page => {
+        const pageIcon = getPageIcon(page.type, page.category);
+        return `
+          <div class="memory-page-box" data-page-title="${escHtml(page.title)}">
+            <div class="memory-page-header">
+              <div class="memory-page-title-group">
+                <span style="font-size:16px;">${pageIcon}</span>
+                <span class="memory-page-title">${escHtml(page.title)}</span>
+                <span class="memory-page-type-tag ${page.type}">${escHtml(page.type)}</span>
+                <span class="cat-count-pill">${page.facts.length} point${page.facts.length === 1 ? '' : 's'}</span>
+              </div>
+              <div class="memory-page-actions">
+                <button class="btn-small btn-edit-page" data-cat="${activeMemoryCat}" data-page="${escHtml(page.title)}" title="Edit page as document">📝 Edit Page</button>
+                <button class="btn-small btn-add-to-page" data-cat="${activeMemoryCat}" data-page="${escHtml(page.title)}" title="Add point to this page" style="background:var(--surface2); border:1px solid var(--border2); color:var(--text);">＋ Add</button>
+                <button class="btn-small btn-copy-page" data-page="${escHtml(page.title)}" title="Copy page content" style="background:var(--surface2); border:1px solid var(--border2); color:var(--text);">📋 Copy</button>
+              </div>
+            </div>
+            <div class="memory-page-facts-list">
+              ${page.facts.map(f => {
+                const fCat = f.category || 'main';
+                const catMeta = MEMORY_CATEGORIES[fCat] || { icon: '📝', title: 'Main' };
+                return `
+                  <div class="fact-item" id="fact-item-${f.id}">
+                    <span class="fact-cat-badge" title="Category: ${catMeta.title}">${catMeta.icon}</span>
+                    <span class="fact-text" id="fact-text-${f.id}">${escHtml(f.text)}</span>
+                    <div class="fact-item-actions" id="fact-actions-${f.id}">
+                      <select class="fact-cat-select" data-id="${f.id}" title="Move to another category card">
+                        ${Object.keys(MEMORY_CATEGORIES).map(k => `
+                          <option value="${k}" ${k === fCat ? 'selected' : ''}>${MEMORY_CATEGORIES[k].icon} ${MEMORY_CATEGORIES[k].title}</option>
+                        `).join('')}
+                      </select>
+                      <button class="fact-edit-btn" data-id="${f.id}" title="Edit this point">✏️</button>
+                      <button class="fact-delete" data-id="${f.id}" title="Delete this point">✕</button>
+                    </div>
+                  </div>
+                `;
+              }).join('')}
+            </div>
+          </div>
+        `;
+      }).join('')}
+    </div>
+  `;
+
+  // Page Action Listeners
+  list.querySelectorAll('.btn-edit-page').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      openDocumentEditor(btn.dataset.cat, btn.dataset.page);
+    });
+  });
+
+  list.querySelectorAll('.btn-add-to-page').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const pageTitle = btn.dataset.page;
+      const pointText = prompt(`Add a new point to page "${pageTitle}":`);
+      if (!pointText || !pointText.trim()) return;
+      try {
+        await apiFetch('/api/memory/facts', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            text: pointText.trim(),
+            category: activeMemoryCat !== 'all' ? activeMemoryCat : null,
+            sourceTitle: pageTitle,
+            sourceType: activeMemoryCat === 'stalker' ? 'stalker' : activeMemoryCat === 'hackathons' ? 'hackathon' : 'chat',
+          }),
+        });
+        await loadFacts();
+      } catch (err) {
+        alert('Failed to add point: ' + err.message);
+      }
+    });
+  });
+
+  list.querySelectorAll('.btn-copy-page').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const pageTitle = btn.dataset.page;
+      const pageFacts = allMemoryFacts.filter(f => (f.sourceTitle || '').toLowerCase() === pageTitle.toLowerCase());
+      const text = pageFacts.map(f => f.text).join('\n');
+      navigator.clipboard.writeText(text).then(() => {
+        btn.textContent = '✅ Copied';
+        setTimeout(() => { btn.textContent = '📋 Copy'; }, 2000);
+      });
+    });
+  });
 
   // Category relocate select listener
   list.querySelectorAll('.fact-cat-select').forEach(sel => {
@@ -2536,11 +2686,19 @@ if (addFactBtn) {
       text = `[Habit/Preference]: ${text}`;
     }
 
+    const defaultTitle = activeMemoryCat === 'stalker' ? 'Stalker Intelligence' : activeMemoryCat === 'hackathons' ? 'Hackathons' : activeMemoryCat === 'habits' ? 'Habits & Preferences' : (currentSession?.title || 'Main Memory');
+
     try {
       await apiFetch('/api/memory/facts', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text, category: activeMemoryCat !== 'all' ? activeMemoryCat : null }),
+        body: JSON.stringify({
+          text,
+          category: activeMemoryCat !== 'all' ? activeMemoryCat : null,
+          sourceTitle: defaultTitle,
+          sourceType: activeMemoryCat === 'stalker' ? 'stalker' : activeMemoryCat === 'hackathons' ? 'hackathon' : 'chat',
+          sessionId: currentSession?.id || null,
+        }),
       });
       input.value = '';
       await loadFacts();
@@ -2570,8 +2728,9 @@ async function deleteFact(id) {
 }
 
 // ── Full-Page Document Editor ────────────────────────────
-function openDocumentEditor(targetCat) {
+function openDocumentEditor(targetCat, pageTitle = null) {
   activeDocEditCat = targetCat || 'habits';
+  activeDocEditPage = pageTitle || null;
   showMemorySubview('document');
 
   const titleEl = document.getElementById('doc-editor-title');
@@ -2580,7 +2739,10 @@ function openDocumentEditor(targetCat) {
   let targetFacts = allMemoryFacts;
   let catTitle = 'All Memory Database';
 
-  if (activeDocEditCat !== 'all') {
+  if (activeDocEditPage) {
+    catTitle = `📄 Page: ${activeDocEditPage}`;
+    targetFacts = allMemoryFacts.filter(f => (f.sourceTitle || '').toLowerCase() === activeDocEditPage.toLowerCase());
+  } else if (activeDocEditCat !== 'all') {
     const cat = MEMORY_CATEGORIES[activeDocEditCat] || { title: activeDocEditCat, icon: '📝' };
     catTitle = `${cat.icon} ${cat.title}`;
     targetFacts = allMemoryFacts.filter(f => (f.category || 'main') === activeDocEditCat);
@@ -2618,7 +2780,7 @@ if (docTextarea) {
 const docBackBtn = document.getElementById('doc-back-btn');
 if (docBackBtn) {
   docBackBtn.addEventListener('click', () => {
-    if (activeDocEditCat === 'all') {
+    if (activeDocEditCat === 'all' && !activeDocEditPage) {
       showMemorySubview('dashboard');
     } else {
       openCategoryView(activeDocEditCat);
@@ -2676,8 +2838,18 @@ if (docSaveBtn) {
       .filter(l => l.length > 0);
 
     try {
-      if (activeDocEditCat === 'all') {
-        // Group points by category detection or send to all
+      if (activeDocEditPage) {
+        await apiFetch('/api/memory/page', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            category: activeDocEditCat !== 'all' ? activeDocEditCat : 'main',
+            sourceTitle: activeDocEditPage,
+            sourceType: activeDocEditCat === 'stalker' ? 'stalker' : activeDocEditCat === 'hackathons' ? 'hackathon' : 'chat',
+            points,
+          }),
+        });
+      } else if (activeDocEditCat === 'all') {
         await apiFetch('/api/memory/bulk-category', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -2697,7 +2869,7 @@ if (docSaveBtn) {
       setTimeout(() => {
         docSaveBtn.disabled = false;
         docSaveBtn.textContent = '💾 Save All Changes';
-        if (activeDocEditCat === 'all') {
+        if (activeDocEditCat === 'all' && !activeDocEditPage) {
           showMemorySubview('dashboard');
         } else {
           openCategoryView(activeDocEditCat);

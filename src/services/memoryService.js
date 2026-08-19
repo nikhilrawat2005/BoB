@@ -115,23 +115,52 @@ function detectCategory(text, explicitCategory) {
   return 'main';
 }
 
-async function addFact(userId, text, category = null) {
+async function addFact(userId, text, category = null, options = {}) {
   const ref = db.collection('users').doc(userId).collection('facts').doc();
   const now = Date.now();
   const cat = detectCategory(text, category);
-  const factData = { text: String(text).trim(), category: cat, createdAt: now, updatedAt: now };
+  const defaultTitle = cat === 'stalker' ? 'Stalker Intelligence' : cat === 'hackathons' ? 'Hackathons' : cat === 'habits' ? 'Habits & Preferences' : 'Main Memory';
+  const sourceTitle = options.sourceTitle || defaultTitle;
+  const sourceType = options.sourceType || (cat === 'stalker' ? 'stalker' : cat === 'hackathons' ? 'hackathon' : 'chat');
+  const sessionId = options.sessionId || null;
+
+  const factData = {
+    text: String(text).trim(),
+    category: cat,
+    sourceTitle: String(sourceTitle).trim(),
+    sourceType,
+    sessionId,
+    createdAt: now,
+    updatedAt: now,
+  };
   await ref.set(factData);
   return { id: ref.id, ...factData };
 }
 
 // Adds a fact only if an identical one doesn't already exist (case-insensitive).
 // Returns null when skipped — used by auto-extraction paths to avoid duplicates.
-async function addFactUnique(userId, text, category = null) {
+async function addFactUnique(userId, text, category = null, options = {}) {
   const snap = await db.collection('users').doc(userId).collection('facts').get();
   const needle = String(text).trim().toLowerCase();
   const exists = snap.docs.some(d => (String(d.data().text || '').trim().toLowerCase() === needle));
   if (exists) return null;
-  return addFact(userId, text, category);
+  return addFact(userId, text, category, options);
+}
+
+async function syncSessionFactTitles(userId, sessionId, newTitle) {
+  if (!userId || !sessionId || !newTitle) return;
+  try {
+    const snap = await db.collection('users').doc(userId).collection('facts').where('sessionId', '==', sessionId).get();
+    if (snap.empty) return;
+    const batch = db.batch();
+    const now = Date.now();
+    snap.docs.forEach(doc => {
+      batch.set(doc.ref, { sourceTitle: String(newTitle).trim(), updatedAt: now }, { merge: true });
+    });
+    await batch.commit();
+  } catch (err) {
+    console.error('[Memory] syncSessionFactTitles error:', err.message);
+  }
 }
 
 async function listFacts(userId) {
@@ -140,10 +169,14 @@ async function listFacts(userId) {
     const data = d.data() || {};
     const text = data.text || '';
     const category = detectCategory(text, data.category);
+    const defaultTitle = category === 'stalker' ? 'Stalker Intelligence' : category === 'hackathons' ? 'Hackathons' : category === 'habits' ? 'Habits & Preferences' : 'Main Memory';
     return {
       id: d.id,
       text,
       category,
+      sourceTitle: data.sourceTitle || defaultTitle,
+      sourceType: data.sourceType || (category === 'stalker' ? 'stalker' : category === 'hackathons' ? 'hackathon' : 'chat'),
+      sessionId: data.sessionId || null,
       createdAt: data.createdAt || 0,
       updatedAt: data.updatedAt || data.createdAt || 0,
     };
@@ -154,11 +187,14 @@ async function deleteFact(userId, factId) {
   await db.collection('users').doc(userId).collection('facts').doc(factId).delete();
 }
 
-async function updateFact(userId, factId, text, category = null) {
+async function updateFact(userId, factId, text, category = null, options = {}) {
   const ref = db.collection('users').doc(userId).collection('facts').doc(factId);
   const now = Date.now();
   const cat = detectCategory(text, category);
   const updateData = { text: String(text).trim(), category: cat, updatedAt: now };
+  if (options.sourceTitle) updateData.sourceTitle = String(options.sourceTitle).trim();
+  if (options.sourceType) updateData.sourceType = options.sourceType;
+  if (options.sessionId !== undefined) updateData.sessionId = options.sessionId;
   await ref.set(updateData, { merge: true });
   return { id: factId, ...updateData };
 }
@@ -205,6 +241,7 @@ async function saveCategoryFacts(userId, category, points) {
 
   // Insert new points
   const now = Date.now();
+  const defaultTitle = category === 'stalker' ? 'Stalker Intelligence' : category === 'hackathons' ? 'Hackathons' : category === 'habits' ? 'Habits & Preferences' : 'Main Memory';
   const added = [];
   for (let i = 0; i < cleanPoints.length; i += batchSize) {
     const chunk = cleanPoints.slice(i, i + batchSize);
@@ -219,6 +256,9 @@ async function saveCategoryFacts(userId, category, points) {
       const docData = {
         text: finalPoint,
         category,
+        sourceTitle: defaultTitle,
+        sourceType: category === 'stalker' ? 'stalker' : category === 'hackathons' ? 'hackathon' : 'chat',
+        sessionId: null,
         createdAt: now + i + idx,
         updatedAt: now + i + idx,
       };
@@ -231,6 +271,65 @@ async function saveCategoryFacts(userId, category, points) {
   const updatedAll = await listFacts(userId);
   return {
     category,
+    savedCount: added.length,
+    facts: updatedAll,
+  };
+}
+
+/**
+ * Bulk saves / replaces facts for a specific Page / SourceTitle within a category
+ */
+async function savePageFacts(userId, { category = 'main', sourceTitle, sourceType = 'chat', sessionId = null, points }) {
+  const cat = detectCategory('', category);
+  const title = String(sourceTitle || '').trim() || (cat === 'stalker' ? 'Stalker Intelligence' : cat === 'hackathons' ? 'Hackathons' : 'Main Memory');
+  
+  const cleanPoints = (Array.isArray(points) ? points : String(points || '').split(/\r?\n/))
+    .map(p => p.replace(/^[-*•\d.)\s]+/, '').trim())
+    .filter(p => p.length > 0);
+
+  const existingFacts = await listFacts(userId);
+  const toDelete = existingFacts.filter(f => f.sourceTitle.toLowerCase() === title.toLowerCase());
+
+  const batchSize = 100;
+  for (let i = 0; i < toDelete.length; i += batchSize) {
+    const chunk = toDelete.slice(i, i + batchSize);
+    const batch = db.batch();
+    chunk.forEach(f => {
+      batch.delete(db.collection('users').doc(userId).collection('facts').doc(f.id));
+    });
+    await batch.commit();
+  }
+
+  const now = Date.now();
+  const added = [];
+  for (let i = 0; i < cleanPoints.length; i += batchSize) {
+    const chunk = cleanPoints.slice(i, i + batchSize);
+    const batch = db.batch();
+    chunk.forEach((pt, idx) => {
+      let finalPoint = pt;
+      if (cat === 'habits' && !finalPoint.toLowerCase().startsWith('[habit/preference]')) {
+        finalPoint = `[Habit/Preference]: ${finalPoint}`;
+      }
+      const ref = db.collection('users').doc(userId).collection('facts').doc();
+      const docData = {
+        text: finalPoint,
+        category: cat,
+        sourceTitle: title,
+        sourceType,
+        sessionId,
+        createdAt: now + i + idx,
+        updatedAt: now + i + idx,
+      };
+      batch.set(ref, docData);
+      added.push({ id: ref.id, ...docData });
+    });
+    await batch.commit();
+  }
+
+  const updatedAll = await listFacts(userId);
+  return {
+    sourceTitle: title,
+    category: cat,
     savedCount: added.length,
     facts: updatedAll,
   };
@@ -469,6 +568,7 @@ async function deleteNotification(userId, notifId) {
 module.exports = {
   createSession,
   updateSessionTitle,
+  syncSessionFactTitles,
   listSessions,
   deleteSession,
   addMessage,
@@ -480,6 +580,7 @@ module.exports = {
   updateFact,
   updateFactCategory,
   saveCategoryFacts,
+  savePageFacts,
   saveAllFactsBulk,
   detectCategory,
   consolidateAllMemory,

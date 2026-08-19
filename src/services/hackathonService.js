@@ -334,6 +334,17 @@ TODAY'S DATE: ${todayStr}. If the page shows multiple years (e.g. 2024, 2025, 20
     patch.endDate !== undefined ? patch.endDate : h.endDate
   );
   await coll(userId).doc(hackId).set(patch, { merge: true });
+
+  // Save summary point to memory under this hackathon's title page
+  const hackTitle = knowledge.title || h.title;
+  if (knowledge.summary && knowledge.summary.length > 10) {
+    await memory.addFactUnique(userId, `[Hackathon: ${hackTitle}] ${knowledge.summary.slice(0, 200)}`, 'hackathons', {
+      sourceTitle: hackTitle,
+      sourceType: 'hackathon',
+      sessionId: h.chatSessionId || null,
+    }).catch(() => {});
+  }
+
   return getHackathon(userId, hackId);
 }
 
