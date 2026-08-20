@@ -2308,22 +2308,39 @@ let cachedSessions = [];
 let cachedHackathons = [];
 let cachedStalkerProfiles = [];
 
-// ── Load & Distribute Facts ──────────────────────────────
+// ── Load & Distribute Facts (Unified Memory Hub) ─────────
 async function loadFacts() {
   const totalCountEl = document.getElementById('facts-total-count');
   try {
-    const [factsRes, sessRes, hackRes, stalkRes] = await Promise.all([
-      apiFetch('/api/memory/facts'),
-      apiFetch('/api/sessions').catch(() => ({ sessions: [] })),
-      apiFetch('/api/hackathons').catch(() => ({ hackathons: [] })),
-      apiFetch('/api/stalking').catch(() => ({ profiles: [] })),
-    ]);
-    allMemoryFacts = factsRes.facts || [];
-    cachedSessions = (sessRes.sessions || []).filter(s => !s.title?.startsWith('🏆') && !s.title?.startsWith('🕵️'));
-    cachedHackathons = hackRes.hackathons || [];
-    cachedStalkerProfiles = stalkRes.profiles || [];
+    const unifiedRes = await apiFetch('/api/memory/unified').catch(() => null);
+    if (unifiedRes && unifiedRes.facts) {
+      allMemoryFacts = unifiedRes.facts || [];
+      cachedStalkerProfiles = unifiedRes.stalkerProfiles || [];
+      cachedHackathons = unifiedRes.hackathons || [];
+    } else {
+      // Fallback
+      const [factsRes, hackRes, stalkRes] = await Promise.all([
+        apiFetch('/api/memory/facts'),
+        apiFetch('/api/hackathons').catch(() => ({ hackathons: [] })),
+        apiFetch('/api/stalking').catch(() => ({ profiles: [] })),
+      ]);
+      allMemoryFacts = factsRes.facts || [];
+      cachedHackathons = hackRes.hackathons || [];
+      cachedStalkerProfiles = stalkRes.profiles || [];
+    }
 
-    if (totalCountEl) totalCountEl.textContent = allMemoryFacts.length;
+    const sessRes = await apiFetch('/api/sessions').catch(() => ({ sessions: [] }));
+    cachedSessions = (sessRes.sessions || []).filter(s => !s.title?.startsWith('🏆') && !s.title?.startsWith('🕵️'));
+
+    let totalPoints = allMemoryFacts.length;
+    cachedStalkerProfiles.forEach(p => {
+      totalPoints += (p.profileData?.summary?.length || 0);
+    });
+    cachedHackathons.forEach(h => {
+      totalPoints += (h.rules?.length || 0);
+    });
+
+    if (totalCountEl) totalCountEl.textContent = totalPoints;
 
     renderMemoryCardsGrid();
 
@@ -2333,7 +2350,7 @@ async function loadFacts() {
       renderCategoryFactsList();
     }
   } catch (err) {
-    console.error('Error loading memory facts:', err);
+    console.error('Error loading unified memory facts:', err);
   }
 }
 
@@ -2348,12 +2365,33 @@ function renderMemoryCardsGrid(filterQuery = '') {
     const cat = MEMORY_CATEGORIES[key];
     let catFacts = allMemoryFacts.filter(f => (f.category || 'main') === key);
 
-    if (filterQuery) {
-      catFacts = catFacts.filter(f => (f.text || '').toLowerCase().includes(filterQuery));
-    }
+    let count = catFacts.length;
+    let previews = [];
 
-    const count = catFacts.length;
-    const previews = catFacts.slice(0, 2);
+    if (key === 'stalker') {
+      const stalkerInsights = [];
+      cachedStalkerProfiles.forEach(p => {
+        const pd = p.profileData || {};
+        if (p.name) stalkerInsights.push(`🎯 Target: ${p.name}${pd.headline ? ` — ${pd.headline}` : ''}`);
+        (pd.summary || []).slice(0, 1).forEach(s => stalkerInsights.push(`💡 ${s}`));
+      });
+      count = catFacts.length + stalkerInsights.length;
+      previews = [...stalkerInsights.slice(0, 2), ...catFacts.map(f => f.text).slice(0, 2)].slice(0, 2).map(t => ({ text: t }));
+    } else if (key === 'hackathons') {
+      const hackPointers = [];
+      cachedHackathons.forEach(h => {
+        hackPointers.push(`🏆 ${h.title || 'Hackathon'}${h.prize ? ` (Prize: ${h.prize})` : ''}`);
+        (h.rules || []).slice(0, 1).forEach(r => hackPointers.push(`📜 Rule: ${r}`));
+      });
+      count = catFacts.length + hackPointers.length;
+      previews = [...hackPointers.slice(0, 2), ...catFacts.map(f => f.text).slice(0, 2)].slice(0, 2).map(t => ({ text: t }));
+    } else {
+      if (filterQuery) {
+        catFacts = catFacts.filter(f => (f.text || '').toLowerCase().includes(filterQuery));
+      }
+      count = catFacts.length;
+      previews = catFacts.slice(0, 2);
+    }
 
     return `
       <div class="memory-card" id="mem-card-${key}">
@@ -2461,6 +2499,319 @@ function renderCategoryFactsList() {
 
   if (!list) return;
 
+  // ═══════════════════════════════════════════════════════════════════════
+  // 1. STALKER INTELLIGENCE VIEW (Unified Deep Research & Chat Points)
+  // ═══════════════════════════════════════════════════════════════════════
+  if (activeMemoryCat === 'stalker') {
+    let profiles = cachedStalkerProfiles || [];
+    if (query) {
+      profiles = profiles.filter(p => 
+        (p.name || '').toLowerCase().includes(query) || 
+        (p.profileData?.headline || '').toLowerCase().includes(query) ||
+        (p.profileData?.summary || []).some(s => s.toLowerCase().includes(query))
+      );
+    }
+
+    if (countEl) countEl.textContent = `${profiles.length} targets researched`;
+    if (filterCountEl) filterCountEl.textContent = query ? `(${profiles.length} matching)` : '';
+
+    if (!profiles.length && !allMemoryFacts.filter(f => f.category === 'stalker').length) {
+      list.innerHTML = `<div class="empty-msg">No stalker profiles researched yet. Create a target in Stalker Workspace or add a memory point above!</div>`;
+      return;
+    }
+
+    list.innerHTML = `
+      <div class="memory-pages-container">
+        ${profiles.map(p => {
+          const pd = p.profileData || {};
+          const insights = pd.summary || [];
+          const techList = pd.tech || [];
+          const targetFacts = allMemoryFacts.filter(f => 
+            (f.category === 'stalker' && (f.sourceTitle || '').toLowerCase() === (p.name || '').toLowerCase()) ||
+            (p.chatSessionId && f.sessionId === p.chatSessionId)
+          );
+
+          return `
+            <div class="memory-entity-card" id="stalker-mem-card-${p.id}">
+              <div class="memory-entity-header">
+                <div class="memory-entity-identity">
+                  <div class="memory-entity-avatar">🕵️</div>
+                  <div>
+                    <div class="memory-entity-title">
+                      ${escHtml(p.name)}
+                      ${p.link ? `<a href="${escHtml(p.link)}" target="_blank" class="memory-entity-link" title="Open Link">↗ ${escHtml(p.link)}</a>` : ''}
+                    </div>
+                    ${pd.headline ? `<div class="memory-entity-headline">${escHtml(pd.headline)}</div>` : ''}
+                    <div class="memory-entity-meta">
+                      ${pd.location && pd.location !== 'unknown' ? `<span>📍 ${escHtml(pd.location)}</span>` : ''}
+                      ${pd.githubHandle ? `<span>🐙 GitHub: @${escHtml(pd.githubHandle)}</span>` : ''}
+                    </div>
+                  </div>
+                </div>
+                <div class="memory-page-actions">
+                  <button class="btn-small btn-open-stalker-ws" data-prof-id="${p.id}" style="background:rgba(236,72,153,0.15); border:1px solid rgba(236,72,153,0.3); color:#f472b6;">💬 Stalker Workspace</button>
+                  <button class="btn-small btn-add-target-fact" data-prof-id="${p.id}" data-target-name="${escHtml(p.name)}" style="background:var(--surface2); border:1px solid var(--border2); color:var(--text);">＋ Add Insight</button>
+                </div>
+              </div>
+
+              ${techList.length ? `
+                <div class="memory-entity-tech-row">
+                  <strong style="font-size:11px; color:var(--text3); margin-right:4px;">TECH / SKILLS:</strong>
+                  ${techList.map(t => `<span class="memory-entity-tech-pill">${escHtml(t)}</span>`).join('')}
+                </div>
+              ` : ''}
+
+              <!-- Deep Research Insights List with Individual Delete/Prune -->
+              <div class="memory-entity-insights">
+                <div class="memory-entity-section-title">
+                  <span>🧠 Deep Research Insights (${insights.length})</span>
+                </div>
+                ${insights.length ? insights.map((ins) => `
+                  <div class="memory-insight-item">
+                    <span class="memory-insight-text">• ${escHtml(ins)}</span>
+                    <div class="memory-insight-actions">
+                      <button class="fact-delete btn-delete-stalker-insight" data-prof-id="${p.id}" data-insight="${escHtml(ins)}" title="Delete this insight from memory">✕</button>
+                    </div>
+                  </div>
+                `).join('') : `<div style="font-size:12px; color:var(--text3);">No summary insights captured yet.</div>`}
+              </div>
+
+              <!-- Chat Discussion Notes & Linked Facts -->
+              ${targetFacts.length ? `
+                <div style="margin-top:4px;">
+                  <div class="memory-entity-section-title" style="margin-bottom:6px;">
+                    <span>💬 Chat Strategy Points & Notes (${targetFacts.length})</span>
+                  </div>
+                  <div class="memory-page-facts-list">
+                    ${targetFacts.map(f => `
+                      <div class="fact-item" id="fact-item-${f.id}">
+                        <span class="fact-cat-badge">🕵️</span>
+                        <span class="fact-text" id="fact-text-${f.id}">${escHtml(f.text)}</span>
+                        <div class="fact-item-actions" id="fact-actions-${f.id}">
+                          <button class="fact-edit-btn" data-id="${f.id}" title="Edit this point">✏️</button>
+                          <button class="fact-delete" data-id="${f.id}" title="Delete this point">✕</button>
+                        </div>
+                      </div>
+                    `).join('')}
+                  </div>
+                </div>
+              ` : ''}
+            </div>
+          `;
+        }).join('')}
+      </div>
+    `;
+
+    // Listeners for Stalker Memory View
+    list.querySelectorAll('.btn-open-stalker-ws').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const profId = btn.dataset.profId;
+        switchTab('stalking');
+        if (typeof openProfileDetails === 'function') openProfileDetails(profId);
+      });
+    });
+
+    list.querySelectorAll('.btn-delete-stalker-insight').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const profId = btn.dataset.profId;
+        const insightText = btn.dataset.insight;
+        if (!confirm('Are you sure you want to delete this insight from memory?')) return;
+        try {
+          await apiFetch('/api/memory/stalker-insight/delete', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ profId, insightText }),
+          });
+          await loadFacts();
+        } catch (err) {
+          alert('Failed to delete insight: ' + err.message);
+        }
+      });
+    });
+
+    list.querySelectorAll('.btn-add-target-fact').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const profId = btn.dataset.profId;
+        const targetName = btn.dataset.targetName;
+        const newText = prompt(`Add a new insight/point for target "${targetName}":`);
+        if (!newText || !newText.trim()) return;
+        try {
+          await apiFetch('/api/memory/stalker-insight/add', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ profId, insightText: newText.trim() }),
+          });
+          await loadFacts();
+        } catch (err) {
+          alert('Failed to add insight: ' + err.message);
+        }
+      });
+    });
+
+    attachFactActionListeners(list);
+    return;
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // 2. HACKATHONS INTELLIGENCE VIEW (Rules, Deadlines, & Chat Strategy)
+  // ═══════════════════════════════════════════════════════════════════════
+  if (activeMemoryCat === 'hackathons') {
+    let hackathons = cachedHackathons || [];
+    if (query) {
+      hackathons = hackathons.filter(h => 
+        (h.title || '').toLowerCase().includes(query) || 
+        (h.description || '').toLowerCase().includes(query) ||
+        (h.rules || []).some(r => r.toLowerCase().includes(query))
+      );
+    }
+
+    if (countEl) countEl.textContent = `${hackathons.length} hackathons tracked`;
+    if (filterCountEl) filterCountEl.textContent = query ? `(${hackathons.length} matching)` : '';
+
+    if (!hackathons.length && !allMemoryFacts.filter(f => f.category === 'hackathons').length) {
+      list.innerHTML = `<div class="empty-msg">No hackathons tracked yet. Add one in Hackathons Workspace or add a memory point above!</div>`;
+      return;
+    }
+
+    list.innerHTML = `
+      <div class="memory-pages-container">
+        ${hackathons.map(h => {
+          const rules = h.rules || [];
+          const status = h.status || 'active';
+          const badgeClass = status === 'live' ? 'memory-badge-live' : status === 'upcoming' ? 'memory-badge-upcoming' : 'memory-badge-ended';
+          const hackFacts = allMemoryFacts.filter(f => 
+            (f.category === 'hackathons' && (f.sourceTitle || '').toLowerCase() === (h.title || '').toLowerCase()) ||
+            (h.chatSessionId && f.sessionId === h.chatSessionId)
+          );
+
+          const fmtDate = ts => ts ? new Date(ts).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : null;
+          const startStr = fmtDate(h.startDate);
+          const endStr = fmtDate(h.endDate);
+
+          return `
+            <div class="memory-entity-card" id="hack-mem-card-${h.id}">
+              <div class="memory-entity-header">
+                <div class="memory-entity-identity">
+                  <div class="memory-entity-avatar">🏆</div>
+                  <div>
+                    <div class="memory-entity-title">
+                      ${escHtml(h.title)}
+                      <span class="${badgeClass}">${escHtml(status.toUpperCase())}</span>
+                      ${h.link ? `<a href="${escHtml(h.link)}" target="_blank" class="memory-entity-link" title="Open Link">↗ ${escHtml(h.link)}</a>` : ''}
+                    </div>
+                    ${h.prize ? `<div style="font-size:12px; color:#34d399; font-weight:600; margin-top:2px;">💰 Prize: ${escHtml(h.prize)}</div>` : ''}
+                    <div class="memory-entity-meta">
+                      ${startStr || endStr ? `<span>📅 ${startStr || 'Now'} – ${endStr || 'TBD'}</span>` : ''}
+                      ${h.mode ? `<span>🌐 Mode: ${escHtml(h.mode)}</span>` : ''}
+                    </div>
+                  </div>
+                </div>
+                <div class="memory-page-actions">
+                  <button class="btn-small btn-open-hack-chat" data-hack-id="${h.id}" style="background:rgba(245,158,11,0.15); border:1px solid rgba(245,158,11,0.3); color:#fbbf24;">💬 Hackathon Chat</button>
+                  <button class="btn-small btn-add-hack-rule" data-hack-id="${h.id}" data-hack-title="${escHtml(h.title)}" style="background:var(--surface2); border:1px solid var(--border2); color:var(--text);">＋ Add Rule/Note</button>
+                </div>
+              </div>
+
+              ${h.description ? `
+                <div style="font-size:13px; color:var(--text2); line-height:1.45;">
+                  ${escHtml(h.description)}
+                </div>
+              ` : ''}
+
+              <!-- Rules & Constraints List with Individual Delete/Prune -->
+              <div class="memory-entity-insights">
+                <div class="memory-entity-section-title">
+                  <span>📜 Rules & Requirements (${rules.length})</span>
+                </div>
+                ${rules.length ? rules.map((r) => `
+                  <div class="memory-insight-item">
+                    <span class="memory-insight-text">• ${escHtml(r)}</span>
+                    <div class="memory-insight-actions">
+                      <button class="fact-delete btn-delete-hack-rule" data-hack-id="${h.id}" data-rule="${escHtml(r)}" title="Delete this rule from memory">✕</button>
+                    </div>
+                  </div>
+                `).join('') : `<div style="font-size:12px; color:var(--text3);">No explicit rules saved yet.</div>`}
+              </div>
+
+              <!-- Chat Discussion Notes & Linked Facts -->
+              ${hackFacts.length ? `
+                <div style="margin-top:4px;">
+                  <div class="memory-entity-section-title" style="margin-bottom:6px;">
+                    <span>💬 Strategy & Discussion Points (${hackFacts.length})</span>
+                  </div>
+                  <div class="memory-page-facts-list">
+                    ${hackFacts.map(f => `
+                      <div class="fact-item" id="fact-item-${f.id}">
+                        <span class="fact-cat-badge">🏆</span>
+                        <span class="fact-text" id="fact-text-${f.id}">${escHtml(f.text)}</span>
+                        <div class="fact-item-actions" id="fact-actions-${f.id}">
+                          <button class="fact-edit-btn" data-id="${f.id}" title="Edit this point">✏️</button>
+                          <button class="fact-delete" data-id="${f.id}" title="Delete this point">✕</button>
+                        </div>
+                      </div>
+                    `).join('')}
+                  </div>
+                </div>
+              ` : ''}
+            </div>
+          `;
+        }).join('')}
+      </div>
+    `;
+
+    // Listeners for Hackathons Memory View
+    list.querySelectorAll('.btn-open-hack-chat').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const hackId = btn.dataset.hackId;
+        switchTab('hackathons');
+        if (typeof openHackathonChat === 'function') openHackathonChat(hackId);
+      });
+    });
+
+    list.querySelectorAll('.btn-delete-hack-rule').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const hackId = btn.dataset.hackId;
+        const ruleText = btn.dataset.rule;
+        if (!confirm('Are you sure you want to delete this rule from memory?')) return;
+        try {
+          await apiFetch('/api/memory/hackathon-rule/delete', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ hackId, ruleText }),
+          });
+          await loadFacts();
+        } catch (err) {
+          alert('Failed to delete rule: ' + err.message);
+        }
+      });
+    });
+
+    list.querySelectorAll('.btn-add-hack-rule').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const hackId = btn.dataset.hackId;
+        const hackTitle = btn.dataset.hackTitle;
+        const newText = prompt(`Add a new rule or note for "${hackTitle}":`);
+        if (!newText || !newText.trim()) return;
+        try {
+          await apiFetch('/api/memory/hackathon-rule/add', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ hackId, ruleText: newText.trim() }),
+          });
+          await loadFacts();
+        } catch (err) {
+          alert('Failed to add rule: ' + err.message);
+        }
+      });
+    });
+
+    attachFactActionListeners(list);
+    return;
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // 3. HABITS, BUILDER, VAULT & MAIN MEMORY VIEWS (Grouped Pages)
+  // ═══════════════════════════════════════════════════════════════════════
   let items = allMemoryFacts;
   if (activeMemoryCat !== 'all') {
     items = items.filter(f => (f.category || 'main') === activeMemoryCat);
@@ -2478,7 +2829,6 @@ function renderCategoryFactsList() {
   // Group facts by Page (sourceTitle) & Entity Cards
   const pageMap = new Map();
 
-  // 1. Pre-populate Entity Cards based on active category
   if (activeMemoryCat === 'main') {
     cachedSessions.forEach(s => {
       const title = s.title || `Chat ${s.id.slice(-5)}`;
@@ -2487,28 +2837,6 @@ function renderCategoryFactsList() {
         type: 'chat',
         category: 'main',
         sessionId: s.id,
-        facts: [],
-      });
-    });
-  } else if (activeMemoryCat === 'hackathons') {
-    cachedHackathons.forEach(h => {
-      const title = h.title || 'Hackathon Project';
-      pageMap.set(title.toLowerCase(), {
-        title,
-        type: 'hackathon',
-        category: 'hackathons',
-        entityId: h.id,
-        facts: [],
-      });
-    });
-  } else if (activeMemoryCat === 'stalker') {
-    cachedStalkerProfiles.forEach(p => {
-      const title = p.name || 'Target Profile';
-      pageMap.set(title.toLowerCase(), {
-        title,
-        type: 'stalker',
-        category: 'stalker',
-        entityId: p.id,
         facts: [],
       });
     });
@@ -2521,11 +2849,10 @@ function renderCategoryFactsList() {
     });
   }
 
-  // 2. Populate facts into their respective pages
   items.forEach(f => {
     const fCat = f.category || 'main';
     const rawTitle = (f.sourceTitle || '').trim();
-    const defaultTitle = fCat === 'stalker' ? 'Stalker Intelligence' : fCat === 'hackathons' ? 'Hackathons' : fCat === 'habits' ? 'Habits & Preferences' : 'General Profile & Background';
+    const defaultTitle = fCat === 'habits' ? 'Habits & Preferences' : 'General Profile & Background';
     let pageTitle = rawTitle || defaultTitle;
     if (fCat === 'main' && (pageTitle === 'Main Memory' || !rawTitle)) {
       pageTitle = 'General Profile & Background';
@@ -2535,7 +2862,7 @@ function renderCategoryFactsList() {
     if (!pageMap.has(key)) {
       pageMap.set(key, {
         title: pageTitle,
-        type: f.sourceType || (fCat === 'stalker' ? 'stalker' : fCat === 'hackathons' ? 'hackathon' : 'chat'),
+        type: f.sourceType || 'chat',
         category: fCat,
         sessionId: f.sessionId || null,
         facts: [],
@@ -2649,8 +2976,14 @@ function renderCategoryFactsList() {
     });
   });
 
+  attachFactActionListeners(list);
+}
+
+function attachFactActionListeners(container) {
+  if (!container) return;
+
   // Category relocate select listener
-  list.querySelectorAll('.fact-cat-select').forEach(sel => {
+  container.querySelectorAll('.fact-cat-select').forEach(sel => {
     sel.addEventListener('change', async () => {
       const factId = sel.dataset.id;
       const newCat = sel.value;
@@ -2668,17 +3001,18 @@ function renderCategoryFactsList() {
   });
 
   // Delete listener
-  list.querySelectorAll('.fact-delete').forEach(btn => {
+  container.querySelectorAll('.fact-delete:not(.btn-delete-stalker-insight):not(.btn-delete-hack-rule)').forEach(btn => {
     btn.addEventListener('click', () => deleteFact(btn.dataset.id));
   });
 
   // Inline edit listener
-  list.querySelectorAll('.fact-edit-btn').forEach(btn => {
+  container.querySelectorAll('.fact-edit-btn').forEach(btn => {
     btn.addEventListener('click', () => {
       const id = btn.dataset.id;
       const itemEl = document.getElementById(`fact-item-${id}`);
       const textEl = document.getElementById(`fact-text-${id}`);
       const actionsEl = document.getElementById(`fact-actions-${id}`);
+      if (!textEl || !actionsEl || !itemEl) return;
       const currentText = textEl.textContent.trim();
 
       textEl.style.display = 'none';

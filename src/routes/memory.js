@@ -4,6 +4,64 @@ const { requireAuth } = require('../middleware/auth');
 const memory = require('../services/memoryService');
 const memoryManager = require('../services/memoryManager');
 
+// GET /api/memory/unified  — Full aggregated memory hub dataset (Facts, Stalker Profiles, Hackathons)
+router.get('/unified', requireAuth, async (req, res) => {
+  try {
+    const data = await memory.getUnifiedMemoryHub(req.userId);
+    res.json(data);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/memory/stalker-insight/delete { profId, insightText }
+router.post('/stalker-insight/delete', requireAuth, async (req, res) => {
+  const { profId, insightText } = req.body;
+  if (!profId || !insightText) return res.status(400).json({ error: 'profId and insightText required' });
+  try {
+    const ok = await memory.deleteProfileInsight(req.userId, profId, insightText);
+    res.json({ success: ok });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/memory/stalker-insight/add { profId, insightText }
+router.post('/stalker-insight/add', requireAuth, async (req, res) => {
+  const { profId, insightText } = req.body;
+  if (!profId || !insightText) return res.status(400).json({ error: 'profId and insightText required' });
+  try {
+    const ok = await memory.addProfileInsight(req.userId, profId, insightText);
+    res.json({ success: ok });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/memory/hackathon-rule/delete { hackId, ruleText }
+router.post('/hackathon-rule/delete', requireAuth, async (req, res) => {
+  const { hackId, ruleText } = req.body;
+  if (!hackId || !ruleText) return res.status(400).json({ error: 'hackId and ruleText required' });
+  try {
+    const ok = await memory.deleteHackathonRule(req.userId, hackId, ruleText);
+    res.json({ success: ok });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/memory/hackathon-rule/add { hackId, ruleText }
+router.post('/hackathon-rule/add', requireAuth, async (req, res) => {
+  const { hackId, ruleText } = req.body;
+  if (!hackId || !ruleText) return res.status(400).json({ error: 'hackId and ruleText required' });
+  try {
+    const ok = await memory.addHackathonRule(req.userId, hackId, ruleText);
+    res.json({ success: ok });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // GET /api/memory/facts
 router.get('/facts', requireAuth, async (req, res) => {
   try {

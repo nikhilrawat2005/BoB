@@ -584,6 +584,97 @@ async function deleteNotification(userId, notifId) {
   await db.collection('users').doc(userId).collection('notifications').doc(notifId).delete();
 }
 
+async function getUnifiedMemoryHub(userId) {
+  const [facts, stalkerSnap, hackathonSnap] = await Promise.all([
+    listFacts(userId),
+    db.collection('users').doc(userId).collection('stalkingProfiles').orderBy('createdAt', 'desc').get().catch(() => ({ docs: [] })),
+    db.collection('users').doc(userId).collection('hackathons').orderBy('createdAt', 'desc').get().catch(() => ({ docs: [] })),
+  ]);
+
+  const stalkerProfiles = stalkerSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+  const hackathons = hackathonSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+
+  // Count insights inside profiles & hackathons for richer metrics
+  let stalkerInsightCount = 0;
+  stalkerProfiles.forEach(p => {
+    const summary = p.profileData?.summary || [];
+    stalkerInsightCount += Array.isArray(summary) ? summary.length : 0;
+  });
+
+  let hackathonRuleCount = 0;
+  hackathons.forEach(h => {
+    const rules = h.rules || [];
+    hackathonRuleCount += Array.isArray(rules) ? rules.length : 0;
+  });
+
+  const stalkerFactsCount = facts.filter(f => f.category === 'stalker').length;
+  const hackathonFactsCount = facts.filter(f => f.category === 'hackathons').length;
+
+  const counts = {
+    habits: facts.filter(f => f.category === 'habits').length,
+    builder: facts.filter(f => f.category === 'builder').length,
+    main: facts.filter(f => f.category === 'main').length,
+    vault: facts.filter(f => f.category === 'vault').length,
+    stalker: stalkerFactsCount + stalkerProfiles.length + stalkerInsightCount,
+    hackathons: hackathonFactsCount + hackathons.length + hackathonRuleCount,
+  };
+
+  return {
+    facts,
+    stalkerProfiles,
+    hackathons,
+    counts,
+  };
+}
+
+async function deleteProfileInsight(userId, profId, insightText) {
+  const profRef = db.collection('users').doc(userId).collection('stalkingProfiles').doc(profId);
+  const snap = await profRef.get();
+  if (!snap.exists) return false;
+  const data = snap.data() || {};
+  const pd = data.profileData || {};
+  const summary = (pd.summary || []).filter(item => String(item).trim() !== String(insightText).trim());
+  await profRef.set({ profileData: { ...pd, summary }, updatedAt: Date.now() }, { merge: true });
+  return true;
+}
+
+async function addProfileInsight(userId, profId, insightText) {
+  const profRef = db.collection('users').doc(userId).collection('stalkingProfiles').doc(profId);
+  const snap = await profRef.get();
+  if (!snap.exists) return false;
+  const data = snap.data() || {};
+  const pd = data.profileData || {};
+  const summary = pd.summary || [];
+  if (!summary.includes(insightText.trim())) {
+    summary.push(insightText.trim());
+  }
+  await profRef.set({ profileData: { ...pd, summary }, updatedAt: Date.now() }, { merge: true });
+  return true;
+}
+
+async function deleteHackathonRule(userId, hackId, ruleText) {
+  const hackRef = db.collection('users').doc(userId).collection('hackathons').doc(hackId);
+  const snap = await hackRef.get();
+  if (!snap.exists) return false;
+  const data = snap.data() || {};
+  const rules = (data.rules || []).filter(r => String(r).trim() !== String(ruleText).trim());
+  await hackRef.set({ rules, updatedAt: Date.now() }, { merge: true });
+  return true;
+}
+
+async function addHackathonRule(userId, hackId, ruleText) {
+  const hackRef = db.collection('users').doc(userId).collection('hackathons').doc(hackId);
+  const snap = await hackRef.get();
+  if (!snap.exists) return false;
+  const data = snap.data() || {};
+  const rules = data.rules || [];
+  if (!rules.includes(ruleText.trim())) {
+    rules.push(ruleText.trim());
+  }
+  await hackRef.set({ rules, updatedAt: Date.now() }, { merge: true });
+  return true;
+}
+
 module.exports = {
   createSession,
   updateSessionTitle,
@@ -625,4 +716,9 @@ module.exports = {
   addVaultMessage,
   getVaultMessages,
   clearVaultMessages,
+  getUnifiedMemoryHub,
+  deleteProfileInsight,
+  addProfileInsight,
+  deleteHackathonRule,
+  addHackathonRule,
 };

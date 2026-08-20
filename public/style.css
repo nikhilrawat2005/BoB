@@ -841,6 +841,29 @@ body.persona-builder #model-selector { display: none !important; }
 .memory-page-actions { display: flex; align-items: center; gap: 6px; }
 .memory-page-facts-list { display: flex; flex-direction: column; gap: 6px; margin-top: 4px; }
 
+/* Memory Hub Entity Cards (Stalker & Hackathons) */
+.memory-entity-card { background: var(--surface); border: 1px solid var(--border2); border-radius: 12px; padding: 16px 18px; display: flex; flex-direction: column; gap: 12px; transition: border-color 0.2s, box-shadow 0.2s; }
+.memory-entity-card:hover { border-color: rgba(108,99,255,0.4); box-shadow: 0 4px 16px rgba(0,0,0,0.2); }
+.memory-entity-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.memory-entity-identity { display: flex; align-items: center; gap: 10px; }
+.memory-entity-avatar { width: 36px; height: 36px; border-radius: 10px; background: rgba(108,99,255,0.15); display: flex; align-items: center; justify-content: center; font-size: 18px; border: 1px solid rgba(108,99,255,0.3); flex-shrink: 0; }
+.memory-entity-title { font-size: 15px; font-weight: 600; color: var(--text); display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.memory-entity-link { font-size: 12px; color: var(--accent); text-decoration: none; word-break: break-all; }
+.memory-entity-link:hover { text-decoration: underline; }
+.memory-entity-headline { font-size: 13px; color: var(--text2); margin-top: 2px; }
+.memory-entity-meta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 4px; font-size: 12px; color: var(--text3); }
+.memory-entity-tech-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: 4px; }
+.memory-entity-tech-pill { font-size: 11px; padding: 2px 8px; border-radius: 12px; background: rgba(108,99,255,0.12); color: #c4b5fd; border: 1px solid rgba(108,99,255,0.25); }
+.memory-entity-insights { background: rgba(0,0,0,0.2); border: 1px solid rgba(255,255,255,0.05); border-radius: 8px; padding: 10px 14px; display: flex; flex-direction: column; gap: 8px; }
+.memory-entity-section-title { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text3); display: flex; align-items: center; justify-content: space-between; }
+.memory-insight-item { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; font-size: 13px; color: var(--text); padding: 4px 0; border-bottom: 1px solid rgba(255,255,255,0.03); }
+.memory-insight-item:last-child { border-bottom: none; }
+.memory-insight-text { flex: 1; line-height: 1.45; }
+.memory-insight-actions { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
+.memory-badge-live { background: rgba(34,197,94,0.15); color: #4ade80; border: 1px solid rgba(34,197,94,0.3); font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 10px; }
+.memory-badge-upcoming { background: rgba(59,130,246,0.15); color: #60a5fa; border: 1px solid rgba(59,130,246,0.3); font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 10px; }
+.memory-badge-ended { background: rgba(148,163,184,0.15); color: #94a3b8; border: 1px solid rgba(148,163,184,0.3); font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 10px; }
+
 /* Session rename button & hover */
 .session-item { position: relative; }
 .session-item .btn-rename-session { background: none; border: none; color: var(--text3); cursor: pointer; font-size: 12px; padding: 2px 5px; border-radius: 4px; opacity: 0.6; transition: all 0.2s; margin-left: auto; }
