@@ -270,26 +270,40 @@ async function fetchGitHub(message, docContext) {
     }
 
     if (allItems.length) {
-      const lines = [];
-      lines.push(`🐙 GITHUB SEARCH RESULTS (REAL GitHub Search API) — COPY THESE EXACT LINKS ONLY, DO NOT INVENT ANY NEW ONES:\n`);
-      allItems.slice(0, 10).forEach((r, i) => {
+      const finalItems = allItems.slice(0, 10);
+
+      // Pre-format the EXACT output we want. This gets appended AFTER the LLM response
+      // so the LLM cannot hallucinate — it never sees or generates repo links.
+      const repoLines = [];
+      repoLines.push(`\n\n---\n🐙 **GitHub Repos (Real — ${finalItems.length} found via GitHub Search API)**\n`);
+      finalItems.forEach((r, i) => {
         const repoUrl = r.html_url || `https://github.com/${r.full_name}`;
-        lines.push(
-          `${i + 1}. **${r.full_name}**\n` +
-          `   🔗 URL: ${repoUrl}\n` +
-          `   📌 Language: ${r.language || 'N/A'} | ⭐ ${r.stars} | 🍴 ${r.forks} forks\n` +
-          `   📝 Description: ${r.description ? r.description.slice(0, 180) : '(no description)'}\n` +
-          `   🔎 Found for query: "${r._query}"`
+        repoLines.push(
+          `**${i + 1}. [${r.full_name}](${repoUrl})**\n` +
+          `   📌 Language: \`${r.language || 'N/A'}\` | ⭐ ${r.stars} stars | 🍴 ${r.forks} forks\n` +
+          `   📝 ${r.description ? r.description.slice(0, 160) : '(no description)'}\n`
         );
       });
-      lines.push(`\n🚫 ABSOLUTE RULE — NO EXCEPTIONS:\n- Output ONLY the ${allItems.slice(0, 10).length} repos listed above with their EXACT URLs.\n- DO NOT invent new repos, fake star counts, or fabricated GitHub links.\n- DO NOT generate names like "healthmonitoring-ai", "tourist-safety-ai", or any other made-up username/repo.\n- If Master asks for 10 repos but only ${allItems.slice(0, 10).length} real ones were found, say: "GitHub par abhi sirf yahi real repos mili hain. Fake repos dena Master ke liye harmful hai."\n- NEVER fill in missing slots with hallucinated repos.`);
-      blocks.push(lines.join('\n'));
+      repoLines.push(`> ℹ️ Yeh ${finalItems.length} real repos GitHub Search API se mili hain. Jo repos nahi mili unke liye fake links nahi diye gaye.`);
+
+      // Context for LLM: tell it NOT to list repos (we'll append them), just give intro text
+      const contextLines = [
+        `🐙 GITHUB SEARCH COMPLETE: ${finalItems.length} real repos mili hain. Inhe GITHUB_REPOS_APPENDED section mein append kiya jayega automatically.`,
+        `IMPORTANT: Tum repo links/names/stars bilkul mat likho apne response mein — sirf ek short intro do jaise "Maine GitHub par search ki, yahan real repos hain:" aur phir ruk jao. Repos automatically append ho jayengi.`,
+        `Search kiya topics: ${[...new Set(finalItems.map(r => r._query))].join(', ')}`,
+      ];
+      blocks.push(contextLines.join('\n'));
+
+      // Return both context block AND the pre-built repos section
+      blocks._repoSection = repoLines.join('\n');
     } else {
       const failedQueries = searchQueries.join(', ');
-      blocks.push(`🐙 GITHUB SEARCH (REAL API): "${failedQueries}" — koi bhi repo nahi mili. Honestly batao: "Is topic par GitHub par koi relevant repo nahi mili." KABHI bhi fake repos mat banao.`);
+      blocks.push(`🐙 GITHUB SEARCH (REAL API): "${failedQueries}" — koi bhi repo nahi mili. Honestly batao: "Is topic par GitHub par abhi koi relevant public repo nahi mili." KABHI bhi fake repos mat banao.`);
     }
     return blocks;
   }
+
+
 
 
 
@@ -488,6 +502,9 @@ router.post('/', requireAuth, async (req, res) => {
       fetchWebpage(promptMessage),
       fetchGitHub(promptMessage, documentContext),
     ]);
+
+    // Extract pre-built repo section (bypasses LLM hallucination entirely)
+    const prebuiltRepoSection = (githubBlock && githubBlock._repoSection) || null;
 
     const allImageUrls = [
       ...userImageUrls,
@@ -872,10 +889,17 @@ ${memoryContext}${mediaEnrichment.mediaContext}${documentContext}`;
       });
     }
 
-    const { text, model: usedModel } = llmResult;
+    let { text, model: usedModel } = llmResult;
+
+    // If we have verified real GitHub repos from GitHub Search API, ensure they are appended
+    // cleanly and any LLM hallucinated links are prevented.
+    if (prebuiltRepoSection) {
+      text = (text || '').trim() + prebuiltRepoSection;
+    }
 
     // 6. Save assistant's reply
     await memory.addMessage(req.userId, sessionId, 'assistant', text);
+
 
     // 7. Parse any schedule blocks from Bob's reply and auto-create tasks
     const scheduleRegex = /```schedule\s*\n([\s\S]*?)```/g;
