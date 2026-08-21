@@ -585,32 +585,6 @@
           </div>
         </div>
 
-        <!-- Storage File Picker Modal (Select already uploaded file without re-uploading) -->
-        <div id="storage-file-picker-modal" class="file-preview-modal hidden">
-          <div class="file-preview-backdrop" id="storage-file-picker-backdrop"></div>
-          <div class="file-preview-dialog" style="max-width: 680px; max-height: 80vh;">
-            <div class="file-preview-header">
-              <div class="file-preview-header-info">
-                <span style="font-size:20px;">📁</span>
-                <div>
-                  <h3 class="modal-file-name">Select File from Storage</h3>
-                  <span class="modal-file-meta">Pick an already uploaded file for Bob to self-read (No re-upload needed)</span>
-                </div>
-              </div>
-              <button class="icon-btn" id="storage-file-picker-close">✕</button>
-            </div>
-            <div style="padding: 12px 16px; border-bottom: 1px solid var(--border2); background: var(--surface2);">
-              <input type="text" id="storage-picker-search" placeholder="🔍 Search storage files by name or content..." style="width: 100%; padding: 8px 12px; font-size: 13px; border-radius: var(--radius-sm); border: 1px solid var(--border2); background: var(--surface); color: var(--text);" />
-            </div>
-            <div class="file-preview-body" id="storage-picker-list" style="padding: 14px; min-height: 260px; max-height: 380px; overflow-y: auto; background: var(--bg2);">
-              <div class="empty-msg">Loading storage files…</div>
-            </div>
-            <div class="file-preview-footer" style="justify-content: flex-end;">
-              <button id="storage-picker-cancel-btn" class="btn-small" style="background:var(--surface2); border:1px solid var(--border2);">Cancel</button>
-            </div>
-          </div>
-        </div>
-
 
         <!-- Secret Vault workspace -->
         <section class="view" id="view-vault">
@@ -686,6 +660,33 @@
         <div id="app-modal-body" class="app-modal-body"></div>
       </div>
     </div>
+
+    <!-- Storage File Picker Modal (Direct Document Selection) -->
+    <div id="storage-file-picker-modal" class="file-preview-modal hidden">
+      <div class="file-preview-backdrop" id="storage-file-picker-backdrop"></div>
+      <div class="file-preview-dialog storage-picker-dialog">
+        <div class="file-preview-header">
+          <div class="file-preview-header-info">
+            <span style="font-size:22px;">📁</span>
+            <div>
+              <h3 class="modal-file-name">Select File from Storage</h3>
+              <span class="modal-file-meta">Pick an already uploaded file for Bob to self-read (No re-upload needed)</span>
+            </div>
+          </div>
+          <button class="icon-btn" id="storage-file-picker-close">✕</button>
+        </div>
+        <div class="storage-picker-search-bar">
+          <input type="text" id="storage-picker-search" placeholder="🔍 Search storage files by name or content..." autocomplete="off" />
+        </div>
+        <div class="storage-picker-body" id="storage-picker-list">
+          <div class="empty-msg">Loading storage files…</div>
+        </div>
+        <div class="file-preview-footer" style="justify-content: flex-end;">
+          <button type="button" id="storage-picker-cancel-btn" class="btn-small" style="background:var(--surface2); border:1px solid var(--border2);">Cancel</button>
+        </div>
+      </div>
+    </div>
+
 
   </div><!-- /app-screen -->
 

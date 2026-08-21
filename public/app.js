@@ -2023,18 +2023,24 @@ function setStorageFileSelected(file) {
 }
 
 // ── Storage File Picker Modal Functions ─────────────────
-function openStorageFilePicker() {
+async function openStorageFilePicker() {
   const modal = document.getElementById('storage-file-picker-modal');
   if (!modal) return;
   modal.classList.remove('hidden');
-  renderStoragePickerList();
-  if (!allUploadedFiles.length) {
-    loadFiles().then(() => renderStoragePickerList());
-  }
+  
   const searchInput = document.getElementById('storage-picker-search');
   if (searchInput) {
     searchInput.value = '';
     searchInput.focus();
+  }
+
+  renderStoragePickerList();
+  
+  try {
+    await loadFiles();
+    renderStoragePickerList();
+  } catch (e) {
+    console.warn('Storage files refresh:', e.message);
   }
 }
 
@@ -2071,12 +2077,13 @@ function renderStoragePickerList() {
   listEl.innerHTML = `
     <div class="storage-picker-grid">
       ${files.map(f => {
+        const fileId = f.id || f._id || f.publicId;
         const name = f.originalName || f.publicId || 'Untitled File';
         const icon = getFileIcon(name, f.resourceType);
         const size = formatBytes(f.sizeBytes || 0);
         const status = f.textExtracted ? '🤖 AI-Readable Document' : '📦 Asset / Media';
         return `
-          <div class="storage-picker-card" data-picker-id="${f.id}">
+          <div class="storage-picker-card" data-picker-id="${escHtml(String(fileId))}">
             <div class="storage-picker-card-left">
               <span class="storage-picker-icon">${icon}</span>
               <div style="min-width:0; flex:1;">
@@ -2092,20 +2099,37 @@ function renderStoragePickerList() {
   `;
 
   listEl.querySelectorAll('.storage-picker-card').forEach(card => {
-    card.addEventListener('click', () => {
+    card.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
       const fileId = card.dataset.pickerId;
-      const file = allUploadedFiles.find(f => f.id === fileId);
-      if (file) setStorageFileSelected(file);
+      const file = (allUploadedFiles || []).find(f => String(f.id || f._id || f.publicId) === String(fileId));
+      if (file) {
+        setStorageFileSelected(file);
+      }
     });
   });
 }
 
 // Bind Storage Button click
-document.getElementById('storage-files-btn')?.addEventListener('click', openStorageFilePicker);
-document.getElementById('storage-file-picker-close')?.addEventListener('click', closeStorageFilePicker);
-document.getElementById('storage-file-picker-backdrop')?.addEventListener('click', closeStorageFilePicker);
-document.getElementById('storage-picker-cancel-btn')?.addEventListener('click', closeStorageFilePicker);
+document.getElementById('storage-files-btn')?.addEventListener('click', (e) => {
+  e.preventDefault();
+  openStorageFilePicker();
+});
+document.getElementById('storage-file-picker-close')?.addEventListener('click', (e) => {
+  e.preventDefault();
+  closeStorageFilePicker();
+});
+document.getElementById('storage-file-picker-backdrop')?.addEventListener('click', (e) => {
+  e.preventDefault();
+  closeStorageFilePicker();
+});
+document.getElementById('storage-picker-cancel-btn')?.addEventListener('click', (e) => {
+  e.preventDefault();
+  closeStorageFilePicker();
+});
 document.getElementById('storage-picker-search')?.addEventListener('input', () => renderStoragePickerList());
+
 
 document.getElementById('file-upload-input').addEventListener('change', (e) => {
   const file = e.target.files[0];

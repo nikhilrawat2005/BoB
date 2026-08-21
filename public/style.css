@@ -957,27 +957,135 @@ body.persona-builder #model-selector { display: none !important; }
 .file-preview-footer-actions { display: flex; gap: 8px; align-items: center; }
 
 /* Storage File Picker Modal Items */
-.storage-picker-grid { display: flex; flex-direction: column; gap: 8px; }
+.storage-picker-dialog {
+  max-width: 640px !important;
+  width: 92% !important;
+  max-height: 80vh !important;
+  display: flex !important;
+  flex-direction: column !important;
+}
+
+.storage-picker-search-bar {
+  padding: 12px 18px;
+  background: var(--surface2);
+  border-bottom: 1px solid var(--border2);
+  flex-shrink: 0;
+}
+
+.storage-picker-search-bar input {
+  width: 100%;
+  padding: 9px 14px;
+  font-size: 13.5px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border2);
+  background: var(--surface);
+  color: var(--text);
+  outline: none;
+  transition: border-color 0.18s, box-shadow 0.18s;
+}
+
+.storage-picker-search-bar input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-glow);
+}
+
+.storage-picker-body {
+  padding: 14px 18px;
+  flex: 1 1 auto;
+  min-height: 200px;
+  max-height: 52vh;
+  overflow-y: auto !important;
+  overflow-x: hidden;
+  background: var(--bg2);
+  -webkit-overflow-scrolling: touch;
+}
+
+.storage-picker-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-bottom: 6px;
+}
+
 .storage-picker-card {
-  display: flex; align-items: center; justify-content: space-between; gap: 12px;
-  background: var(--surface); border: 1px solid var(--border2); border-radius: 8px;
-  padding: 10px 14px; cursor: pointer; transition: all 0.18s ease;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  background: var(--surface);
+  border: 1px solid var(--border2);
+  border-radius: 9px;
+  padding: 11px 14px;
+  cursor: pointer;
+  transition: all 0.18s ease;
+  user-select: none;
 }
+
 .storage-picker-card:hover {
-  background: var(--surface2); border-color: var(--accent); transform: translateX(3px);
+  background: var(--surface2);
+  border-color: var(--accent);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.25);
 }
-.storage-picker-card-left { display: flex; align-items: center; gap: 12px; min-width: 0; flex: 1; }
-.storage-picker-icon { font-size: 24px; flex-shrink: 0; }
-.storage-picker-title { font-size: 13.5px; font-weight: 600; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.storage-picker-sub { font-size: 11.5px; color: var(--text3); margin-top: 2px; }
+
+.storage-picker-card:active {
+  transform: translateY(0);
+}
+
+.storage-picker-card-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  flex: 1;
+}
+
+.storage-picker-icon {
+  font-size: 24px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.storage-picker-title {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.storage-picker-sub {
+  font-size: 11.5px;
+  color: var(--text3);
+  margin-top: 3px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
 .storage-picker-select-btn {
-  padding: 5px 12px; font-size: 12px; border-radius: 6px; font-weight: 500;
-  background: rgba(108, 99, 255, 0.15); border: 1px solid var(--accent); color: var(--accent);
-  cursor: pointer; transition: all 0.18s ease; flex-shrink: 0;
+  padding: 6px 14px;
+  font-size: 12px;
+  border-radius: 6px;
+  font-weight: 600;
+  background: rgba(108, 99, 255, 0.18);
+  border: 1px solid var(--accent);
+  color: #c9d5f7;
+  cursor: pointer;
+  transition: all 0.18s ease;
+  flex-shrink: 0;
+  pointer-events: none; /* Let parent card click trigger selection cleanly */
 }
+
 .storage-picker-card:hover .storage-picker-select-btn {
-  background: var(--accent); color: #fff;
+  background: var(--accent);
+  color: #fff;
+  box-shadow: 0 0 10px var(--accent-glow);
 }
+
 
 
 /* ── Responsive ─────────────────────────────────────── */
