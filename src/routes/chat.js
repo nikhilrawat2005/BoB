@@ -603,9 +603,11 @@ router.post('/', requireAuth, async (req, res) => {
 - Jab detailed report, project documentation, ya formal summary mangi jaye: **Word (.docx)** ya **PDF (.pdf)** use karo via \`\`\`filespec block.
 - Markdown (.md) SIRF tab banao jab Master explicitly bole: "markdown file do" ya code repo README.md manga ho.
 
-🚨 RULE 3: ZERO DUMMY/EMPTY CONTENT:
+🚨 RULE 3: ZERO DUMMY/EMPTY CONTENT & ZERO FAKE GITHUB LINKS:
 - Kabhi bhi placeholder files mat banao jaise \[Problem 1\]\(link1\), \[Link Here\], ..., ya empty templates.
 - File ke andar REAL, complete, fully populated actual data, real titles, aur real information honi chahiye.
+- 🚨 GITHUB REPOS RULE: Kabhi bhi apne mann se GitHub URLs (jaise https://github.com/owner/repo) fabricate mat karo! Agar Master ne GitHub repos maangi hain, to backend automatically verified real repos ko response ke end mein attach karega. Tum apne text me SIRF analysis aur intro do — repo links/lists tum mat likho.
+
 
 
 Whenever Master explicitly asks for a file, use the appropriate format below:
@@ -891,14 +893,22 @@ ${memoryContext}${mediaEnrichment.mediaContext}${documentContext}`;
 
     let { text, model: usedModel } = llmResult;
 
-    // If we have verified real GitHub repos from GitHub Search API, ensure they are appended
-    // cleanly and any LLM hallucinated links are prevented.
+    // If we have verified real GitHub repos from GitHub Search API:
+    // Strip any hallucinated markdown GitHub links `[...](https://github.com/...)` that the LLM generated in its text,
+    // so Master only ever gets 100% real verified working repos.
     if (prebuiltRepoSection) {
-      text = (text || '').trim() + prebuiltRepoSection;
+      // Remove hallucinated `[title](https://github.com/...)` or bare `https://github.com/...` from LLM's body text
+      let sanitizedText = (text || '')
+        .replace(/\[([^\]]+)\]\(https?:\/\/github\.com\/[^\)]+\)/gi, '$1')
+        .replace(/https?:\/\/github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+/gi, '')
+        .trim();
+
+      text = sanitizedText + prebuiltRepoSection;
     }
 
     // 6. Save assistant's reply
     await memory.addMessage(req.userId, sessionId, 'assistant', text);
+
 
 
     // 7. Parse any schedule blocks from Bob's reply and auto-create tasks
