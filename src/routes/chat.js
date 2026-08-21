@@ -119,10 +119,16 @@ async function fetchWebpage(message) {
  * If a specific repo link is pasted, the ACTUAL repo code is read (analyzeRepo).
  * Never throws. Returns an array of context blocks (or null).
  */
-const TOPIC_STOPWORDS = new Set(['github', 'git', 'repos', 'repo', 'repositories', 'repository', 'projects', 'project', 'mera', 'meri', 'mere', 'apna', 'apni', 'sab', 'saare', 'kuch', 'regarding']);
+const TOPIC_STOPWORDS = new Set(['github', 'git', 'repos', 'repo', 'repositories', 'repository', 'projects', 'project', 'mera', 'meri', 'mere', 'apna', 'apni', 'sab', 'saare', 'kuch', 'regarding', 'sih', 'hackathon', 'smart india hackathon']);
 
 function extractTopic(m) {
   let cleaned = String(m || '').replace(/```[\s\S]*?```/g, ' ').replace(/\s+/g, ' ').trim();
+
+  // Pattern -1: SIH / hackathon context — extract domain AFTER "SIH ke liye" / "hackathon problem"
+  // e.g. "SIH ke liye smart city repos do" → "smart city"
+  // e.g. "healthcare SIH repos dhundo" → "healthcare"
+  const pSIH = cleaned.match(/(?:SIH|smart\s*india\s*hackathon|hackathon)\s+(?:ke\s+liye\s+|ke\s+|related\s+)?([A-Za-z][A-Za-z0-9 &+_\/-]{2,40}?)\s+(?:repos?|github|projects?|code|solution)/i)
+    || cleaned.match(/([A-Za-z][A-Za-z0-9 &+_\/-]{2,40}?)\s+(?:SIH|hackathon)\s+(?:repos?|github|projects?|code|solution)/i);
 
   // Pattern 0: Topic AFTER "regarding / related to / about / for / ke regarding" (e.g. "find repos regarding ai models")
   const pAfterKeyword = cleaned.match(/(?:(?:ke\s+)?regarding|related\s+to|about|for|ke\s+baare\s+me|ke\s+liye)\s+([A-Za-z0-9][A-Za-z0-9 .&+_\/-]{1,50})/i);
@@ -142,7 +148,8 @@ function extractTopic(m) {
   // Pattern 4: Direct noun phrase (e.g. "location tracking repos")
   const pNoun = cleaned.match(/([A-Za-z0-9][A-Za-z0-9 .&+_\/-]{1,50})\s+(?:repos?|projects?|repositories)/i);
 
-  let topic = (pBeforeRegarding && pBeforeRegarding[1]) ||
+  let topic = (pSIH && pSIH[1]) ||
+              (pBeforeRegarding && pBeforeRegarding[1]) ||
               (pAfterKeyword && pAfterKeyword[1]) ||
               (pHinglishBefore && pHinglishBefore[1]) ||
               (pEnglishAfter && pEnglishAfter[1]) ||
@@ -154,8 +161,8 @@ function extractTopic(m) {
   do {
     prev = topic;
     topic = topic
-      .replace(/(?:\brelated\b|\brepo\b|\brepos?\b|\bprojects?\b|\bregarding\b|\bke?\b|\bka\b|\bki\b|\bko\b|\bme\b|\bpe\b|\bpar\b|\bdo\b|\bkarke\b|\bbatao\b|\bbata\b|\bchahiye\b|\bdhoondo?\b|\bdhundho?\b|\bfind\b|\bsearch\b|\bkaro\b|\bhai\b|\bhain\b|\bgood\b|\bgreat\b|\bacha\b|\baccha\b|\bacche\b|\bkoi\b|\bone\b|\bany\b|\bsome\b|\bnhi\b|\bnahi\b|\bplz\b|\bplease\b|\bplease\s+do\b|\bdo\s+karo\b)\s*$/i, '')
-      .replace(/^(?:github|git|pe|par|me|se|ke|ka|ki|ko|the|a|an|some|best|top|kya|koi|good|acha|accha|any|abhi|mere|mera|apne|apna|apni|sab|saare|find|search|dhundh|dhoond|khoj|kar|sakte|ho)\s+/i, '')
+      .replace(/(?:\brelated\b|\brepo\b|\brepos?\b|\bprojects?\b|\bregarding\b|\bke?\b|\bka\b|\bki\b|\bko\b|\bme\b|\bpe\b|\bpar\b|\bdo\b|\bkarke\b|\bbatao\b|\bbata\b|\bchahiye\b|\bdhoondo?\b|\bdhundho?\b|\bfind\b|\bsearch\b|\bkaro\b|\bhai\b|\bhain\b|\bgood\b|\bgreat\b|\bacha\b|\baccha\b|\bacche\b|\bkoi\b|\bone\b|\bany\b|\bsome\b|\bnhi\b|\bnahi\b|\bplz\b|\bplease\b|\bplease\s+do\b|\bdo\s+karo\b|\bSIH\b|\bhackathon\b|\bproblem\s+statement\b|\bke\s+liye\b)\\s*$/i, '')
+      .replace(/^(?:github|git|pe|par|me|se|ke|ka|ki|ko|the|a|an|some|best|top|kya|koi|good|acha|accha|any|abhi|mere|mera|apne|apna|apni|sab|saare|find|search|dhundh|dhoond|khoj|kar|sakte|ho|SIH|hackathon)\s+/i, '')
       .trim();
   } while (topic !== prev);
 
@@ -165,14 +172,16 @@ function extractTopic(m) {
 function searchIntent(m) {
   if (/\bgithub\.com\/([A-Za-z0-9_.-]+)\b|\@[A-Za-z0-9_.-]+\b/i.test(m)) return false;
   const hasKeyword = /\b(?:repos?|projects?|repositories|source code|github|dhundh[oa]?|dhoond[oa]?|khoj[oa]?|search|find|suggest|recommend)\b/i.test(m);
-  if (!hasKeyword) return false;
+  // Also trigger on hackathon/SIH-style "find repos for X" requests
+  const hasSIHStyle = /\b(?:SIH|smart\s*india\s*hackathon|problem\s*statement|hackathon)\b.{0,60}\b(?:repos?|github|project|code|solution)\b|\b(?:repos?|github|project|code|solution)\b.{0,60}\b(?:SIH|smart\s*india\s*hackathon|problem\s*statement|hackathon)\b/i.test(m);
+  if (!hasKeyword && !hasSIHStyle) return false;
   const topic = extractTopic(m);
   return !!topic;
 }
 
 async function fetchGitHub(message) {
   const m = String(message || '');
-  if (!/\bgithub\b|\brepos?\b|\brepositories\b|\bprojects?\b|\bprofile\b|\bdhoond\b|\bdhundh\b|\bkhoj\b|\bsearch\b|\bfind\b/i.test(m)) return null;
+  if (!/\bgithub\b|\brepos?\b|\brepositories\b|\bprojects?\b|\bprofile\b|\bdhoond\b|\bdhundh\b|\bkhoj\b|\bsearch\b|\bfind\b|\bSIH\b|\bhackathon\s+repos?\b|\bproblem\s+statement\b/i.test(m)) return null;
   const blocks = [];
 
   // 1) Specific repo link(s) pasted? → read the ACTUAL code of the repo.
@@ -715,6 +724,8 @@ You are only allowed to promise Master Nikhil things that are ACTUALLY built. Th
 - Jab bhi GitHub ka sawaal aaye (profile, "mera github study kar", repo count, repos list, followers, "ye repo kya hai", koi github link paste), upar ka "🐙 GITHUB PROFILE" ya "📦 GITHUB REPO ANALYSIS" block REAL API data hai.
 - SIRF wahi repos/languages/stars/counts/descriptions mention karo jo block me hain. Koi repo, link, count, language, ya stars apne dimaag se mat banao.
 
+🚨 ABSOLUTE BAN — FAKE GITHUB LINKS: Tu KABHI BHI apne dimaag se koi github.com URL nahi banega. Agar upar koi "🐙 GITHUB SEARCH" block nahi hai, to iska matlab hai real search nahi hua — aur tujhe honestly bol dena chahiye: "Mujhe real GitHub search results abhi nahi mile — main dobara dhundh sakta hoon agar tum topic clearly bolo." SIH, hackathon, ya kisi bhi problem domain ke liye repos dhundhne pe SIRF "🐙 GITHUB SEARCH" block ke results use kar. Agar wo block nahi aaya to FAKE REPOS MAT BANAO — chahe kitna bhi helpful lagta ho.
+
 🔗 LINK FORMAT — CRITICAL RULE (READ THIS CAREFULLY):
   CORRECT ✅ : [kubernetes/kubernetes](https://github.com/kubernetes/kubernetes)
   WRONG ❌   : ([https://github.com/kubernetes/kubernetes]**) — outer brackets + ** BANNED
@@ -725,7 +736,7 @@ You are only allowed to promise Master Nikhil things that are ACTUALLY built. Th
 - Koi repo block me nahi hai → wo exist nahi karti (ya private hai) → kabhi mat batao, aur uska fake link mat do.
 - Repo ke baare me detail (code, tech stack) batate waqt ONLY actual file content use karo jo block me hai.
 - Agar koi GitHub block nahi aaya (fetch fail / rate limit), khul ke bolo: "GitHub fetch abhi fail hua" — guess mat karo.
-- REPO DHOONDHNA TUMHARI APNI SKILL HAI: "best <topic> repos do / find repos / <topic> repos" jaise sawaal pe upar '🐙 GITHUB SEARCH' block me REAL results milte hain (GitHub Search API se). USE WOHI. Repo-finding ko Builder ko DELEGATE MAT KARO — ye khud karo.
+- REPO DHOONDHNA TUMHARI APNI SKILL HAI: "best <topic> repos do / find repos / <topic> repos / SIH ke liye repos" jaise sawaal pe upar '🐙 GITHUB SEARCH' block me REAL results milte hain (GitHub Search API se). USE WOHI. Repo-finding ko Builder ko DELEGATE MAT KARO — ye khud karo.
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 ━━━ 🧠 MEMORY ENGINE (How Bob remembers Master Nikhil) ━━━
