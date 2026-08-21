@@ -119,40 +119,35 @@ async function fetchWebpage(message) {
  * If a specific repo link is pasted, the ACTUAL repo code is read (analyzeRepo).
  * Never throws. Returns an array of context blocks (or null).
  */
-const TOPIC_STOPWORDS = new Set(['github', 'git', 'repos', 'repo', 'repositories', 'repository', 'projects', 'project', 'mera', 'meri', 'mere', 'apna', 'apni', 'sab', 'saare', 'kuch', 'regarding', 'sih', 'hackathon', 'smart india hackathon']);
+const TOPIC_STOPWORDS = new Set(['github', 'git', 'repos', 'repo', 'repositories', 'repository', 'projects', 'project', 'mera', 'meri', 'mere', 'apna', 'apni', 'sab', 'saare', 'kuch', 'regarding', 'sih', 'hackathon', 'smart india hackathon', 'problem', 'statements', 'problem statements']);
 
 function extractTopic(m) {
   let cleaned = String(m || '').replace(/```[\s\S]*?```/g, ' ').replace(/\s+/g, ' ').trim();
 
-  // Pattern -1: SIH / hackathon context — extract domain AFTER "SIH ke liye" / "hackathon problem"
-  // e.g. "SIH ke liye smart city repos do" → "smart city"
-  // e.g. "healthcare SIH repos dhundo" → "healthcare"
+  // Pattern 0: Extract domain from queries like "tum in sab hi problem statement ke according mujhe ache ache probelm statment se realted repos find kar ke do"
+  // or "smart city problem statement repos"
+  const pRelated = cleaned.match(/(?:related|regarding|ke liye|se related|based on|for)\s+([A-Za-z0-9 &+_\/-]{2,50}?)\s*(?:repos?|projects?|github|code)?$/i);
+
+  // Pattern 1: SIH / hackathon domain
   const pSIH = cleaned.match(/(?:SIH|smart\s*india\s*hackathon|hackathon)\s+(?:ke\s+liye\s+|ke\s+|related\s+)?([A-Za-z][A-Za-z0-9 &+_\/-]{2,40}?)\s+(?:repos?|github|projects?|code|solution)/i)
     || cleaned.match(/([A-Za-z][A-Za-z0-9 &+_\/-]{2,40}?)\s+(?:SIH|hackathon)\s+(?:repos?|github|projects?|code|solution)/i);
 
-  // Pattern 0: Topic AFTER "regarding / related to / about / for / ke regarding" (e.g. "find repos regarding ai models")
+  // Pattern 2: Topic AFTER "regarding / related to / about / for / ke regarding"
   const pAfterKeyword = cleaned.match(/(?:(?:ke\s+)?regarding|related\s+to|about|for|ke\s+baare\s+me|ke\s+liye)\s+([A-Za-z0-9][A-Za-z0-9 .&+_\/-]{1,50})/i);
 
-  // Pattern 0b: Multi-word topic BEFORE "regarding / ke liye / related" (e.g. "cloud computing regarding repos do")
+  // Pattern 3: Multi-word topic BEFORE "regarding / ke liye / related"
   const pBeforeRegarding = cleaned.match(/^([A-Za-z][A-Za-z0-9 .&+_\/-]{2,50}?)\s+(?:ke\s+(?:regarding|related|liye|baare)|regarding|related\s+to)/i);
 
-  // Pattern 1: Topic BEFORE "ke regarding / related / pe / par / ke liye / ke baare me" (e.g. "location tracking ke regarding repos find karo")
-  const pHinglishBefore = cleaned.match(/([A-Za-z0-9][A-Za-z0-9 .&+_\/-]{1,50})\s+(?:ke\s+(?:regarding|related|liye|baare\s+me|par|pe)|pe|par|related\s+to)/i);
-
-  // Pattern 2: Topic AFTER "repos for/about/on/related to" (e.g. "repos for location tracking")
-  const pEnglishAfter = cleaned.match(/(?:repos?|projects?|repositories)\s+(?:for|about|on|related\s+to|regarding|ke\s+liye|ke\s+baare\s+me)\s+([A-Za-z0-9][A-Za-z0-9 .&+_\/-]{1,50})/i);
-
-  // Pattern 3: Direct search verbs (e.g. "find location tracking repos" or "dhundo location tracking projects")
+  // Pattern 4: Direct search verbs (e.g. "find location tracking repos" or "dhundo ai projects")
   const pVerbs = cleaned.match(/(?:find|search|dhundh[o]?|dhoond[o]?|khoj[o]?|suggest|recommend)\s+(\d+\s+)?([A-Za-z0-9][A-Za-z0-9 .&+_\/-]{1,50})\s*(?:repos?|projects?|code|repositories)?/i);
 
-  // Pattern 4: Direct noun phrase (e.g. "location tracking repos")
+  // Pattern 5: Direct noun phrase
   const pNoun = cleaned.match(/([A-Za-z0-9][A-Za-z0-9 .&+_\/-]{1,50})\s+(?:repos?|projects?|repositories)/i);
 
   let topic = (pSIH && pSIH[1]) ||
+              (pRelated && pRelated[1]) ||
               (pBeforeRegarding && pBeforeRegarding[1]) ||
               (pAfterKeyword && pAfterKeyword[1]) ||
-              (pHinglishBefore && pHinglishBefore[1]) ||
-              (pEnglishAfter && pEnglishAfter[1]) ||
               (pVerbs && (pVerbs[2] || pVerbs[1])) ||
               (pNoun && pNoun[1]) ||
               cleaned;
@@ -161,27 +156,30 @@ function extractTopic(m) {
   do {
     prev = topic;
     topic = topic
-      .replace(/(?:\brelated\b|\brepo\b|\brepos?\b|\bprojects?\b|\bregarding\b|\bke?\b|\bka\b|\bki\b|\bko\b|\bme\b|\bpe\b|\bpar\b|\bdo\b|\bkarke\b|\bbatao\b|\bbata\b|\bchahiye\b|\bdhoondo?\b|\bdhundho?\b|\bfind\b|\bsearch\b|\bkaro\b|\bhai\b|\bhain\b|\bgood\b|\bgreat\b|\bacha\b|\baccha\b|\bacche\b|\bkoi\b|\bone\b|\bany\b|\bsome\b|\bnhi\b|\bnahi\b|\bplz\b|\bplease\b|\bplease\s+do\b|\bdo\s+karo\b|\bSIH\b|\bhackathon\b|\bproblem\s+statement\b|\bke\s+liye\b)\\s*$/i, '')
-      .replace(/^(?:github|git|pe|par|me|se|ke|ka|ki|ko|the|a|an|some|best|top|kya|koi|good|acha|accha|any|abhi|mere|mera|apne|apna|apni|sab|saare|find|search|dhundh|dhoond|khoj|kar|sakte|ho|SIH|hackathon)\s+/i, '')
+      .replace(/(?:\btum\b|\bin\b|\bsab\b|\bhi\b|\bprobelm\b|\bproblem\b|\bstatement\b|\bstatements\b|\bke\b|\baccording\b|\bmujhe\b|\bache\b|\bacche\b|\baccha\b|\brealted\b|\brelated\b|\brepos?\b|\bprojects?\b|\bregarding\b|\bka\b|\bki\b|\bko\b|\bme\b|\bpe\b|\bpar\b|\bdo\b|\bkarke\b|\bkar\s+ke\s+do\b|\bbatao\b|\bbata\b|\bchahiye\b|\bdhoondo?\b|\bdhundho?\b|\bfind\b|\bsearch\b|\bkaro\b|\bhai\b|\bhain\b|\bgood\b|\bgreat\b|\bkoi\b|\bone\b|\bany\b|\bsome\b|\bnhi\b|\bnahi\b|\bplz\b|\bplease\b|\bSIH\b|\bhackathon\b)\s*$/i, '')
+      .replace(/^(?:tum|in|sab|hi|probelm|problem|statement|statements|github|git|pe|par|me|se|ke|ka|ki|ko|the|a|an|some|best|top|kya|koi|good|acha|accha|any|abhi|mere|mera|apne|apna|apni|find|search|dhundh|dhoond|khoj|kar|sakte|ho|SIH|hackathon)\s+/i, '')
       .trim();
   } while (topic !== prev);
 
-  return TOPIC_STOPWORDS.has(String(topic || '').toLowerCase()) ? '' : topic;
+  if (TOPIC_STOPWORDS.has(String(topic || '').toLowerCase())) {
+    // If the stripped topic is a stopword or general hackathon request, default to high-value hackathon starter search
+    return 'hackathon starter template';
+  }
+  return topic || 'hackathon starter template';
 }
 
 function searchIntent(m) {
   if (/\bgithub\.com\/([A-Za-z0-9_.-]+)\b|\@[A-Za-z0-9_.-]+\b/i.test(m)) return false;
-  const hasKeyword = /\b(?:repos?|projects?|repositories|source code|github|dhundh[oa]?|dhoond[oa]?|khoj[oa]?|search|find|suggest|recommend)\b/i.test(m);
-  // Also trigger on hackathon/SIH-style "find repos for X" requests
-  const hasSIHStyle = /\b(?:SIH|smart\s*india\s*hackathon|problem\s*statement|hackathon)\b.{0,60}\b(?:repos?|github|project|code|solution)\b|\b(?:repos?|github|project|code|solution)\b.{0,60}\b(?:SIH|smart\s*india\s*hackathon|problem\s*statement|hackathon)\b/i.test(m);
-  if (!hasKeyword && !hasSIHStyle) return false;
-  const topic = extractTopic(m);
-  return !!topic;
+  // If user asks about their own profile/account, that's not a general search
+  if (/\b(?:mera\s+github|meri\s+profile|my\s+profile|my\s+repos|mere\s+repos|mere\s+kitne\s+repo|my\s+github|followers)\b/i.test(m)) return false;
+  
+  const hasKeyword = /\b(?:repos?|projects?|repositories|source\s*code|github|dhundh[oa]?|dhoond[oa]?|khoj[oa]?|search|find|suggest|recommend|probelm|problem\s*statements?|hackathon)\b/i.test(m);
+  return hasKeyword;
 }
 
 async function fetchGitHub(message) {
   const m = String(message || '');
-  if (!/\bgithub\b|\brepos?\b|\brepositories\b|\bprojects?\b|\bprofile\b|\bdhoond\b|\bdhundh\b|\bkhoj\b|\bsearch\b|\bfind\b|\bSIH\b|\bhackathon\s+repos?\b|\bproblem\s+statement\b/i.test(m)) return null;
+  if (!/\bgithub\b|\brepos?\b|\brepositories\b|\bprojects?\b|\bprofile\b|\bdhoond\b|\bdhundh\b|\bkhoj\b|\bsearch\b|\bfind\b|\bSIH\b|\bhackathon\b|\bproblem\s*statements?\b/i.test(m)) return null;
   const blocks = [];
 
   // 1) Specific repo link(s) pasted? → read the ACTUAL code of the repo.
@@ -206,62 +204,68 @@ async function fetchGitHub(message) {
     return blocks;
   }
 
-  // 1b) Repo SEARCH intent (e.g. "best location tracking repos do") → REAL GitHub Search API.
+  // 1b) Repo SEARCH intent (e.g. "best location tracking repos do", "SIH repos", "problem statement repos")
   if (searchIntent(m)) {
     const topic = extractTopic(m);
-    const res = await repoService.searchRepos(topic, 5).catch(() => ({ error: 'network', message: 'GitHub search call failed.' }));
+    const res = await repoService.searchRepos(topic, 6).catch(() => ({ error: 'network', message: 'GitHub search call failed.' }));
     if (res.error) {
-      blocks.push(`⚠️ GITHUB SEARCH FAILED (REAL reason): ${res.message} — KABHI bhi repo/star/link invent mat karo.`);
+      blocks.push(`⚠️ GITHUB SEARCH FAILED (REAL reason): ${res.message} — KABHI bhi repo/star/link invent mat karo. Honestly bolo search fail hui.`);
     } else if (res.items && res.items.length) {
       const lines = [];
-      lines.push(`🐙 GITHUB SEARCH "${topic}" (REAL GitHub API, sorted by stars) — Sirf inki details use karo, kuch invent mat karo:`);
+      lines.push(`🐙 GITHUB SEARCH RESULTS for "${topic}" (REAL GitHub Search API, sorted by stars) — USE ONLY THESE EXACT DETAILS:`);
       res.items.forEach((r, i) => {
         const repoUrl = r.html_url || `https://github.com/${r.full_name}`;
         lines.push(
-          `${i + 1}. [${r.full_name}](${repoUrl}) — ${r.language || 'N/A'} ⭐${r.stars} (${r.forks} forks)` +
+          `${i + 1}. [${r.full_name}](${repoUrl}) — Language: ${r.language || 'N/A'} | ⭐ ${r.stars} | 🍴 ${r.forks} forks` +
           `\n   🔗 ${repoUrl}` +
-          `\n   ${r.description ? r.description.slice(0, 160) : '(no description)'}`
+          `\n   Description: ${r.description ? r.description.slice(0, 180) : '(no description)'}`
         );
       });
-      lines.push('⚠️ RULE: Ye hi real results hain. Koi aur repo/star/link mat banao. Links hamesha clean Markdown format me output karo: [owner/repo](exact_url). NEVER add extra outer brackets, tags, or malformed URL structures.');
+      lines.push('\n🚨 STRICT RULE: Sirf upar di gayi REAL repos hi output karo. Inke links copy paste karo: [owner/repo](exact_url). NEVER fabricate any fake repo name, stars, or GitHub link. Agar Master ne specific problem statement manga hai, to inhi real repos se relate karke solution propose karo.');
       blocks.push(lines.join('\n'));
     } else {
-      blocks.push(`🐙 GITHUB SEARCH "${topic}" (REAL API): koi repo nahi mili is topic pe — honestly bolo, fake repo/link mat banao.`);
+      blocks.push(`🐙 GITHUB SEARCH for "${topic}" (REAL API): koi repo nahi mili — honestly batao ki is exact keyword par repo nahi mili.`);
     }
     return blocks;
   }
 
-  // 2) No specific repo link → profile + REAL full repo list.
-  let username = (m.match(/github\.com\/([A-Za-z0-9_.-]+)/) || [])[1];
-  if (!username && /@([A-Za-z0-9_.-]+)\b/.test(m)) username = m.match(/@([A-Za-z0-9_.-]+)\b/)[1];
-  username = username || process.env.GITHUB_USERNAME || 'nikhilrawat2005';
-  try {
-    const [profile, repoList] = await Promise.all([
-      repoService.getUserProfile(username),
-      repoService.listUserRepos(username, 100),
-    ]);
-    if (profile.error || repoList.error) {
-      blocks.push(`⚠️ GITHUB DATA FETCH FAILED (REAL reason): ${profile.message || repoList.message}. KABHI bhi repo name, count, stars, language ya link invent mat karo — honestly batao ki fetch fail hua aur GITHUB_TOKEN laga kar fix hoga.`);
-      return blocks;
+  // 2) Explicit Profile request (e.g. "mera github", "@username")
+  const asksProfile = /\b(?:mera\s+github|meri\s+profile|my\s+profile|my\s+repos|mere\s+repos|mere\s+kitne\s+repo|my\s+github|followers|following|profile)\b/i.test(m);
+  if (asksProfile) {
+    let username = (m.match(/github\.com\/([A-Za-z0-9_.-]+)/) || [])[1];
+    if (!username && /@([A-Za-z0-9_.-]+)\b/.test(m)) username = m.match(/@([A-Za-z0-9_.-]+)\b/)[1];
+    username = username || process.env.GITHUB_USERNAME || 'nikhilrawat2005';
+    try {
+      const [profile, repoList] = await Promise.all([
+        repoService.getUserProfile(username),
+        repoService.listUserRepos(username, 100),
+      ]);
+      if (profile.error || repoList.error) {
+        blocks.push(`⚠️ GITHUB DATA FETCH FAILED (REAL reason): ${profile.message || repoList.message}. KABHI bhi repo name, count, stars, language ya link invent mat karo.`);
+        return blocks;
+      }
+      const lines = [];
+      lines.push(`🐙 GITHUB PROFILE (REAL DATA from GitHub API for @${profile.login}) — use these EXACT numbers, never invent:`);
+      lines.push(`- Username: ${profile.login}${profile.name ? ' (' + profile.name + ')' : ''}`);
+      lines.push(`- Public repos: ${profile.public_repos} | Followers: ${profile.followers} | Following: ${profile.following}${profile.location ? ' | Location: ' + profile.location : ''}`);
+      if (profile.bio) lines.push(`- Bio: ${profile.bio}`);
+      lines.push(`- ⚠️ RULE: Sirf yehi repos exist karti hain (${repoList.count} fetched, REAL). Inke ilawa KOI repo/link/count/stars/language invent mat karo. Har repo ka real link: https://github.com/<full_name>`);
+      if (repoList.repos && repoList.repos.length) {
+        repoList.repos.forEach(r => lines.push(`  • ${r.full_name} — ${r.language || 'N/A'} ⭐${r.stars}${r.fork ? ' (fork)' : ''}${r.description ? ': ' + r.description.slice(0, 110) : ''}`));
+      } else {
+        lines.push('- No public repos found.');
+      }
+      blocks.push(lines.join('\n'));
+    } catch (err) {
+      console.log('[Chat] GitHub fetch skipped:', err.message);
+      blocks.push('⚠️ GITHUB DATA FETCH FAILED (network). Kabhi bhi repo/count/link invent mat karo.');
     }
-    const lines = [];
-    lines.push(`🐙 GITHUB PROFILE (REAL DATA from GitHub API for @${profile.login}) — use these EXACT numbers, never invent:`);
-    lines.push(`- Username: ${profile.login}${profile.name ? ' (' + profile.name + ')' : ''}`);
-    lines.push(`- Public repos: ${profile.public_repos} | Followers: ${profile.followers} | Following: ${profile.following}${profile.location ? ' | Location: ' + profile.location : ''}`);
-    if (profile.bio) lines.push(`- Bio: ${profile.bio}`);
-    lines.push(`- ⚠️ RULE: Sirf yehi repos exist karti hain (${repoList.count} fetched, REAL). Inke ilawa KOI repo/link/count/stars/language invent mat karo. Har repo ka real link: https://github.com/<full_name>`);
-    if (repoList.repos && repoList.repos.length) {
-      repoList.repos.forEach(r => lines.push(`  • ${r.full_name} — ${r.language || 'N/A'} ⭐${r.stars}${r.fork ? ' (fork)' : ''}${r.description ? ': ' + r.description.slice(0, 110) : ''}`));
-    } else {
-      lines.push('- No public repos found.');
-    }
-    blocks.push(lines.join('\n'));
-  } catch (err) {
-    console.log('[Chat] GitHub fetch skipped:', err.message);
-    blocks.push('⚠️ GITHUB DATA FETCH FAILED (network). Kabhi bhi repo/count/link invent mat karo — batao ki fetch abhi fail hua.');
+    return blocks;
   }
-  return blocks;
+
+  return null;
 }
+
 
 // GET /api/chat/proactive-greeting  - Proactively greets Master Nikhil with daily insights
 router.get('/proactive-greeting', requireAuth, async (req, res) => {
