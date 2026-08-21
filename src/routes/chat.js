@@ -176,14 +176,17 @@ function searchIntent(m) {
   // If user asks about their own profile/account, that's not a general search
   if (/\b(?:mera\s+github|meri\s+profile|my\s+profile|my\s+repos|mere\s+repos|mere\s+kitne\s+repo|my\s+github|followers)\b/i.test(m)) return false;
   
-  const hasKeyword = /\b(?:repos?|projects?|repositories|source\s*code|github|dhundh[oa]?|dhoond[oa]?|khoj[oa]?|search|find|suggest|recommend|probelm|problem\s*statements?|hackathon)\b/i.test(m);
-  return hasKeyword;
+  // Require explicit repo/github/project search intent — do NOT trigger on random words like 'suggest' or 'find' alone
+  const hasExplicitRepoIntent = /\b(?:github|repos?|repositories|source\s*code|github\s*links?|code\s*repos?)\b/i.test(m) ||
+    (/\b(?:find|search|dhundh|dhoond|khoj|suggest|recommend|chahiye|do)\b/i.test(m) && /\b(?:repos?|projects?|github|codebase|solutions?)\b/i.test(m));
+  return hasExplicitRepoIntent;
 }
 
 async function fetchGitHub(message, docContext) {
   const m = String(message || '');
-  if (!/\bgithub\b|\brepos?\b|\brepositories\b|\bprojects?\b|\bprofile\b|\bdhoond\b|\bdhundh\b|\bkhoj\b|\bsearch\b|\bfind\b|\bSIH\b|\bhackathon\b|\bproblem\s*statements?\b/i.test(m)) return null;
+  if (!/\bgithub\b|\brepos?\b|\brepositories\b|\bprofile\b/i.test(m) && !searchIntent(m)) return null;
   const blocks = [];
+
 
   // 1) Specific repo link(s) pasted? → read the ACTUAL code of the repo.
   const repoUrls = repoService.extractRepoUrls(m).slice(0, 2);
