@@ -316,16 +316,41 @@ router.post('/', requireAuth, async (req, res) => {
   // Normalize image URLs from request (screenshots uploaded by user)
   const userImageUrls = Array.isArray(imageUrls) ? imageUrls.filter(Boolean).slice(0, 6) : [];
 
-  // NEW: normalize attached documents (PDF/DOCX/etc. text extracted at
-  // upload time by fileService/documentReaderService, forwarded here by the
-  // frontend). Each item looks like { name, extractedText, textExtracted }.
-  const userDocuments = Array.isArray(documents)
+  // NEW: normalize attached documents (PDF/DOCX/XLSX/etc. text extracted at
+  // upload time or fetched from URL on-the-fly if missing)
+  const rawDocs = Array.isArray(documents)
     ? documents.filter((d) => d && d.name).slice(0, 3)
     : [];
 
-  // DEBUG LOG — visible in Vercel → Logs. Search "[chat] documents received"
-  // to confirm whether the frontend is actually sending attached-file text,
-  // and whether extraction produced real content or came back empty/failed.
+  const userDocuments = await Promise.all(
+    rawDocs.map(async (d) => {
+      if (d.textExtracted && d.extractedText) return d;
+      // On-the-fly extraction fallback if url or fileId is present
+      const fileUrl = d.url || (d.id ? `/api/files/${d.id}/view` : null);
+      if (fileUrl && typeof fetch === 'function') {
+        try {
+          const fetchUrl = fileUrl.startsWith('http') ? fileUrl : `https://bob-jade-tau.vercel.app${fileUrl}`;
+          const res = await fetch(fetchUrl);
+          if (res.ok) {
+            const buf = await res.buffer();
+            const extResult = await require('../services/documentReaderService').extractText(buf, d.name);
+            if (extResult.supported && extResult.text) {
+              return {
+                name: d.name,
+                extractedText: extResult.text,
+                textExtracted: true,
+                extractionError: null,
+              };
+            }
+          }
+        } catch (e) {
+          console.warn('[chat] on-the-fly doc extract failed:', e.message);
+        }
+      }
+      return d;
+    })
+  );
+
   console.log(
     `[chat] documents received: ${userDocuments.length}` +
     (userDocuments.length
@@ -343,6 +368,7 @@ router.post('/', requireAuth, async (req, res) => {
         })
         .join('\n\n---\n\n')}\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`
     : '';
+
 
   try {
     // 1. Behavior Profiler + Intent Router + Media Detection run in parallel

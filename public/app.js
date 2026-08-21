@@ -1842,6 +1842,8 @@ async function sendMessage() {
         imageUrls.push(pendingStorageFile.url);
       } else {
         documents.push({
+          id: pendingStorageFile.id || pendingStorageFile._id,
+          url: pendingStorageFile.url,
           name: pendingStorageFile.originalName || pendingStorageFile.publicId || 'Storage File',
           extractedText: pendingStorageFile.extractedText || '',
           textExtracted: !!pendingStorageFile.textExtracted,
@@ -1863,6 +1865,8 @@ async function sendMessage() {
           // on the backend) so Bob answers from the document's actual content
           // instead of hallucinating from just the filename.
           documents.push({
+            id: uploadedRecord.id,
+            url: uploadedRecord.url,
             name: uploadedRecord.originalName,
             extractedText: uploadedRecord.extractedText || '',
             textExtracted: !!uploadedRecord.textExtracted,
@@ -1871,6 +1875,7 @@ async function sendMessage() {
         }
       }
     }
+
   }
 
   // If only an image/document was sent with no text, add a default prompt

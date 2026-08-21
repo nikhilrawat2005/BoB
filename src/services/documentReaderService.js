@@ -40,9 +40,40 @@ async function extractFromPdf(buffer) {
   return { text: truncate(data.text), pageCount: data.numpages || null };
 }
 
-async function extractFromDocx(buffer) {
-  const result = await mammoth.extractRawText({ buffer });
-  return { text: truncate(result.value), pageCount: null };
+const ExcelJS = require('exceljs');
+
+async function extractFromExcel(buffer) {
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.load(buffer);
+  const sheetTexts = [];
+
+  workbook.eachSheet((worksheet) => {
+    const sheetName = worksheet.name || 'Sheet';
+    const rows = [];
+    worksheet.eachRow((row) => {
+      // values array in ExcelJS is 1-indexed (values[0] is undefined)
+      const values = Array.isArray(row.values) ? row.values.slice(1) : [];
+      const cleanRow = values.map(v => {
+        if (v == null) return '';
+        if (typeof v === 'object') {
+          if (v.result != null) return String(v.result);
+          if (v.text != null) return String(v.text);
+          if (v.richText) return v.richText.map(t => t.text).join('');
+          return JSON.stringify(v);
+        }
+        return String(v).replace(/\r?\n/g, ' ');
+      });
+      if (cleanRow.some(cell => cell.trim().length > 0)) {
+        rows.push('| ' + cleanRow.join(' | ') + ' |');
+      }
+    });
+
+    if (rows.length > 0) {
+      sheetTexts.push(`### Sheet: ${sheetName}\n${rows.join('\n')}`);
+    }
+  });
+
+  return { text: truncate(sheetTexts.join('\n\n')), pageCount: workbook.worksheets.length };
 }
 
 /**
@@ -62,19 +93,20 @@ async function extractText(buffer, originalName = '') {
       const { text, pageCount } = await extractFromDocx(buffer);
       return { supported: true, text, pageCount, error: null };
     }
+    if (ext === 'xlsx' || ext === 'xls') {
+      const { text, pageCount } = await extractFromExcel(buffer);
+      return { supported: true, text, pageCount, error: null };
+    }
     // Plain-text-ish formats: just decode as UTF-8, no library needed.
     if (['txt', 'md', 'csv', 'tsv', 'json', 'xml', 'yaml', 'yml', 'toml'].includes(ext)) {
       return { supported: true, text: truncate(buffer.toString('utf8')), pageCount: null, error: null };
     }
-    // .doc (legacy binary Word), .xls/.xlsx, .ppt/.pptx are intentionally NOT
-    // parsed here — they need different libraries (xlsx sheets aren't "text",
-    // and legacy .doc isn't XML). Returning supported:false is honest rather
-    // than silently giving Bob garbage or nothing.
     return { supported: false, text: '', pageCount: null, error: `"${ext}" text extraction not implemented yet` };
   } catch (err) {
     console.error(`[documentReaderService] extraction failed for .${ext}:`, err.message);
     return { supported: false, text: '', pageCount: null, error: err.message };
   }
 }
+
 
 module.exports = { extractText, MAX_EXTRACTED_CHARS };
