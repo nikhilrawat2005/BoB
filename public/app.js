@@ -1835,7 +1835,23 @@ async function sendMessage() {
       clearPastedImage();
     }
 
-    // Upload attached file if any
+    // Attach file chosen from Storage (No re-upload needed)
+    if (pendingStorageFile) {
+      const isImg = pendingStorageFile.resourceType === 'image' || (pendingStorageFile.originalName || '').match(/\.(jpg|jpeg|png|gif|webp)$/i);
+      if (isImg && pendingStorageFile.url) {
+        imageUrls.push(pendingStorageFile.url);
+      } else {
+        documents.push({
+          name: pendingStorageFile.originalName || pendingStorageFile.publicId || 'Storage File',
+          extractedText: pendingStorageFile.extractedText || '',
+          textExtracted: !!pendingStorageFile.textExtracted,
+          extractionError: pendingStorageFile.extractionError || null,
+        });
+      }
+      clearPendingStorageFile();
+    }
+
+    // Upload newly attached file from disk if any
     if (pendingFile) {
       const isImage = pendingFile.type.startsWith('image/');
       const uploadedRecord = await uploadPendingFile();
@@ -1962,10 +1978,140 @@ function setupFileInputHandlers(inputId, previewId, clearFn) {
 let pendingHackFile = null;
 let pendingStalkFile = null;
 
+let pendingStorageFile = null;
+
+function renderAttachedPreview(icon, title, subtitle, onRemove) {
+  const preview = document.getElementById('file-preview');
+  preview.classList.remove('hidden');
+  preview.innerHTML = `
+    <span class="file-type-badge">${icon}</span>
+    <span>${escHtml(title)} <span style="color:var(--text3)">(${subtitle})</span></span>
+    <button class="remove-file" id="remove-file-btn">✕</button>
+  `;
+  document.getElementById('remove-file-btn').addEventListener('click', onRemove);
+  sendBtn.disabled = false;
+}
+
+function clearPendingStorageFile() {
+  pendingStorageFile = null;
+  document.getElementById('file-preview').classList.add('hidden');
+  sendBtn.disabled = !messageInput.value.trim() && !pendingFile;
+}
+
+function clearPendingFile() {
+  pendingFile = null;
+  if (pendingStorageFile) {
+    // If a storage file is also selected, keep preview or show storage file
+    setStorageFileSelected(pendingStorageFile);
+  } else {
+    document.getElementById('file-preview').classList.add('hidden');
+    document.getElementById('file-upload-input').value = '';
+    sendBtn.disabled = !messageInput.value.trim();
+  }
+}
+
+function setStorageFileSelected(file) {
+  pendingStorageFile = file;
+  pendingFile = null;
+  document.getElementById('file-upload-input').value = '';
+  const name = file.originalName || file.publicId || 'Storage Document';
+  const icon = getFileIcon(name, file.resourceType);
+  const size = formatBytes(file.sizeBytes || 0);
+  const badge = file.textExtracted ? '📁 Storage (AI-Ready)' : '📁 Storage (Asset)';
+  renderAttachedPreview(icon, name, `${size} • ${badge}`, clearPendingStorageFile);
+  closeStorageFilePicker();
+}
+
+// ── Storage File Picker Modal Functions ─────────────────
+function openStorageFilePicker() {
+  const modal = document.getElementById('storage-file-picker-modal');
+  if (!modal) return;
+  modal.classList.remove('hidden');
+  renderStoragePickerList();
+  if (!allUploadedFiles.length) {
+    loadFiles().then(() => renderStoragePickerList());
+  }
+  const searchInput = document.getElementById('storage-picker-search');
+  if (searchInput) {
+    searchInput.value = '';
+    searchInput.focus();
+  }
+}
+
+function closeStorageFilePicker() {
+  const modal = document.getElementById('storage-file-picker-modal');
+  if (modal) modal.classList.add('hidden');
+}
+
+function renderStoragePickerList() {
+  const listEl = document.getElementById('storage-picker-list');
+  const searchInput = document.getElementById('storage-picker-search');
+  const query = searchInput ? searchInput.value.trim().toLowerCase() : '';
+  if (!listEl) return;
+
+  let files = allUploadedFiles || [];
+  if (query) {
+    files = files.filter(f => {
+      const name = (f.originalName || f.publicId || '').toLowerCase();
+      const ext = (f.extractedText || '').toLowerCase();
+      return name.includes(query) || ext.includes(query);
+    });
+  }
+
+  if (!files.length) {
+    listEl.innerHTML = `
+      <div style="text-align:center; padding:30px 10px; color:var(--text3);">
+        <div style="font-size:32px; margin-bottom:8px;">📁</div>
+        <p style="margin:0; font-size:13px;">${allUploadedFiles.length === 0 ? 'No files stored in Vault yet. Upload a file once first!' : 'No matching files found.'}</p>
+      </div>
+    `;
+    return;
+  }
+
+  listEl.innerHTML = `
+    <div class="storage-picker-grid">
+      ${files.map(f => {
+        const name = f.originalName || f.publicId || 'Untitled File';
+        const icon = getFileIcon(name, f.resourceType);
+        const size = formatBytes(f.sizeBytes || 0);
+        const status = f.textExtracted ? '🤖 AI-Readable Document' : '📦 Asset / Media';
+        return `
+          <div class="storage-picker-card" data-picker-id="${f.id}">
+            <div class="storage-picker-card-left">
+              <span class="storage-picker-icon">${icon}</span>
+              <div style="min-width:0; flex:1;">
+                <div class="storage-picker-title" title="${escHtml(name)}">${escHtml(name)}</div>
+                <div class="storage-picker-sub">${size} • ${status}</div>
+              </div>
+            </div>
+            <button type="button" class="storage-picker-select-btn">Select</button>
+          </div>
+        `;
+      }).join('')}
+    </div>
+  `;
+
+  listEl.querySelectorAll('.storage-picker-card').forEach(card => {
+    card.addEventListener('click', () => {
+      const fileId = card.dataset.pickerId;
+      const file = allUploadedFiles.find(f => f.id === fileId);
+      if (file) setStorageFileSelected(file);
+    });
+  });
+}
+
+// Bind Storage Button click
+document.getElementById('storage-files-btn')?.addEventListener('click', openStorageFilePicker);
+document.getElementById('storage-file-picker-close')?.addEventListener('click', closeStorageFilePicker);
+document.getElementById('storage-file-picker-backdrop')?.addEventListener('click', closeStorageFilePicker);
+document.getElementById('storage-picker-cancel-btn')?.addEventListener('click', closeStorageFilePicker);
+document.getElementById('storage-picker-search')?.addEventListener('input', () => renderStoragePickerList());
+
 document.getElementById('file-upload-input').addEventListener('change', (e) => {
   const file = e.target.files[0];
   if (!file) return;
   pendingFile = file;
+  pendingStorageFile = null; // Prioritize fresh upload if user picked file from disk
 
   const type = file.type || '';
   const name = file.name.toLowerCase();
@@ -1984,16 +2130,9 @@ document.getElementById('file-upload-input').addEventListener('change', (e) => {
   else if (name.endsWith('.cpp') || name.endsWith('.c') || name.endsWith('.java')) fileIcon = '⚡';
   else if (name.endsWith('.sh') || name.endsWith('.bash')) fileIcon = '💻';
 
-  const preview = document.getElementById('file-preview');
-  preview.classList.remove('hidden');
-  preview.innerHTML = `
-    <span class="file-type-badge">${fileIcon}</span>
-    <span>${escHtml(file.name)} <span style="color:var(--text3)">(${formatBytes(file.size)})</span></span>
-    <button class="remove-file" id="remove-file-btn">✕</button>
-  `;
-  document.getElementById('remove-file-btn').addEventListener('click', clearPendingFile);
-  sendBtn.disabled = false;
+  renderAttachedPreview(fileIcon, file.name, formatBytes(file.size), clearPendingFile);
 });
+
 
 document.getElementById('hack-file-upload-input')?.addEventListener('change', (e) => {
   const file = e.target.files[0];
