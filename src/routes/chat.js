@@ -180,7 +180,7 @@ function searchIntent(m) {
   return hasKeyword;
 }
 
-async function fetchGitHub(message) {
+async function fetchGitHub(message, docContext) {
   const m = String(message || '');
   if (!/\bgithub\b|\brepos?\b|\brepositories\b|\bprojects?\b|\bprofile\b|\bdhoond\b|\bdhundh\b|\bkhoj\b|\bsearch\b|\bfind\b|\bSIH\b|\bhackathon\b|\bproblem\s*statements?\b/i.test(m)) return null;
   const blocks = [];
@@ -207,27 +207,62 @@ async function fetchGitHub(message) {
     return blocks;
   }
 
-  // 1b) Repo SEARCH intent (e.g. "best location tracking repos do", "SIH repos", "problem statement repos")
+  // 1b) Repo SEARCH intent
   if (searchIntent(m)) {
-    const topic = extractTopic(m);
-    const res = await repoService.searchRepos(topic, 6).catch(() => ({ error: 'network', message: 'GitHub search call failed.' }));
-    if (res.error) {
-      blocks.push(`⚠️ GITHUB SEARCH FAILED (REAL reason): ${res.message} — KABHI bhi repo/star/link invent mat karo. Honestly bolo search fail hui.`);
-    } else if (res.items && res.items.length) {
+    // If a document is attached, extract meaningful keywords from it for better searches
+    // Otherwise fall back to extractTopic from the user message
+    let searchQueries = [];
+
+    if (docContext && docContext.length > 50) {
+      // Extract topic from message first
+      const mainTopic = extractTopic(m);
+      // Also try to pull domain keywords from document (first 2000 chars for speed)
+      const docSnippet = docContext.slice(0, 2000);
+      // Extract distinct domain words (AI, healthcare, agriculture, smart city etc.)
+      const domainWords = docSnippet.match(/\b(smart\s+\w+|AI[\s-]\w+|machine\s+learning|IoT|blockchain|health\s*\w*|agricult\w+|transport\w*|educat\w+|water\s*\w*|energy\s*\w*|cyber\s*\w*|crop\s*\w*|traffic\s*\w*|waste\s*\w*|disaster\s*\w*|disaster management|flood|drone\s*\w*|satellite\s*\w*)/gi) || [];
+      const uniqueDomains = [...new Set(domainWords.map(w => w.toLowerCase().trim()))].slice(0, 3);
+
+      if (mainTopic && mainTopic !== 'hackathon starter template') {
+        searchQueries.push(mainTopic);
+      }
+      uniqueDomains.forEach(d => { if (!searchQueries.includes(d)) searchQueries.push(d); });
+      if (searchQueries.length === 0) searchQueries = ['smart india hackathon problem solution'];
+    } else {
+      searchQueries = [extractTopic(m)];
+    }
+
+    const allItems = [];
+    const seenRepos = new Set();
+
+    for (const query of searchQueries.slice(0, 3)) {
+      const res = await repoService.searchRepos(query, 5).catch(() => ({ error: 'network', message: 'GitHub search call failed.' }));
+      if (!res.error && res.items) {
+        for (const item of res.items) {
+          if (!seenRepos.has(item.full_name)) {
+            seenRepos.add(item.full_name);
+            allItems.push({ ...item, _query: query });
+          }
+        }
+      }
+    }
+
+    if (allItems.length) {
       const lines = [];
-      lines.push(`🐙 GITHUB SEARCH RESULTS for "${topic}" (REAL GitHub Search API, sorted by stars) — USE ONLY THESE EXACT DETAILS:`);
-      res.items.forEach((r, i) => {
+      lines.push(`🐙 GITHUB SEARCH RESULTS (REAL GitHub Search API, sorted by stars) — COPY THESE EXACT LINKS, DO NOT INVENT ANY NEW ONES:\n`);
+      allItems.slice(0, 10).forEach((r, i) => {
         const repoUrl = r.html_url || `https://github.com/${r.full_name}`;
         lines.push(
-          `${i + 1}. [${r.full_name}](${repoUrl}) — Language: ${r.language || 'N/A'} | ⭐ ${r.stars} | 🍴 ${r.forks} forks` +
-          `\n   🔗 ${repoUrl}` +
-          `\n   Description: ${r.description ? r.description.slice(0, 180) : '(no description)'}`
+          `${i + 1}. **${r.full_name}**\n` +
+          `   🔗 URL: ${repoUrl}\n` +
+          `   📌 Language: ${r.language || 'N/A'} | ⭐ ${r.stars} | 🍴 ${r.forks} forks\n` +
+          `   📝 Description: ${r.description ? r.description.slice(0, 180) : '(no description)'}`
         );
       });
-      lines.push('\n🚨 STRICT RULE: Sirf upar di gayi REAL repos hi output karo. Inke links copy paste karo: [owner/repo](exact_url). NEVER fabricate any fake repo name, stars, or GitHub link. Agar Master ne specific problem statement manga hai, to inhi real repos se relate karke solution propose karo.');
+      lines.push(`\n🚫 ABSOLUTE RULE — NO EXCEPTIONS:\n- Output ONLY the ${allItems.slice(0, 10).length} repos listed above with their EXACT URLs.\n- DO NOT invent new repos, fake star counts, or fabricated GitHub links.\n- DO NOT generate names like "healthmonitoring-ai", "tourist-safety-ai", or any other made-up username/repo.\n- If Master asks for 10 repos but only ${allItems.slice(0, 10).length} real ones were found, output all ${allItems.slice(0, 10).length} and say: "GitHub par abhi sirf yahi real repos mili hain is topic par."\n- NEVER fill in missing slots with hallucinated repos.\n- The links above are VERIFIED REAL. Invent kuch bhi aur user ko 404 milega.`);
       blocks.push(lines.join('\n'));
     } else {
-      blocks.push(`🐙 GITHUB SEARCH for "${topic}" (REAL API): koi repo nahi mili — honestly batao ki is exact keyword par repo nahi mili.`);
+      const failedQueries = searchQueries.join(', ');
+      blocks.push(`🐙 GITHUB SEARCH (REAL API): "${failedQueries}" — koi bhi repo nahi mili. Honestly batao: "Is topic par GitHub par koi relevant repo nahi mili." KABHI bhi fake repos mat banao.`);
     }
     return blocks;
   }
@@ -268,6 +303,8 @@ async function fetchGitHub(message) {
 
   return null;
 }
+
+
 
 
 // GET /api/chat/proactive-greeting  - Proactively greets Master Nikhil with daily insights
@@ -423,7 +460,7 @@ router.post('/', requireAuth, async (req, res) => {
       enrichMessageWithMedia(promptMessage),
       fetchLiveData(promptMessage),
       fetchWebpage(promptMessage),
-      fetchGitHub(promptMessage),
+      fetchGitHub(promptMessage, documentContext),
     ]);
 
     const allImageUrls = [
