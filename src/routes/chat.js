@@ -524,8 +524,9 @@ router.post('/', requireAuth, async (req, res) => {
 - Markdown (.md) SIRF tab banao jab Master explicitly bole: "markdown file do" ya code repo README.md manga ho.
 
 🚨 RULE 3: ZERO DUMMY/EMPTY CONTENT:
-- Kabhi bhi placeholder files mat banao jaise `[Problem 1](link1)`, `[Link Here]`, `...`, ya empty templates.
+- Kabhi bhi placeholder files mat banao jaise \[Problem 1\]\(link1\), \[Link Here\], ..., ya empty templates.
 - File ke andar REAL, complete, fully populated actual data, real titles, aur real information honi chahiye.
+
 
 Whenever Master explicitly asks for a file, use the appropriate format below:
 
