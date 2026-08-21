@@ -1225,7 +1225,9 @@ function renderTextContent(text) {
       const closes = (url.match(/\)/g) || []).length;
       return closes > opens ? '' : m;
     });
-    return `<a href="${cleanUrl}" target="_blank" rel="noopener noreferrer" class="md-link">${linkText}</a>`;
+    // Stash immediately so the auto-linker below never re-processes this <a> tag
+    stash.push(`<a href="${cleanUrl}" target="_blank" rel="noopener noreferrer" class="md-link">${linkText}</a>`);
+    return stashToken();
   });
 
   // Auto-link bare URLs (clickable) — runs after Markdown link step so [text](url) is already consumed
@@ -1239,6 +1241,7 @@ function renderTextContent(text) {
     });
     return `<a href="${clean}" target="_blank" rel="noopener noreferrer">${clean}</a>`;
   });
+
 
   // Bold **text**
   html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
