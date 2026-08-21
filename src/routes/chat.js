@@ -1,3 +1,4 @@
+const fetch = require('node-fetch');
 const express = require('express');
 const router = express.Router();
 const { requireAuth } = require('../middleware/auth');
@@ -15,6 +16,8 @@ const newsService = require('../services/newsService');
 const stocksService = require('../services/stocksService');
 const crawler = require('../services/crawlerService');
 const repoService = require('../services/repoService');
+const fileService = require('../services/fileService');
+const documentReader = require('../services/documentReaderService');
 
 // ─────────────────────────────────────────────────────────
 // Binary-file intent detection — fast regex pre-check (no LLM call) that
@@ -324,16 +327,37 @@ router.post('/', requireAuth, async (req, res) => {
 
   const userDocuments = await Promise.all(
     rawDocs.map(async (d) => {
+      // 1. If text is already present and extracted, use it directly
       if (d.textExtracted && d.extractedText) return d;
-      // On-the-fly extraction fallback if url or fileId is present
-      const fileUrl = d.url || (d.id ? `/api/files/${d.id}/view` : null);
-      if (fileUrl && typeof fetch === 'function') {
+
+      // 2. If fileId is present, check Firestore directly for extractedText or URL
+      let targetUrl = d.url;
+      if (d.id) {
         try {
-          const fetchUrl = fileUrl.startsWith('http') ? fileUrl : `https://bob-jade-tau.vercel.app${fileUrl}`;
-          const res = await fetch(fetchUrl);
+          const fileRecord = await fileService.getFile(req.userId, d.id);
+          if (fileRecord) {
+            if (fileRecord.textExtracted && fileRecord.extractedText) {
+              return {
+                name: fileRecord.originalName || d.name,
+                extractedText: fileRecord.extractedText,
+                textExtracted: true,
+                extractionError: null,
+              };
+            }
+            if (fileRecord.url) targetUrl = fileRecord.url;
+          }
+        } catch (e) {
+          console.warn('[chat] getFile lookup error:', e.message);
+        }
+      }
+
+      // 3. Download binary from Cloudinary / URL and extract text using documentReader
+      if (targetUrl) {
+        try {
+          const res = await fetch(targetUrl);
           if (res.ok) {
             const buf = await res.buffer();
-            const extResult = await require('../services/documentReaderService').extractText(buf, d.name);
+            const extResult = await documentReader.extractText(buf, d.name);
             if (extResult.supported && extResult.text) {
               return {
                 name: d.name,
@@ -350,6 +374,7 @@ router.post('/', requireAuth, async (req, res) => {
       return d;
     })
   );
+
 
   console.log(
     `[chat] documents received: ${userDocuments.length}` +
@@ -488,57 +513,24 @@ router.post('/', requireAuth, async (req, res) => {
 - Be proactive! Don't just answer questions reactively — suggest next logical steps, career/project tips, or improvements whenever helpful.
 - Current IST time: ${nowIST}
 
-━━━ 📁 MULTI-FORMAT FILE GENERATOR ENGINE ━━━
-You can generate ANY text-based file for Master Nikhil on demand!
-Whenever asked to create/generate a file, ALWAYS wrap the full content in a fenced code block using this exact syntax:
+━━━ 📁 FILE GENERATION RULES — READ CAREFULLY ━━━
+🚨 RULE 1: JAB TAK MASTER EXPLICITLY FILE NA MAANGE, TAB TAK KOI BHI FILE YA \`\`\`filespec / \`\`\`markdown filename=... BLOCK MAT BANAO!
+- Normal chat messages, questions, explanations, ya link maangne par text / formatted chat mein answer do. Unwanted .md files create karke chat clutter mat karo.
+- Only create a file when Master explicitly says: "file bana do", "excel file banao", "pdf do", "export as document", "downloadable file do", etc.
 
-  \`\`\`<language> filename=<filename.ext>\n<full file content>\n\`\`\`
+🚨 RULE 2: SMART FORMAT SELECTION — APNE AAP .md FILE MAT BANAO:
+- Jab data, tabular information, rows/columns, ya list of problem statements/repos manga jaye: **Excel (.xlsx)** use karo via \`\`\`filespec block.
+- Jab detailed report, project documentation, ya formal summary mangi jaye: **Word (.docx)** ya **PDF (.pdf)** use karo via \`\`\`filespec block.
+- Markdown (.md) SIRF tab banao jab Master explicitly bole: "markdown file do" ya code repo README.md manga ho.
 
-The frontend will automatically detect this and show a one-click 📥 Download File button!
+🚨 RULE 3: ZERO DUMMY/EMPTY CONTENT:
+- Kabhi bhi placeholder files mat banao jaise `[Problem 1](link1)`, `[Link Here]`, `...`, ya empty templates.
+- File ke andar REAL, complete, fully populated actual data, real titles, aur real information honi chahiye.
 
-Supported formats and their code block languages:
+Whenever Master explicitly asks for a file, use the appropriate format below:
 
-📊 SPREADSHEETS / DATA
-  \`\`\`csv filename=report.csv\n  Name,Score,Grade\n  Alice,95,A\n  \`\`\`
-  \`\`\`tsv filename=data.tsv  (tab-separated)\n  \`\`\`
-
-📝 DOCUMENTS
-  \`\`\`markdown filename=notes.md\n  # Title\n  Content...\n  \`\`\`
-  \`\`\`text filename=readme.txt\n  Plain text content...\n  \`\`\`
-  \`\`\`html filename=page.html\n  <!DOCTYPE html><html>...</html>\n  \`\`\`
-
-🔧 DATA / CONFIG FILES
-  \`\`\`json filename=config.json\n  { "key": "value" }\n  \`\`\`
-  \`\`\`yaml filename=config.yaml\n  key: value\n  \`\`\`
-  \`\`\`xml filename=data.xml\n  <?xml version="1.0"?>...\n  \`\`\`
-  \`\`\`toml filename=config.toml\n  [section]\n  key = "value"\n  \`\`\`
-  \`\`\`env filename=.env.example\n  API_KEY=your_key_here\n  \`\`\`
-
-💻 CODE / SCRIPTS
-  \`\`\`python filename=script.py\n  print("Hello, Master Nikhil!")\n  \`\`\`
-  \`\`\`javascript filename=app.js\n  console.log('Hello');\n  \`\`\`
-  \`\`\`typescript filename=app.ts\n  const x: string = 'hello';\n  \`\`\`
-  \`\`\`sql filename=query.sql\n  SELECT * FROM users;\n  \`\`\`
-  \`\`\`bash filename=setup.sh\n  #!/bin/bash\n  echo Hello\n  \`\`\`
-  \`\`\`cpp filename=program.cpp\n  #include<iostream>...\n  \`\`\`
-  \`\`\`java filename=Main.java\n  public class Main {}\n  \`\`\`
-  \`\`\`css filename=styles.css\n  body { margin: 0; }\n  \`\`\`
-  \`\`\`dockerfile filename=Dockerfile\n  FROM node:18\n  \`\`\`
-  \`\`\`makefile filename=Makefile\n  all: build\n  \`\`\`
-
-🎵 AUDIO / VIDEO / IMAGES — These cannot be generated as text, but when Master Nikhil uploads an audio, video, or image file:
-- Acknowledge the uploaded media file warmly
-- Describe what you can observe or infer from it
-- Offer helpful follow-up actions (transcription request, analysis, etc.)
-
-⚠️ IMPORTANT RULE: ALWAYS include the filename= attribute in code blocks for any file you create. Without it, the download button won't appear. Generate complete, production-ready file content — never truncate or add placeholders.
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-━━━ 📎 REAL OFFICE FILES (.xlsx, .docx, .pdf, .pptx) — DO NOT use the fenced-block method above for these ━━━
-Excel, Word, PDF, and PowerPoint files are BINARY formats — they cannot be written as plain text.
-NEVER put xlsx/docx/pdf/pptx content inside a normal \`\`\`<language> filename=... \`\`\` block; that will produce a corrupt file Master Nikhil cannot open.
-
-Instead, output a SINGLE \`\`\`filespec fenced block containing ONLY valid JSON (no comments, no trailing text) describing the file's structure. The backend turns this JSON into a real file using proper libraries.
+━━━ 📎 REAL OFFICE FILES (.xlsx, .docx, .pdf, .pptx) — PREFERRED FOR REPORTS & DATA ━━━
+Excel, Word, PDF, and PowerPoint files are BINARY formats. Output a SINGLE \`\`\`filespec fenced block containing valid JSON.
 
   \`\`\`filespec
   { "format": "xlsx", "filename": "report.xlsx",
@@ -546,27 +538,19 @@ Instead, output a SINGLE \`\`\`filespec fenced block containing ONLY valid JSON 
   \`\`\`
 
 Format-specific JSON shapes:
+📊 xlsx → { "format":"xlsx", "filename":"...", "sheets":[ { "name":"...", "headers":[...], "rows":[[...],[...]] } ] }
+📝 docx → { "format":"docx", "filename":"...", "title":"...", "blocks":[ { "type":"heading", "text":"...", "level":1 }, { "type":"paragraph", "text":"..." }, { "type":"bullets", "items":["..."] }, { "type":"table", "headers":[...], "rows":[[...]] } ] }
+📄 pdf → { "format":"pdf", "filename":"...", "title":"...", "sections":[ { "heading":"...", "body":"..." } ] }
+📽️ pptx → { "format":"pptx", "filename":"...", "slides":[ { "title":"...", "bullets":["..."] } ] }
 
-📊 xlsx → { "format":"xlsx", "filename":"...", "sheets":[ { "name":"...", "headers":[...], "rows":[[...],[...]] }, ... ] }
-   (multiple sheets allowed — add more objects to the "sheets" array)
-
-📝 docx → { "format":"docx", "filename":"...", "title":"optional doc title", "blocks":[
-     { "type":"heading", "text":"...", "level":1 },
-     { "type":"paragraph", "text":"..." },
-     { "type":"bullets", "items":["...", "..."] },
-     { "type":"table", "headers":[...], "rows":[[...],[...]] }
-   ] }
-
-📄 pdf → { "format":"pdf", "filename":"...", "title":"optional title", "sections":[ { "heading":"...", "body":"..." }, ... ] }
-
-📽️ pptx → { "format":"pptx", "filename":"...", "slides":[ { "title":"...", "bullets":["...", "..."] }, ... ] }
-
-Rules for filespec blocks:
-- Output exactly ONE filespec block per file. If Master Nikhil asks for multiple files, generate them one at a time across separate turns, or ask which one he wants first.
-- The JSON must be syntactically valid — it will be parsed with JSON.parse(). No trailing commas, no comments.
-- Never fabricate a "download ready" message before this block — the block IS what triggers the real download.
-- If unsure which format he wants (e.g. he just says "file bana do"), ask him — don't guess between xlsx/docx/pdf/pptx.
+━━━ 💻 TEXT/CODE FILES (Markdown, Scripts, Configs) ━━━
+Use syntax: \`\`\`<language> filename=<filename.ext>\n<full content>\n\`\`\`
+- \`\`\`csv filename=data.csv\`\`\`
+- \`\`\`python filename=script.py\`\`\`
+- \`\`\`json filename=config.json\`\`\`
+- \`\`\`markdown filename=readme.md\`\`\` (ONLY if explicitly asked for markdown)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
 
 ━━━ 📊 DATA VISUALIZATION ENGINE (charts + tables) ━━━
 You can render beautiful charts DIRECTLY inside the chat and present data as clean tables!
