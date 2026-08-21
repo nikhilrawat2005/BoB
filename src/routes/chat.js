@@ -209,33 +209,56 @@ async function fetchGitHub(message, docContext) {
 
   // 1b) Repo SEARCH intent
   if (searchIntent(m)) {
-    // If a document is attached, extract meaningful keywords from it for better searches
-    // Otherwise fall back to extractTopic from the user message
     let searchQueries = [];
 
     if (docContext && docContext.length > 50) {
-      // Extract topic from message first
-      const mainTopic = extractTopic(m);
-      // Also try to pull domain keywords from document (first 2000 chars for speed)
-      const docSnippet = docContext.slice(0, 2000);
-      // Extract distinct domain words (AI, healthcare, agriculture, smart city etc.)
-      const domainWords = docSnippet.match(/\b(smart\s+\w+|AI[\s-]\w+|machine\s+learning|IoT|blockchain|health\s*\w*|agricult\w+|transport\w*|educat\w+|water\s*\w*|energy\s*\w*|cyber\s*\w*|crop\s*\w*|traffic\s*\w*|waste\s*\w*|disaster\s*\w*|disaster management|flood|drone\s*\w*|satellite\s*\w*)/gi) || [];
-      const uniqueDomains = [...new Set(domainWords.map(w => w.toLowerCase().trim()))].slice(0, 3);
+      // Parse actual problem titles from the extracted document text.
+      // Excel sheets are rendered as markdown tables: | col | col |
+      // We pick the column that looks like a "problem title/statement" column.
+      const titleCandidates = [];
 
-      if (mainTopic && mainTopic !== 'hackathon starter template') {
-        searchQueries.push(mainTopic);
+      // Match table rows — grab the 2nd, 3rd or 4th cell (usually title/statement)
+      const tableRows = docContext.match(/\|([^\|\n]+)\|([^\|\n]+)\|([^\|\n]+)?/g) || [];
+      for (const row of tableRows) {
+        const cells = row.split('|').map(c => c.trim()).filter(Boolean);
+        // Skip header-like rows (all short words or dashes)
+        for (const cell of cells) {
+          const clean = cell.replace(/[-_*#]/g, '').trim();
+          // A good title: 15-120 chars, not all numbers, not a date-like
+          if (clean.length >= 15 && clean.length <= 120 && /[a-zA-Z]{4,}/.test(clean) && !/^\d{4}-\d{2}/.test(clean)) {
+            titleCandidates.push(clean);
+          }
+        }
       }
-      uniqueDomains.forEach(d => { if (!searchQueries.includes(d)) searchQueries.push(d); });
-      if (searchQueries.length === 0) searchQueries = ['smart india hackathon problem solution'];
+
+      // Deduplicate and take up to 6 best candidates (longest = most descriptive)
+      const uniqueTitles = [...new Set(titleCandidates)]
+        .sort((a, b) => b.length - a.length)
+        .slice(0, 6);
+
+      // Build search queries: use the actual problem title words, trimmed to ~60 chars
+      uniqueTitles.forEach(t => {
+        // Strip SIH problem codes like SIH25001 from start
+        const q = t.replace(/^SIH\s*\d+\s*[-–]?\s*/i, '').replace(/\s+/g, ' ').trim().slice(0, 70);
+        if (q.length >= 8 && !searchQueries.includes(q)) searchQueries.push(q);
+      });
+
+      // Fallback: if no titles extracted, use message topic + generic domain keywords
+      if (searchQueries.length === 0) {
+        const mainTopic = extractTopic(m);
+        searchQueries = [mainTopic !== 'hackathon starter template' ? mainTopic : 'smart india hackathon solution AI'];
+      }
     } else {
       searchQueries = [extractTopic(m)];
     }
 
+    console.log('[chat] GitHub search queries:', searchQueries);
+
     const allItems = [];
     const seenRepos = new Set();
 
-    for (const query of searchQueries.slice(0, 3)) {
-      const res = await repoService.searchRepos(query, 5).catch(() => ({ error: 'network', message: 'GitHub search call failed.' }));
+    for (const query of searchQueries.slice(0, 5)) {
+      const res = await repoService.searchRepos(query, 3).catch(() => ({ error: 'network', message: 'GitHub search call failed.' }));
       if (!res.error && res.items) {
         for (const item of res.items) {
           if (!seenRepos.has(item.full_name)) {
@@ -248,17 +271,18 @@ async function fetchGitHub(message, docContext) {
 
     if (allItems.length) {
       const lines = [];
-      lines.push(`🐙 GITHUB SEARCH RESULTS (REAL GitHub Search API, sorted by stars) — COPY THESE EXACT LINKS, DO NOT INVENT ANY NEW ONES:\n`);
+      lines.push(`🐙 GITHUB SEARCH RESULTS (REAL GitHub Search API) — COPY THESE EXACT LINKS ONLY, DO NOT INVENT ANY NEW ONES:\n`);
       allItems.slice(0, 10).forEach((r, i) => {
         const repoUrl = r.html_url || `https://github.com/${r.full_name}`;
         lines.push(
           `${i + 1}. **${r.full_name}**\n` +
           `   🔗 URL: ${repoUrl}\n` +
           `   📌 Language: ${r.language || 'N/A'} | ⭐ ${r.stars} | 🍴 ${r.forks} forks\n` +
-          `   📝 Description: ${r.description ? r.description.slice(0, 180) : '(no description)'}`
+          `   📝 Description: ${r.description ? r.description.slice(0, 180) : '(no description)'}\n` +
+          `   🔎 Found for query: "${r._query}"`
         );
       });
-      lines.push(`\n🚫 ABSOLUTE RULE — NO EXCEPTIONS:\n- Output ONLY the ${allItems.slice(0, 10).length} repos listed above with their EXACT URLs.\n- DO NOT invent new repos, fake star counts, or fabricated GitHub links.\n- DO NOT generate names like "healthmonitoring-ai", "tourist-safety-ai", or any other made-up username/repo.\n- If Master asks for 10 repos but only ${allItems.slice(0, 10).length} real ones were found, output all ${allItems.slice(0, 10).length} and say: "GitHub par abhi sirf yahi real repos mili hain is topic par."\n- NEVER fill in missing slots with hallucinated repos.\n- The links above are VERIFIED REAL. Invent kuch bhi aur user ko 404 milega.`);
+      lines.push(`\n🚫 ABSOLUTE RULE — NO EXCEPTIONS:\n- Output ONLY the ${allItems.slice(0, 10).length} repos listed above with their EXACT URLs.\n- DO NOT invent new repos, fake star counts, or fabricated GitHub links.\n- DO NOT generate names like "healthmonitoring-ai", "tourist-safety-ai", or any other made-up username/repo.\n- If Master asks for 10 repos but only ${allItems.slice(0, 10).length} real ones were found, say: "GitHub par abhi sirf yahi real repos mili hain. Fake repos dena Master ke liye harmful hai."\n- NEVER fill in missing slots with hallucinated repos.`);
       blocks.push(lines.join('\n'));
     } else {
       const failedQueries = searchQueries.join(', ');
@@ -266,6 +290,8 @@ async function fetchGitHub(message, docContext) {
     }
     return blocks;
   }
+
+
 
   // 2) Explicit Profile request (e.g. "mera github", "@username")
   const asksProfile = /\b(?:mera\s+github|meri\s+profile|my\s+profile|my\s+repos|mere\s+repos|mere\s+kitne\s+repo|my\s+github|followers|following|profile)\b/i.test(m);
