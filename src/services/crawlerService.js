@@ -286,21 +286,35 @@ async function scrapeURL(targetUrl, options = {}) {
     const architecture = wantsArchitecture ? inspectArchitecture($, html) : null;
 
     // 3. Aggressive DOM Noise Stripping (Token Optimizer):
-    // Remove navigation menus, footers, sidebars, cookie notices, and ads before parsing readable text
+    // Remove navigation menus, footers, headers, sidebars, cookie notices, modals, and ads
     $(
       'script, style, noscript, svg, iframe, nav, footer, header, ' +
-      'aside, .sidebar, [role="banner"], [role="navigation"], ' +
-      '.cookie, .cookie-banner, .ad, .ad-container, .footer-links, .menu'
+      'aside, .sidebar, [role="banner"], [role="navigation"], [role="complementary"], ' +
+      '.cookie, .cookie-banner, .cookie-notice, .ad, .ad-container, .advertisement, ' +
+      '.footer-links, .menu, .nav-menu, .navbar, .social-share, .popup, .modal'
     ).remove();
 
-    const cleanText = $('body').text().replace(/\s+/g, ' ').trim();
+    // Prioritize main readable content containers (<article>, <main>, .content) if available
+    let readableText = '';
+    const mainEl = $('main, article, [role="main"], #content, .content, .post-content, .article-body');
+    if (mainEl.length > 0) {
+      readableText = mainEl.text().replace(/\s+/g, ' ').trim();
+    }
+    
+    // Fallback to cleaned body if main container is too small or missing
+    if (!readableText || readableText.length < 150) {
+      readableText = $('body').text().replace(/\s+/g, ' ').trim();
+    }
+
+    const cleanText = readableText;
 
     // Extract page headings (H1, H2, H3)
     const headings = [];
     $('h1, h2, h3').each((_, el) => {
       const text = $(el).text().trim();
-      if (text) headings.push(`${el.tagName.toUpperCase()}: ${text}`);
+      if (text && text.length > 3) headings.push(`${el.tagName.toUpperCase()}: ${text}`);
     });
+
 
     // Extract outgoing links
     const highValueLinks = [];
