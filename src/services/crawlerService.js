@@ -155,7 +155,106 @@ function isHighValueProfileUrl(url) {
   return false;
 }
 
-async function scrapeURL(targetUrl, timeoutMs = 8000) {
+/**
+ * Deep Hidden Data Extractor:
+ * Extracts hidden client-side state data from Next.js (__NEXT_DATA__),
+ * Nuxt (__NUXT_DATA__), JSON-LD schemas, and inline state variables.
+ */
+function extractHiddenState($, rawHtml) {
+  const hiddenData = {};
+
+  // 1. Next.js Hydration State (__NEXT_DATA__)
+  try {
+    const nextScript = $('script#__NEXT_DATA__').html();
+    if (nextScript) {
+      const parsed = JSON.parse(nextScript);
+      if (parsed && parsed.props && parsed.props.pageProps) {
+        hiddenData.nextData = parsed.props.pageProps;
+      }
+    }
+  } catch (e) { /* ignore */ }
+
+  // 2. Nuxt / Vue State (__NUXT_DATA__)
+  try {
+    const nuxtScript = $('script#__NUXT_DATA__').html();
+    if (nuxtScript) {
+      hiddenData.nuxtData = nuxtScript.slice(0, 3000);
+    }
+  } catch (e) { /* ignore */ }
+
+  // 3. JSON-LD Structured Data
+  const jsonLdBlocks = [];
+  const sameAsLinks = [];
+  $('script[type="application/ld+json"]').each((_, el) => {
+    try {
+      const text = $(el).html();
+      if (text) {
+        const json = JSON.parse(text);
+        jsonLdBlocks.push(json);
+        const sameAs = json.sameAs || (json['@graph'] && json['@graph'].map(g => g.sameAs).filter(Boolean));
+        if (Array.isArray(sameAs)) {
+          sameAs.forEach(sa => {
+            if (typeof sa === 'string' && sa.startsWith('http')) sameAsLinks.push(sa);
+          });
+        } else if (typeof sameAs === 'string' && sameAs.startsWith('http')) {
+          sameAsLinks.push(sameAs);
+        }
+      }
+    } catch (e) { /* ignore */ }
+  });
+  if (jsonLdBlocks.length) hiddenData.jsonLd = jsonLdBlocks;
+
+  // 4. Inline State regex fallback (window.__INITIAL_STATE__, window.__PRELOADED_STATE__)
+  if (!hiddenData.nextData && !hiddenData.jsonLd) {
+    const stateMatch = rawHtml.match(/window\.(?:__INITIAL_STATE__|__PRELOADED_STATE__|__DATA__)\s*=\s*(\{[\s\S]*?\});/);
+    if (stateMatch && stateMatch[1]) {
+      try {
+        hiddenData.inlineState = JSON.parse(stateMatch[1]);
+      } catch (e) { /* ignore */ }
+    }
+  }
+
+  return { hiddenData, sameAsLinks };
+}
+
+/**
+ * Architecture & Tech Stack Detector:
+ * Analyzes frameworks, styling libraries, bundlers, and hosting indicators.
+ */
+function inspectArchitecture($, rawHtml) {
+  const stack = {
+    framework: [],
+    styling: [],
+    libraries: [],
+    meta: {},
+  };
+
+  const html = rawHtml || '';
+
+  // Frameworks
+  if (html.includes('__NEXT_DATA__') || html.includes('/_next/')) stack.framework.push('Next.js (React)');
+  else if (html.includes('react-root') || html.includes('data-reactroot') || html.includes('react.production.min.js')) stack.framework.push('React');
+  if (html.includes('__NUXT__') || html.includes('__NUXT_DATA__') || html.includes('/_nuxt/')) stack.framework.push('Nuxt.js (Vue)');
+  else if (html.includes('data-v-') || html.includes('vue.global.js')) stack.framework.push('Vue.js');
+  if (html.includes('svelte-') || html.includes('/_app/immutable/')) stack.framework.push('Svelte / SvelteKit');
+  if (html.includes('ng-version') || html.includes('ng-app')) stack.framework.push('Angular');
+
+  // Styling & UI
+  if (html.includes('tailwindcss') || /class="[^"]*\b(flex|grid|p-\d|m-\d|text-slate|bg-slate|rounded-lg)\b[^"]*"/i.test(html)) {
+    stack.styling.push('Tailwind CSS');
+  }
+  if (html.includes('bootstrap') || html.includes('btn-primary')) stack.styling.push('Bootstrap');
+  if (html.includes('framer-motion') || html.includes('motion.div')) stack.libraries.push('Framer Motion (Animations)');
+  if (html.includes('three.js') || html.includes('three.min.js')) stack.libraries.push('Three.js (3D Graphics)');
+  if (html.includes('lucide') || html.includes('fontawesome')) stack.libraries.push('Vector Icon System');
+
+  return stack;
+}
+
+async function scrapeURL(targetUrl, options = {}) {
+  const timeoutMs = typeof options === 'number' ? options : (options.timeoutMs || 8000);
+  const wantsArchitecture = typeof options === 'object' && options.inspectArchitecture;
+
   try {
     if (!targetUrl.startsWith('http://') && !targetUrl.startsWith('https://')) {
       targetUrl = 'https://' + targetUrl;
@@ -180,44 +279,21 @@ async function scrapeURL(targetUrl, timeoutMs = 8000) {
     const title = $('title').text().trim() || $('meta[property="og:title"]').attr('content') || $('meta[name="twitter:title"]').attr('content') || '';
     const description = $('meta[name="description"]').attr('content') || $('meta[property="og:description"]').attr('content') || $('meta[name="twitter:description"]').attr('content') || '';
 
-    // Extract JSON-LD structured data (often embedded in Unstop / Devpost / Event pages for SEO)
-    const jsonLdBlocks = [];
-    const sameAsLinks = [];
-    $('script[type="application/ld+json"]').each((_, el) => {
-      try {
-        const text = $(el).html();
-        if (text) {
-          const json = JSON.parse(text);
-          jsonLdBlocks.push(json);
-          const sameAs = json.sameAs || (json['@graph'] && json['@graph'].map(g => g.sameAs).filter(Boolean));
-          if (Array.isArray(sameAs)) {
-            sameAs.forEach(sa => {
-              if (typeof sa === 'string' && sa.startsWith('http')) sameAsLinks.push(sa);
-            });
-          } else if (typeof sameAs === 'string' && sameAs.startsWith('http')) {
-            sameAsLinks.push(sameAs);
-          }
-        }
-      } catch (e) { /* ignore invalid JSON-LD */ }
-    });
+    // 1. Extract Hidden Client-Side State Data (Next.js, JSON-LD, Nuxt)
+    const { hiddenData, sameAsLinks } = extractHiddenState($, html);
 
-    // Extract clean body text (removing script/style tags)
-    $('script, style, noscript, svg, iframe').remove();
+    // 2. Tech Stack Inspection (if requested)
+    const architecture = wantsArchitecture ? inspectArchitecture($, html) : null;
+
+    // 3. Aggressive DOM Noise Stripping (Token Optimizer):
+    // Remove navigation menus, footers, sidebars, cookie notices, and ads before parsing readable text
+    $(
+      'script, style, noscript, svg, iframe, nav, footer, header, ' +
+      'aside, .sidebar, [role="banner"], [role="navigation"], ' +
+      '.cookie, .cookie-banner, .ad, .ad-container, .footer-links, .menu'
+    ).remove();
+
     const cleanText = $('body').text().replace(/\s+/g, ' ').trim();
-
-    // Extract external JS script sources
-    const scripts = [];
-    $('script[src]').each((_, el) => {
-      const src = $(el).attr('src');
-      if (src) scripts.push(src);
-    });
-
-    // Extract external CSS stylesheet links
-    const stylesheets = [];
-    $('link[rel="stylesheet"]').each((_, el) => {
-      const href = $(el).attr('href');
-      if (href) stylesheets.push(href);
-    });
 
     // Extract page headings (H1, H2, H3)
     const headings = [];
@@ -226,12 +302,11 @@ async function scrapeURL(targetUrl, timeoutMs = 8000) {
       if (text) headings.push(`${el.tagName.toUpperCase()}: ${text}`);
     });
 
-    // Extract outgoing links for network crawling — only keep meaningful profile/project links
+    // Extract outgoing links
     const highValueLinks = [];
     const otherLinks = [];
     const seenLinks = new Set();
 
-    // Merge sameAs links extracted from JSON-LD
     sameAsLinks.forEach(sa => {
       if (!seenLinks.has(sa) && !isJunkUrl(sa)) {
         seenLinks.add(sa);
@@ -248,6 +323,7 @@ async function scrapeURL(targetUrl, timeoutMs = 8000) {
         const href = parsedUrl.href.split('#')[0];
         if (seenLinks.has(href) || isJunkUrl(href)) return;
         seenLinks.add(href);
+
         const linkText = $(el).text().trim().replace(/\s+/g, ' ').slice(0, 100);
         const entry = { url: href, text: linkText || parsedUrl.hostname };
         if (isHighValueProfileUrl(href)) {
@@ -257,7 +333,7 @@ async function scrapeURL(targetUrl, timeoutMs = 8000) {
         }
       } catch (e) { /* ignore invalid URLs */ }
     });
-    // High-value links (profile/deployed-app) always go first, rest fill up to 30
+    const links = [];
     links.push(...highValueLinks);
     for (const l of otherLinks) {
       if (links.length >= 30) break;
@@ -269,11 +345,11 @@ async function scrapeURL(targetUrl, timeoutMs = 8000) {
       title,
       description,
       headings,
-      jsonLd: jsonLdBlocks,
-      scripts: scripts.slice(0, 10),
-      stylesheets: stylesheets.slice(0, 10),
+      jsonLd: hiddenData.jsonLd || [],
+      hiddenData,
+      architecture,
       links,
-      contentSnippet: cleanText.slice(0, 5000), // First 5000 chars for context
+      contentSnippet: cleanText.slice(0, 4500),
       fullTextLength: cleanText.length,
     };
   } catch (err) {
@@ -281,6 +357,7 @@ async function scrapeURL(targetUrl, timeoutMs = 8000) {
     throw err;
   }
 }
+
 
 // ── Deep-crawl helper ─────────────────────────────────────
 function extractLinks($, baseUrl, maxLinks) {

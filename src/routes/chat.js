@@ -101,20 +101,46 @@ async function fetchWebpage(message) {
   if (!urlMatch) return null;
   const url = urlMatch[0];
   if (/(youtube\.com|youtu\.be|instagram\.com|instagr\.am)/i.test(url)) return null;
+
+  const wantsArchitecture = /(?:inspect|kaise bani|architecture|tech stack|libraries|framework|reverse engineer|how it is built|how it is made)/i.test(message);
+
   try {
-    const page = await crawler.scrapeURL(url);
-    if (!page || !page.contentSnippet) return null;
+    const page = await crawler.scrapeURL(url, { inspectArchitecture: wantsArchitecture });
+    if (!page || (!page.contentSnippet && !page.hiddenData)) return null;
+
     const lines = [];
     lines.push(`📄 WEBPAGE — ${page.title || url}`);
     if (page.description) lines.push(`Description: ${page.description}`);
-    if (page.headings && page.headings.length) lines.push(page.headings.slice(0, 12).join('\n'));
-    lines.push(page.contentSnippet.slice(0, 6000));
+
+    // If architecture inspection was requested
+    if (wantsArchitecture && page.architecture) {
+      lines.push(`🛠️ DETECTED TECH STACK & ARCHITECTURE:`);
+      if (page.architecture.framework?.length) lines.push(`- Frameworks: ${page.architecture.framework.join(', ')}`);
+      if (page.architecture.styling?.length) lines.push(`- Styling: ${page.architecture.styling.join(', ')}`);
+      if (page.architecture.libraries?.length) lines.push(`- Libraries/FX: ${page.architecture.libraries.join(', ')}`);
+    }
+
+    // If Next.js or JSON-LD hidden data was extracted, inject the key props (concise)
+    if (page.hiddenData) {
+      if (page.hiddenData.nextData) {
+        const nextJson = JSON.stringify(page.hiddenData.nextData).slice(0, 2000);
+        lines.push(`⚡ HIDDEN CLIENT STATE (__NEXT_DATA__):\n${nextJson}`);
+      } else if (page.hiddenData.jsonLd && page.hiddenData.jsonLd.length) {
+        const jsonLdStr = JSON.stringify(page.hiddenData.jsonLd[0]).slice(0, 1500);
+        lines.push(`⚡ STRUCTURED JSON-LD DATA:\n${jsonLdStr}`);
+      }
+    }
+
+    if (page.headings && page.headings.length) lines.push(`Headings:\n${page.headings.slice(0, 8).join('\n')}`);
+    if (page.contentSnippet) lines.push(`Page Content:\n${page.contentSnippet.slice(0, 3500)}`);
+
     return lines.join('\n');
   } catch (err) {
     console.log('[Chat] Webpage scrape skipped:', err.message);
     return null;
   }
 }
+
 
 /**
  * 🐙 GITHUB FACTS — when Master asks about GitHub (his profile, repos, counts,
