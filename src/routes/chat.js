@@ -495,7 +495,9 @@ router.post('/', requireAuth, async (req, res) => {
           if (!d.textExtracted || !d.extractedText) {
             return `File: "${d.name}" — ⚠️ text could not be extracted (${d.extractionError || 'unsupported format'}). Tell Master honestly you cannot read this file's content instead of guessing.`;
           }
-          return `File: "${d.name}"\n${d.extractedText}`;
+          // Zero-Token Local Query Engine: filter to relevant rows/paragraphs only
+          const filteredText = documentReader.queryDocumentContext(d.extractedText, promptMessage);
+          return `File: "${d.name}"\n${filteredText}`;
         })
         .join('\n\n---\n\n')}\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`
     : '';

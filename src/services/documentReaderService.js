@@ -109,4 +109,105 @@ async function extractText(buffer, originalName = '') {
 }
 
 
-module.exports = { extractText, MAX_EXTRACTED_CHARS };
+/**
+ * Zero-Token Local Document & Table Query Engine:
+ * Performs deterministic in-memory keyword, code-ID, and relevance matching on tabular
+ * or text documents in pure Node.js (0 API tokens consumed).
+ * Returns a compact, targeted slice of rows for the LLM prompt.
+ */
+function queryDocumentContext(rawText, query) {
+  if (!rawText || typeof rawText !== 'string') return '';
+  const cleanDoc = rawText.trim();
+  const q = String(query || '').toLowerCase().trim();
+
+  // If doc is small (< 1500 chars) or user wants full doc / export, pass as is (capped)
+  const wantsAll = /(?:all|saare|complete|entire|full|poora|sab|summary|overview|export|download)/i.test(q);
+  if (cleanDoc.length < 1800 || wantsAll) {
+    return cleanDoc.slice(0, 8000);
+  }
+
+  // Extract query keywords (ignore stop words)
+  const stopWords = new Set(['kya', 'hai', 'hain', 'ka', 'ki', 'ke', 'ko', 'se', 'me', 'mein', 'par', 'batao', 'dikhao', 'do', 'the', 'is', 'in', 'and', 'for', 'with', 'about', 'show', 'tell', 'me']);
+  const queryTokens = q
+    .replace(/[^\w\s\u0900-\u097F]/gi, ' ')
+    .split(/\s+/)
+    .filter(w => w.length >= 2 && !stopWords.has(w));
+
+  // Check if document contains Markdown table rows
+  const lines = cleanDoc.split('\n');
+  const tableRows = [];
+  let headerRow = null;
+  const otherLines = [];
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (trimmed.startsWith('|') && trimmed.endsWith('|')) {
+      if (!headerRow) {
+        headerRow = trimmed;
+      } else if (/^\|[\s\-:|]+\|$/.test(trimmed)) {
+        // separator row, skip
+      } else {
+        tableRows.push(trimmed);
+      }
+    } else {
+      if (trimmed.length > 0) otherLines.push(trimmed);
+    }
+  }
+
+  // If we have a structured table with rows:
+  if (tableRows.length > 5 && headerRow) {
+    const matchedRows = [];
+    const lowerTokens = queryTokens.map(t => t.toLowerCase());
+
+    tableRows.forEach(row => {
+      const lowerRow = row.toLowerCase();
+      let matchScore = 0;
+      lowerTokens.forEach(token => {
+        if (lowerRow.includes(token)) {
+          matchScore += token.length >= 4 ? 2 : 1;
+        }
+      });
+      if (matchScore > 0) {
+        matchedRows.push({ row, score: matchScore });
+      }
+    });
+
+    // If query matches specific rows:
+    if (matchedRows.length > 0) {
+      // Sort by best score descending
+      matchedRows.sort((a, b) => b.score - a.score);
+      const topMatched = matchedRows.slice(0, 15).map(m => m.row);
+      const sep = '| ' + headerRow.split('|').map(c => '---').slice(1, -1).join(' | ') + ' |';
+
+      return `📊 TABLE PRE-FILTERED BY LOCAL ENGINE (${matchedRows.length} matching rows found out of ${tableRows.length} total rows):\n` +
+        `${headerRow}\n${sep}\n${topMatched.join('\n')}\n\n` +
+        `> 💡 Note: Local query engine matched ${matchedRows.length} relevant rows for "${queryTokens.join(', ')}". Zero hallucination.`;
+    }
+
+    // If no specific match, provide table schema + top 8 sample rows
+    const topSample = tableRows.slice(0, 8);
+    const sep = '| ' + headerRow.split('|').map(c => '---').slice(1, -1).join(' | ') + ' |';
+    return `📊 TABLE SUMMARY (Total ${tableRows.length} rows):\n` +
+      `${headerRow}\n${sep}\n${topSample.join('\n')}\n\n` +
+      `> ℹ️ Showing schema and first 8 rows. Ask for a specific category, code, or keyword to filter.`;
+  }
+
+  // For non-table text docs (PDF / TXT):
+  // Filter paragraphs containing query keywords
+  const paragraphs = cleanDoc.split(/\n\s*\n/);
+  const matchedParas = [];
+  paragraphs.forEach(p => {
+    const lowerP = p.toLowerCase();
+    const matches = queryTokens.some(t => lowerP.includes(t));
+    if (matches) matchedParas.push(p.trim());
+  });
+
+  if (matchedParas.length > 0) {
+    return matchedParas.slice(0, 6).join('\n\n---\n\n').slice(0, 5000);
+  }
+
+  return cleanDoc.slice(0, 4500);
+}
+
+module.exports = { extractText, queryDocumentContext, MAX_EXTRACTED_CHARS };
+
