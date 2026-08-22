@@ -454,12 +454,14 @@ async function loadMessages(sessionId) {
     const project = res.project || null;
 
     messages.forEach(m => {
+      const timeStr = m.timestamp || (m.createdAt ? new Date(m.createdAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) : '');
       if (currentPersona === 'builder') {
-        appendMessage(m.role, m.content, false, m.sender || m.role);
+        appendMessage(m.role, m.content, false, m.sender || m.role, timeStr);
       } else {
-        appendMessage(m.role, m.content, false);
+        appendMessage(m.role, m.content, false, null, timeStr);
       }
     });
+
 
     if (currentPersona === 'builder' && project && Array.isArray(project.files) && project.files.length) {
       renderProjectHeaderCard(sessionId, project);
@@ -1282,7 +1284,7 @@ function renderTextContent(text) {
   return unstash(html);
 }
 
-function appendMessage(role, content, animate = true, sender = null) {
+function appendMessage(role, content, animate = true, sender = null, timeStr = null) {
   const container = document.getElementById('messages-container');
 
   // Remove welcome screen if present
@@ -1292,6 +1294,9 @@ function appendMessage(role, content, animate = true, sender = null) {
   const row = document.createElement('div');
   row.className = `message-row ${role}`;
   if (!animate) row.style.animation = 'none';
+
+  const bubbleWrapper = document.createElement('div');
+  bubbleWrapper.className = 'message-bubble-wrapper';
 
   const bubble = document.createElement('div');
   bubble.className = 'message-bubble';
@@ -1376,11 +1381,21 @@ function appendMessage(role, content, animate = true, sender = null) {
     bubble.textContent = content;
   }
 
-  row.appendChild(bubble);
+  bubbleWrapper.appendChild(bubble);
+
+  // Timestamp badge under message
+  const nowDisplayTime = timeStr || new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
+  const timeBadge = document.createElement('div');
+  timeBadge.className = 'message-time-badge';
+  timeBadge.textContent = nowDisplayTime;
+  bubbleWrapper.appendChild(timeBadge);
+
+  row.appendChild(bubbleWrapper);
   container.appendChild(row);
   scrollToBottom();
   return row;
 }
+
 
 // ── Bob → Builder delegation card ───────────────────
 function createBuilderDelegationCard(data) {
@@ -3090,7 +3105,9 @@ function renderCategoryFactsList() {
                       </div>
                     `;
                   }).join('')
-                : `<div class="memory-card-preview-empty" style="padding:12px 16px; color:var(--text-muted); font-size:13px;">No memory points saved for this chat yet. <a href="javascript:void(0)" class="quick-add-link" data-page="${escHtml(page.title)}" data-session-id="${page.sessionId || ''}" style="color:var(--primary); font-weight:600; text-decoration:underline;">＋ Add key takeaway</a></div>`
+                : (page.latestSummary
+                    ? ''
+                    : `<div class="memory-card-preview-empty" style="padding:12px 16px; color:var(--text-muted); font-size:13px;">No explicit memory points saved yet. <a href="javascript:void(0)" class="quick-add-link" data-page="${escHtml(page.title)}" data-session-id="${page.sessionId || ''}" style="color:var(--primary); font-weight:600; text-decoration:underline;">＋ Add key takeaway</a></div>`)
               }
             </div>
           </div>
@@ -3098,6 +3115,7 @@ function renderCategoryFactsList() {
       }).join('')}
     </div>
   `;
+
 
   // Page Action Listeners
   list.querySelectorAll('.btn-edit-page').forEach(btn => {

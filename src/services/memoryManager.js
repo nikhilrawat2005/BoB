@@ -172,9 +172,90 @@ Format: Return a concise bullet list of Key Pointers & Key Decisions.`;
   }
 }
 
+/**
+ * Hierarchical Rolling Weekly Summarizer per Session
+ * - Every week (or on demand), rolls unsummarized messages + previous summary into a single clean summary.
+ * - Saves into the session's memory timeline (Summary_W1, Summary_W2, etc.).
+ */
+async function runWeeklyRollingSummarizer(userId) {
+
+  try {
+    const sessions = await memory.listSessions(userId);
+    if (!sessions || !sessions.length) return { sessionsProcessed: 0 };
+
+    const currentWeekKey = isoWeekKey(new Date());
+    let processedCount = 0;
+
+    for (const sess of sessions) {
+      const sessionId = sess.id;
+      const latestSummaryData = await memory.getSessionLatestSummary(userId, sessionId);
+      const lastMergedTs = latestSummaryData ? latestSummaryData.mergedThroughTs || latestSummaryData.ts || 0 : 0;
+
+      // Fetch messages since last merged timestamp
+      const msgs = lastMergedTs
+        ? await memory.getMessagesSince(userId, sessionId, lastMergedTs, 60)
+        : await memory.getRecentMessages(userId, sessionId, 60);
+
+      // Only summarize if there are at least 4 new messages
+      if (!msgs || msgs.length < 4) continue;
+
+      let transcript = '';
+      msgs.forEach(m => {
+        const timeTag = m.timestamp ? ` [${m.timestamp}]` : '';
+        transcript += `${m.role.toUpperCase()}${timeTag}: ${m.content}\n`;
+      });
+
+      const prevSummaryBlock = latestSummaryData && latestSummaryData.summaryText
+        ? `\nPREVIOUS ROLLING SUMMARY:\n${latestSummaryData.summaryText}\n`
+        : '';
+
+      const prompt = `You are Bob's Rolling Memory Compressor.
+You are compressing chat history for session: "${sess.title || 'Chat'}".
+${prevSummaryBlock}
+NEW MESSAGES TO INCORPORATE:
+${transcript}
+
+TASK:
+Produce an updated, crystal-clear, and compact ROLLING SUMMARY of this session.
+Merge the previous summary with new updates.
+Format:
+- 📌 Core Objective & Topics: (1-2 lines)
+- 🛠️ Key Decisions & Technical Choices: (bullet points)
+- 📝 Important Facts, Rules, & Notes: (bullet points)
+- 🎯 Current Status & Next Steps: (1-2 lines)
+
+Rules: Keep it under 250 words total. Do not omit crucial constraints or decisions.`;
+
+      const { text } = await callLLM({
+        role: 'memorySummarize',
+        messages: [{ role: 'system', content: prompt }],
+        temperature: 0.2,
+      });
+
+      const nextCycleIndex = latestSummaryData ? (latestSummaryData.cycleIndex || 1) + 1 : 1;
+      const weekLabel = `${currentWeekKey}-Cycle${nextCycleIndex}`;
+
+      await memory.saveSessionWeeklySummary(userId, sessionId, weekLabel, text.trim(), {
+        mergedThroughTs: Date.now(),
+        messageCount: msgs.length,
+        cycleIndex: nextCycleIndex,
+      });
+
+      processedCount++;
+      console.log(`[Memory] Generated rolling summary for session "${sess.title}" (${weekLabel})`);
+    }
+
+    return { sessionsProcessed: processedCount };
+  } catch (err) {
+    console.error('runWeeklyRollingSummarizer error:', err.message);
+    return { error: err.message };
+  }
+}
+
 module.exports = {
   classifyIntent,
   summarizeUserSessions,
+  runWeeklyRollingSummarizer,
   finalizeStaleMonths,
   isoMonthKey,
   isoWeekKey,
@@ -182,3 +263,4 @@ module.exports = {
   monthRange,
   buildMonthReportMarkdown,
 };
+

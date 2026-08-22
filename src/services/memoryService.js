@@ -30,13 +30,28 @@ async function listSessions(userId, type = null) {
   return snap.docs.map(d => ({ id: d.id, ...d.data() }));
 }
 
+function formatISTDate(epochMs) {
+  const d = new Date(epochMs || Date.now());
+  return d.toLocaleString('en-IN', {
+    timeZone: 'Asia/Kolkata',
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: true,
+  });
+}
+
 async function addMessage(userId, sessionId, role, content) {
   const sessionRef = db.collection('users').doc(userId).collection('sessions').doc(sessionId);
   const msgRef = sessionRef.collection('messages').doc();
   const now = Date.now();
-  await msgRef.set({ role, content, createdAt: now });
+  const timeFormatted = formatISTDate(now);
+  const msgData = { role, content, createdAt: now, timestamp: timeFormatted };
+  await msgRef.set(msgData);
   await sessionRef.set({ updatedAt: now }, { merge: true });
-  return { id: msgRef.id, role, content, createdAt: now };
+  return { id: msgRef.id, ...msgData };
 }
 
 async function getRecentMessages(userId, sessionId, limit = 20) {
@@ -47,8 +62,54 @@ async function getRecentMessages(userId, sessionId, limit = 20) {
     .orderBy('createdAt', 'asc')
     .limitToLast(limit)
     .get();
-  return snap.docs.map(d => d.data());
+  return snap.docs.map(d => ({ id: d.id, ...d.data() }));
 }
+
+/**
+ * Session-Level Rolling Weekly Summaries
+ * users/{userId}/sessions/{sessionId}/summaries/{summaryId}
+ */
+async function saveSessionWeeklySummary(userId, sessionId, weekKey, summaryText, meta = {}) {
+  const ref = db.collection('users').doc(userId).collection('sessions').doc(sessionId).collection('summaries').doc(weekKey);
+  const now = Date.now();
+  const data = {
+    weekKey,
+    summaryText,
+    updatedAt: now,
+    timestamp: formatISTDate(now),
+    mergedThroughTs: meta.mergedThroughTs || now,
+    messageCount: meta.messageCount || 0,
+    cycleIndex: meta.cycleIndex || 1,
+  };
+  await ref.set(data, { merge: true });
+  // Also store on session doc for fast single-read lookup
+  await db.collection('users').doc(userId).collection('sessions').doc(sessionId).set({
+    latestSummary: summaryText,
+    latestSummaryWeek: weekKey,
+    latestSummaryTs: now,
+  }, { merge: true });
+  return data;
+}
+
+async function getSessionLatestSummary(userId, sessionId) {
+  const sessDoc = await db.collection('users').doc(userId).collection('sessions').doc(sessionId).get();
+  if (sessDoc.exists && sessDoc.data()?.latestSummary) {
+    return {
+      summaryText: sessDoc.data().latestSummary,
+      weekKey: sessDoc.data().latestSummaryWeek,
+      ts: sessDoc.data().latestSummaryTs,
+    };
+  }
+  const snap = await db.collection('users').doc(userId).collection('sessions').doc(sessionId).collection('summaries').orderBy('updatedAt', 'desc').limit(1).get();
+  if (snap.empty) return null;
+  return snap.docs[0].data();
+}
+
+async function listSessionSummaries(userId, sessionId) {
+  const snap = await db.collection('users').doc(userId).collection('sessions').doc(sessionId).collection('summaries').orderBy('updatedAt', 'asc').get();
+  return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+}
+
 
 const VALID_CATEGORIES = ['habits', 'main', 'hackathons', 'stalker', 'vault', 'builder'];
 
@@ -164,7 +225,11 @@ async function syncSessionFactTitles(userId, sessionId, newTitle) {
 }
 
 async function getDynamicScopedMemory(userId, options = {}) {
-  const all = await listFacts(userId);
+  const [all, latestSummaryData] = await Promise.all([
+    listFacts(userId),
+    options.sessionId ? getSessionLatestSummary(userId, options.sessionId) : Promise.resolve(null),
+  ]);
+
   const habits = all.filter(f => (f.category || 'main') === 'habits');
 
   let scoped = [];
@@ -179,8 +244,14 @@ async function getDynamicScopedMemory(userId, options = {}) {
     scoped = all.filter(f => f.sourceTitle && f.sourceTitle.toLowerCase().trim() === activeTitle && f.category !== 'habits');
   }
 
-  return { habits, scoped, allCount: all.length };
+  return {
+    habits,
+    scoped,
+    rollingSummary: latestSummaryData ? latestSummaryData.summaryText : null,
+    allCount: all.length,
+  };
 }
+
 
 async function listFacts(userId) {
   const snap = await db.collection('users').doc(userId).collection('facts').orderBy('createdAt', 'asc').get();
@@ -721,4 +792,8 @@ module.exports = {
   addProfileInsight,
   deleteHackathonRule,
   addHackathonRule,
+  saveSessionWeeklySummary,
+  getSessionLatestSummary,
+  listSessionSummaries,
 };
+

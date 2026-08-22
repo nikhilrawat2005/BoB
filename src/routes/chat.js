@@ -536,10 +536,16 @@ router.post('/', requireAuth, async (req, res) => {
       contextBlocks.push(`🎯 HABITS & PREFERENCES of Master Nikhil:\n${scopedMem.habits.map(f => `- ${f.text}`).join('\n')}`);
     }
 
-    // Dynamic Memory Slot B: Active Chat Session Memory (Only this chat's points)
-    if (scopedMem.scoped && scopedMem.scoped.length) {
-      contextBlocks.push(`💬 CURRENT CHAT MEMORY ("${sessionTitle}"):\n${scopedMem.scoped.map(f => `- ${f.text}`).join('\n')}`);
+    // Dynamic Memory Slot B: Active Chat Session's Rolling Weekly Summary (Previous compressed history)
+    if (scopedMem.rollingSummary) {
+      contextBlocks.push(`📜 PREVIOUS CHAT ROLLING SUMMARY ("${sessionTitle}"):\n${scopedMem.rollingSummary}`);
     }
+
+    // Dynamic Memory Slot C: Active Chat Session Memory Points
+    if (scopedMem.scoped && scopedMem.scoped.length) {
+      contextBlocks.push(`💬 CURRENT CHAT KEY POINTS ("${sessionTitle}"):\n${scopedMem.scoped.map(f => `- ${f.text}`).join('\n')}`);
+    }
+
 
     // Entity Workspace on-demand injection (Only when user explicitly asks/mentions)
     const mentionsHackathons = /\b(hackathon|hackathons|devpost|unstop|participant|participating|submission|prize pool)\b/i.test(promptMessage);

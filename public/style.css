@@ -518,8 +518,28 @@ body.persona-builder #model-selector { display: none !important; }
 .message-row.user { justify-content: flex-end; }
 .message-row.assistant { justify-content: flex-start; }
 
+.message-bubble-wrapper {
+  display: flex;
+  flex-direction: column;
+  max-width: min(78%, 740px);
+}
+.message-row.user .message-bubble-wrapper { align-items: flex-end; }
+.message-row.assistant .message-bubble-wrapper { align-items: flex-start; }
+
+.message-time-badge {
+  font-size: 10.5px;
+  color: var(--text3, #6b7280);
+  font-weight: 500;
+  margin-top: 3px;
+  padding: 0 4px;
+  user-select: none;
+  opacity: 0.75;
+  transition: opacity 0.2s ease;
+}
+.message-bubble-wrapper:hover .message-time-badge { opacity: 1; color: var(--text2); }
+
 .message-bubble {
-  max-width: min(75%, 720px);
+  width: 100%;
   padding: 12px 18px;
   border-radius: 18px;
   font-size: 14px;
@@ -535,6 +555,7 @@ body.persona-builder #model-selector { display: none !important; }
 
 .message-row.user   .message-bubble { background: var(--user-bubble); color: #fff; border-bottom-right-radius: 4px; box-shadow: 0 4px 18px rgba(108,99,255,0.25); }
 .message-row.assistant .message-bubble { background: var(--bob-bubble); border: 1px solid var(--border2); border-bottom-left-radius: 4px; box-shadow: 0 6px 24px rgba(0,0,0,0.25); }
+
 
 /* Bob's messages inside a Builder project chat (amber, distinct from user/Builder) */
 .message-row.assistant .message-bubble.bob {

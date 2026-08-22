@@ -176,16 +176,38 @@ router.post('/consolidate', requireAuth, async (req, res) => {
   }
 });
 
+// POST /api/memory/summarize-weekly — trigger rolling weekly summarizer across user sessions
+router.post('/summarize-weekly', requireAuth, async (req, res) => {
+  try {
+    const result = await memoryManager.runWeeklyRollingSummarizer(req.userId);
+    res.json({ success: true, ...result });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/memory/sessions/:sessionId/summaries — get rolling summaries for a specific chat
+router.get('/sessions/:sessionId/summaries', requireAuth, async (req, res) => {
+  try {
+    const summaries = await memory.listSessionSummaries(req.userId, req.params.sessionId);
+    res.json({ summaries });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // POST /api/memory/refresh  — manually run monthly summarizer + finalize stale months
 router.post('/refresh', requireAuth, async (req, res) => {
   try {
     await memoryManager.finalizeStaleMonths(req.userId);
     const summarized = await memoryManager.summarizeUserSessions(req.userId);
+    await memoryManager.runWeeklyRollingSummarizer(req.userId);
     res.json({ ok: true, summarized: Boolean(summarized) });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
+
 
 // GET /api/memory/months  — list month memory (chunks) + exported monthly files
 router.get('/months', requireAuth, async (req, res) => {
