@@ -381,6 +381,7 @@ if (topbarRenameCurrentSessionBtn) {
 
 async function selectSession(session) {
   closeViews();
+  if (typeof closeMobileSidebar === 'function') closeMobileSidebar();
   currentSession = session;
   document.getElementById('chat-session-title').textContent = session.title;
   const topbarRenameBtn = document.getElementById('btn-rename-current-session');
@@ -411,6 +412,7 @@ async function fetchProactiveGreeting() {
 
 async function createNewSession() {
   closeViews();
+  if (typeof closeMobileSidebar === 'function') closeMobileSidebar();
   // Builder persona: projects are created lazily on first message — just reset to welcome
   if (currentPersona === 'builder') {
     currentSession = null;
@@ -2278,6 +2280,7 @@ async function uploadImageFile(file, label) {
 // ═══════════════════════════════════════════════════════
 
 function showView(name) {
+  if (typeof closeMobileSidebar === 'function') closeMobileSidebar();
   // Toggle OFF if clicking the view that is already active (back to chat so you can type)
   const activeView = document.querySelector('.view.active');
   const activeId = activeView ? activeView.id.replace('view-', '') : '';
@@ -3872,13 +3875,37 @@ if (fileDropzone) {
 }
 
 // ═══════════════════════════════════════════════════════
-// SIDEBAR TOGGLE
+// SIDEBAR TOGGLE & RESPONSIVE MOBILE DRAWER
 // ═══════════════════════════════════════════════════════
 
 const sidebar = document.getElementById('sidebar');
-document.getElementById('sidebar-toggle').addEventListener('click', () => {
-  sidebar.classList.toggle('collapsed');
-});
+const sidebarOverlay = document.getElementById('sidebar-overlay');
+
+function closeMobileSidebar() {
+  if (sidebar) {
+    sidebar.classList.remove('mobile-open');
+  }
+  if (sidebarOverlay) {
+    sidebarOverlay.classList.remove('active');
+  }
+}
+window.closeMobileSidebar = closeMobileSidebar;
+
+function toggleSidebar() {
+  if (!sidebar) return;
+  if (window.innerWidth <= 768) {
+    const isOpen = sidebar.classList.toggle('mobile-open');
+    if (sidebarOverlay) sidebarOverlay.classList.toggle('active', isOpen);
+  } else {
+    sidebar.classList.toggle('collapsed');
+  }
+}
+
+document.getElementById('sidebar-toggle')?.addEventListener('click', toggleSidebar);
+
+if (sidebarOverlay) {
+  sidebarOverlay.addEventListener('click', closeMobileSidebar);
+}
 
 // ── Workspace Left-Panel Toggles (☰ next to workspace title) ──────────────
 document.getElementById('hack-panel-toggle').addEventListener('click', () => {
