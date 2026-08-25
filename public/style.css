@@ -2568,6 +2568,149 @@ body.collab-on .collab-state { color: #fff; background: var(--green); }
 .keys-empty-state { text-align: center; padding: 40px 16px; color: var(--text3); font-size: 13px; }
 .ks-note { font-size: 11px; color: var(--text3); font-style: italic; margin-top: 6px; }
 
+/* -- Workspace mobile segmented tabs (Hidden on desktop > 1024px) -- */
+.ws-mobile-tabs {
+  display: none;
+  background: var(--bg2);
+  border-bottom: 1px solid var(--border);
+  padding: 6px 10px;
+  gap: 6px;
+  flex-shrink: 0;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+  z-index: 10;
+}
+.ws-mobile-tabs::-webkit-scrollbar { display: none; }
+.ws-tab-btn {
+  flex: 1;
+  min-width: fit-content;
+  padding: 7px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text2);
+  background: var(--surface);
+  border: 1px solid var(--border2);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  transition: all 0.2s ease;
+  font-family: inherit;
+  user-select: none;
+}
+.ws-tab-btn:hover {
+  background: var(--surface2);
+  color: var(--text);
+}
+.ws-tab-btn:active {
+  transform: scale(0.98);
+}
+.ws-tab-btn.active {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+  box-shadow: 0 2px 10px var(--accent-glow);
+}
+
+/* Stalker Profile Card */
+.profile-card {
+  padding: 16px;
+  background: var(--surface);
+  border: 1px solid var(--border2);
+  border-radius: var(--radius);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.profile-head {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.profile-avatar {
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--accent), var(--accent2));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 22px;
+  font-weight: 700;
+  color: #fff;
+  flex-shrink: 0;
+  box-shadow: 0 4px 16px var(--accent-glow);
+}
+.profile-name { font-size: 17px; font-weight: 700; color: #fff; word-break: break-word; }
+.profile-headline { font-size: 13px; color: #a5b4fc; margin-top: 2px; word-break: break-word; }
+.profile-meta { font-size: 11.5px; color: var(--text3); margin-top: 2px; }
+.profile-sec { display: flex; flex-direction: column; gap: 6px; font-size: 13px; color: var(--text2); line-height: 1.5; }
+.profile-sec-title {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: var(--text3);
+  margin-bottom: 2px;
+}
+.tech-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.tech-chip {
+  background: rgba(108, 99, 255, 0.12);
+  color: #c7d2fe;
+  border: 1px solid rgba(108, 99, 255, 0.25);
+  padding: 3px 9px;
+  border-radius: 99px;
+  font-size: 11.5px;
+  font-weight: 500;
+}
+.profile-bullet { margin-bottom: 4px; line-height: 1.45; word-break: break-word; }
+.profile-links { word-break: break-word; }
+.profile-links a {
+  color: #93c5fd;
+  text-decoration: none;
+  word-break: break-all;
+  transition: color 0.2s ease;
+}
+.profile-links a:hover { color: #bfdbfe; text-decoration: underline; }
+.repo-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  background: rgba(255, 255, 255, 0.03);
+  padding: 6px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+}
+.repo-row a { word-break: break-all; }
+
+/* Responsive tables & markdown containers */
+.message-bubble table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 10px 0;
+  font-size: 13px;
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+.message-bubble th, .message-bubble td {
+  padding: 8px 12px;
+  border: 1px solid var(--border2);
+  text-align: left;
+  min-width: 80px;
+}
+.message-bubble th {
+  background: var(--surface2);
+  font-weight: 600;
+  color: var(--text);
+}
+
 /* ═══════════════════════════════════════════════════════
    RESPONSIVE DESIGN SYSTEM — ALL SCREEN SIZES
    (Mobile phones 320px-480px, Phablets/Tablets 481px-768px,
@@ -2593,9 +2736,36 @@ body.collab-on .collab-state { color: #fff; background: var(--green); }
 
 /* ── Tablets & Small Laptops (769px - 1024px) ───────── */
 @media (max-width: 1024px) {
-  .hack-workspace { grid-template-columns: 240px 1fr; }
-  .ws-knowledge-col { display: none; }
-  .stalk-workspace { grid-template-columns: 240px 1fr; }
+  .ws-mobile-tabs { display: flex; }
+  .ws-panel-toggle { display: none; }
+  
+  .hack-workspace {
+    display: flex !important;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+    height: 100%;
+    position: relative;
+    overflow: hidden;
+  }
+  .hack-workspace .ws-col {
+    display: none !important;
+    width: 100%;
+    height: 100%;
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+  }
+  .hack-workspace[data-active-tab="list"] .ws-list-col {
+    display: flex !important;
+  }
+  .hack-workspace[data-active-tab="chat"] .ws-chat-col {
+    display: flex !important;
+  }
+  .hack-workspace[data-active-tab="knowledge"] .ws-knowledge-col {
+    display: flex !important;
+  }
+
   .message-bubble-wrapper { max-width: 86%; }
   .hq-grid-inner { grid-template-columns: repeat(2, 1fr); }
   .memory-cards-grid { grid-template-columns: repeat(2, 1fr); }
@@ -2745,29 +2915,19 @@ body.collab-on .collab-state { color: #fff; background: var(--green); }
     gap: 6px;
     flex-wrap: wrap;
   }
-  .view-body {
-    padding: 12px 10px;
-  }
-
   /* Workspace Split-Screens (Hackathon & Stalking) */
-  .hack-workspace, .stalk-workspace {
-    grid-template-columns: 1fr;
-    display: flex;
+  .hack-workspace {
+    display: flex !important;
     flex-direction: column;
     height: 100%;
     min-height: 0;
+    flex: 1;
   }
-  .ws-list-col {
-    max-height: 220px;
+  .ws-list-col, .ws-chat-col, .ws-knowledge-col {
+    max-height: none;
     border-right: none;
-    border-bottom: 1px solid var(--border);
-    flex-shrink: 0;
-  }
-  .hack-workspace.list-collapsed .ws-list-col,
-  .stalk-workspace.list-collapsed .ws-list-col {
-    display: none;
-  }
-  .ws-chat-col, .ws-stalk-main {
+    border-left: none;
+    border-bottom: none;
     flex: 1;
     min-height: 0;
   }

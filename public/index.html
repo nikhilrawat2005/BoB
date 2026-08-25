@@ -241,7 +241,13 @@
               <button class="view-close icon-btn" title="Close (back to chat)">✕</button>
             </div>
           </div>
-          <div class="hack-workspace">
+          <!-- Mobile Workspace Tabs Switcher (Shown on <= 1024px) -->
+          <div class="ws-mobile-tabs" id="hack-mobile-tabs">
+            <button class="ws-tab-btn active" data-tab="list">📋 List (<span id="hack-tab-count">0</span>)</button>
+            <button class="ws-tab-btn" data-tab="chat">💬 Chat</button>
+            <button class="ws-tab-btn" data-tab="knowledge">📚 Knowledge</button>
+          </div>
+          <div class="hack-workspace" data-active-tab="list">
             <aside class="ws-col ws-list-col">
               <div class="ws-col-title">
                 <span>Hackathons</span>
@@ -295,7 +301,13 @@
               <button class="view-close icon-btn" title="Close (back to chat)">✕</button>
             </div>
           </div>
-          <div class="hack-workspace">
+          <!-- Mobile Workspace Tabs Switcher (Shown on <= 1024px) -->
+          <div class="ws-mobile-tabs" id="stalk-mobile-tabs">
+            <button class="ws-tab-btn active" data-tab="list">📋 Profiles (<span id="stalk-tab-count">0</span>)</button>
+            <button class="ws-tab-btn" data-tab="chat">💬 Chat</button>
+            <button class="ws-tab-btn" data-tab="knowledge">📊 Intelligence Report</button>
+          </div>
+          <div class="hack-workspace" data-active-tab="list">
             <aside class="ws-col ws-list-col">
               <div class="ws-col-title">
                 <span>Profiles</span>

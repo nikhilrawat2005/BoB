@@ -3907,12 +3907,30 @@ if (sidebarOverlay) {
   sidebarOverlay.addEventListener('click', closeMobileSidebar);
 }
 
-// ── Workspace Left-Panel Toggles (☰ next to workspace title) ──────────────
-document.getElementById('hack-panel-toggle').addEventListener('click', () => {
-  document.querySelector('#view-hackathons .hack-workspace').classList.toggle('list-collapsed');
+// ── Workspace Mobile Segmented Tabs (<= 1024px) ─────────
+function setWorkspaceTab(viewName, tabName) {
+  const viewEl = document.getElementById(`view-${viewName}`);
+  if (!viewEl) return;
+  const ws = viewEl.querySelector('.hack-workspace');
+  if (ws) ws.dataset.activeTab = tabName;
+  const tabBtns = viewEl.querySelectorAll('.ws-mobile-tabs .ws-tab-btn');
+  tabBtns.forEach(btn => btn.classList.toggle('active', btn.dataset.tab === tabName));
+}
+
+document.querySelectorAll('#hack-mobile-tabs .ws-tab-btn').forEach(btn => {
+  btn.addEventListener('click', () => setWorkspaceTab('hackathons', btn.dataset.tab));
 });
-document.getElementById('stalk-panel-toggle').addEventListener('click', () => {
-  document.querySelector('#view-stalking .hack-workspace').classList.toggle('list-collapsed');
+
+document.querySelectorAll('#stalk-mobile-tabs .ws-tab-btn').forEach(btn => {
+  btn.addEventListener('click', () => setWorkspaceTab('stalking', btn.dataset.tab));
+});
+
+// ── Workspace Left-Panel Toggles (☰ next to workspace title) ──────────────
+document.getElementById('hack-panel-toggle')?.addEventListener('click', () => {
+  document.querySelector('#view-hackathons .hack-workspace')?.classList.toggle('list-collapsed');
+});
+document.getElementById('stalk-panel-toggle')?.addEventListener('click', () => {
+  document.querySelector('#view-stalking .hack-workspace')?.classList.toggle('list-collapsed');
 });
 
 // ═══════════════════════════════════════════════════════
@@ -4239,6 +4257,8 @@ function getCountdownBadge(h) {
 }
 
 function renderHackList() {
+  const tabCountEl = document.getElementById('hack-tab-count');
+  if (tabCountEl) tabCountEl.textContent = hackathonsCache.length;
   const list = document.getElementById('hack-list');
   if (!hackathonsCache.length) {
     list.innerHTML = `
@@ -4332,6 +4352,15 @@ async function selectHack(id) {
   currentHack = hackathonsCache.find(h => String(h.id) === String(id)) || null;
   renderHackList();
   if (!currentHack) return;
+
+  // On mobile/tablet screens, auto switch to chat tab if currently on list
+  if (window.innerWidth <= 1024) {
+    const ws = document.querySelector('#view-hackathons .hack-workspace');
+    if (ws && ws.dataset.activeTab === 'list') {
+      setWorkspaceTab('hackathons', 'chat');
+    }
+  }
+
   document.getElementById('hack-chat-header').innerHTML = `<span>${escHtml(currentHack.title)}</span><span class="ws-chat-header-status ${currentHack.statusColor || 'grey'}">${currentHack.status}</span>`;
   document.getElementById('hack-chat-input').disabled = false;
   document.getElementById('hack-chat-input').placeholder = `${escHtml(currentHack.title)} ke baare me kuch pucho…`;
@@ -4675,6 +4704,8 @@ function updateStalkHeader(prof) {
 }
 
 function renderStalkList() {
+  const tabCountEl = document.getElementById('stalk-tab-count');
+  if (tabCountEl) tabCountEl.textContent = stalkCache.length;
   const list = document.getElementById('stalk-list');
   if (!stalkCache.length) { list.innerHTML = '<div class="empty-msg">No profiles yet. Click ＋ to add one.</div>'; return; }
   list.innerHTML = stalkCache.map(p => `
@@ -4719,6 +4750,15 @@ async function selectStalk(id) {
   currentStalk = p;
   renderStalkList();
   if (!p) return;
+
+  // On mobile/tablet screens, auto switch to chat tab if currently on list
+  if (window.innerWidth <= 1024) {
+    const ws = document.querySelector('#view-stalking .hack-workspace');
+    if (ws && ws.dataset.activeTab === 'list') {
+      setWorkspaceTab('stalking', 'chat');
+    }
+  }
+
   updateStalkHeader(p);
   try {
     const { profile } = await apiFetch(`/api/stalking/${id}`);
