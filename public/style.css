@@ -612,12 +612,11 @@ input:focus, textarea:focus, select:focus {
 }
 .persona-btn.active:hover { color: #fff; }
 
-/* Builder persona hides Bob-only bits (vault/notif/memory/files + model picker) */
-body.persona-builder #sidebar-notif-wrap,
-body.persona-builder #notifications-list,
-body.persona-builder #toggle-memory-btn,
-body.persona-builder #toggle-files-btn,
-body.persona-builder #toggle-vault-btn,
+/* Builder persona hides the model picker.
+   The old companion selectors (#sidebar-notif-wrap, #notifications-list,
+   #toggle-memory-btn, #toggle-files-btn, #toggle-vault-btn) were removed: none
+   of those IDs exist in index.html or app.js any more — the sidebar was reduced
+   to a single "Home HQ" nav button and everything else is reached via HQ cards. */
 body.persona-builder #model-selector { display: none !important; }
 
 .model-select {
@@ -1101,8 +1100,13 @@ body.persona-builder #model-selector { display: none !important; }
 .dropzone-text span { color: var(--text3); font-size: 11.5px; }
 .dropzone-progress { display: flex; align-items: center; justify-content: center; gap: 10px; padding: 10px; color: var(--accent-dim); font-weight: 500; font-size: 13px; }
 
-/* Filter Tabs - Sticky so they never scroll away */
-.file-filter-tabs { display: flex; gap: 8px; overflow-x: auto; padding: 8px 2px; position: sticky; top: -20px; z-index: 10; background: var(--bg); border-bottom: 1px solid var(--border); }
+/* Filter Tabs - Sticky so they never scroll away.
+   BUGFIX: `top: -20px` made the bar stick 20px ABOVE the scroll port, so its
+   own padding and the top of the pills were clipped out of view. It also has an
+   opaque background + z-index, so at -20px it painted over the first row of
+   cards while itself being cut off. Stick at the top edge instead and pad the
+   scroll container so cards never hide underneath. */
+.file-filter-tabs { display: flex; gap: 8px; overflow-x: auto; padding: 10px 2px; position: sticky; top: 0; z-index: 10; background: var(--bg); border-bottom: 1px solid var(--border); }
 .file-tab-btn { background: var(--surface); border: 1px solid var(--border2); color: var(--text3); padding: 7px 14px; border-radius: 20px; font-size: 12px; cursor: pointer; white-space: nowrap; transition: all 0.2s; font-weight: 500; }
 .file-tab-btn:hover { color: var(--text); border-color: var(--border); }
 .file-tab-btn.active { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; box-shadow: 0 2px 8px rgba(var(--accent-rgb),0.3); }
@@ -1111,7 +1115,12 @@ body.persona-builder #model-selector { display: none !important; }
 .files-grid-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); gap: 16px; padding-top: 4px; }
 .file-card { background: var(--surface); border: 1px solid var(--border2); border-radius: 12px; padding: 16px; display: flex; flex-direction: column; justify-content: space-between; gap: 12px; transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1); position: relative; min-width: 0; }
 .file-card:hover { border-color: rgba(var(--accent-rgb),0.45); box-shadow: 0 6px 20px rgba(0,0,0,0.3); transform: translateY(-2px); }
-.file-card-body { display: flex; flex-direction: column; gap: 8px; flex: 1; }
+/* The card body opens the preview modal (wired in renderFilesGrid), so it needs
+   a real affordance. The action row below it must NOT inherit the pointer. */
+.file-card-body { display: flex; flex-direction: column; gap: 8px; flex: 1; cursor: pointer; border-radius: 8px; transition: background var(--transition); }
+.file-card-body:hover { background: rgba(var(--accent-rgb),0.06); }
+.file-card-body:hover .file-card-name { color: var(--accent-dim); }
+.file-card-actions { cursor: default; }
 .file-card-top { display: flex; gap: 12px; align-items: flex-start; }
 .file-card-icon-box { width: 44px; height: 44px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 22px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.09); flex-shrink: 0; }
 .file-card-name { font-size: 13.5px; font-weight: 600; color: var(--text); word-break: break-word; line-height: 1.35; margin-bottom: 4px; }
@@ -1142,13 +1151,14 @@ body.persona-builder #model-selector { display: none !important; }
 .file-action-btn--download:hover { background: rgba(var(--green-rgb),0.25); border-color: var(--green); color: var(--green); }
 .file-action-btn--delete { background: rgba(var(--red-rgb),0.1); border-color: rgba(var(--red-rgb),0.25); color: var(--red); }
 .file-action-btn--delete:hover { background: rgba(var(--red-rgb),0.28); border-color: var(--red); color: #fff; }
-/* Legacy selectors kept for any old refs */
-.file-btn-preview, .file-btn-dl, .file-btn-del { display: none; }
 
 
-
-/* File Preview Modal */
-.file-preview-modal { position: fixed; inset: 0; z-index: 1000; display: flex; align-items: center; justify-content: center; animation: appFade 0.2s ease; }
+/* File Preview Modal.
+   `pointer-events: auto` is defensive: this modal previously lived inside
+   #views, which sets `pointer-events: none`, and because that property is
+   inherited every control inside the modal was inert. The markup has been moved
+   out of #views, but this keeps it clickable even if it is ever re-nested. */
+.file-preview-modal { position: fixed; inset: 0; z-index: 1000; display: flex; align-items: center; justify-content: center; animation: appFade 0.2s ease; pointer-events: auto; }
 .file-preview-modal.hidden { display: none !important; }
 .file-preview-backdrop { position: absolute; inset: 0; background: rgba(0,0,0,0.75); backdrop-filter: blur(5px); }
 .file-preview-dialog { position: relative; z-index: 1001; width: 90%; max-width: 820px; max-height: 85vh; background: var(--bg2); border: 1px solid var(--border2); border-radius: 12px; display: flex; flex-direction: column; overflow: hidden; box-shadow: 0 20px 50px rgba(0,0,0,0.5); }
@@ -1161,7 +1171,15 @@ body.persona-builder #model-selector { display: none !important; }
 .file-preview-text-block { background: var(--bg); border: 1px solid var(--border2); border-radius: 8px; padding: 16px; color: var(--text); font-family: var(--font-mono); font-size: 12px; line-height: 1.6; white-space: pre-wrap; word-break: break-word; }
 .file-preview-footer { display: flex; align-items: center; justify-content: space-between; padding: 12px 20px; border-top: 1px solid var(--border2); background: var(--surface); flex-wrap: wrap; gap: 10px; }
 .modal-extract-status { font-size: 12px; color: var(--text3); }
-.file-preview-footer-actions { display: flex; gap: 8px; align-items: center; }
+.file-preview-footer-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+
+/* Modal footer button variants. These replace the inline `style="..."` that used
+   to sit on the old <a> tags in index.html — those still carried the pre-rework
+   purple-era palette (hardcoded rgba(239,68,68,...) / #fca5a5). */
+.btn-neutral { background: var(--surface2); border: 1px solid var(--border2); color: var(--text); }
+.btn-neutral:hover { background: var(--surface); border-color: var(--border3); }
+.btn-soft-danger { background: rgba(var(--red-rgb),0.14); border: 1px solid rgba(var(--red-rgb),0.38); color: var(--red); }
+.btn-soft-danger:hover { background: rgba(var(--red-rgb),0.28); border-color: var(--red); color: #fff; }
 
 /* Storage File Picker Modal Items */
 .storage-picker-dialog {
@@ -1645,7 +1663,8 @@ body.persona-builder #model-selector { display: none !important; }
 }
 
 .file-gen-download-btn,
-.file-gen-copy-btn {
+.file-gen-copy-btn,
+.file-gen-save-btn {
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -1682,6 +1701,24 @@ body.persona-builder #model-selector { display: none !important; }
   background: var(--surface);
   color: var(--text);
   border-color: rgba(255,255,255,0.15);
+}
+
+/* BUGFIX: .file-gen-save-btn is rendered by app.js createFileCard() but had
+   ZERO css rules, so it fell back to the browser's default light-grey native
+   button on a near-black card. */
+.file-gen-save-btn {
+  background: rgba(var(--green-rgb),0.12);
+  color: var(--green);
+  border-color: rgba(var(--green-rgb),0.32);
+}
+.file-gen-save-btn:hover {
+  background: rgba(var(--green-rgb),0.22);
+  border-color: var(--green);
+}
+.file-gen-save-btn:disabled {
+  background: rgba(255,255,255,0.05);
+  color: var(--text3);
+  border-color: var(--border);
 }
 
 /* ── Markdown rendering inside Bob's messages ──────── */

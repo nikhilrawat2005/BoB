@@ -248,6 +248,26 @@ async function apiFetch(path, options = {}, isRetry = false) {
   return res.json();
 }
 
+/**
+ * Triggers a browser download for a URL (blob:, data: or same-origin).
+ *
+ * BUGFIX: five call sites used to build a detached <a> and call a.click() on it
+ * without ever inserting it into the document. Chrome tolerates that; Firefox
+ * requires the element to be in the DOM for a synthetic click to start a
+ * download, so those downloads silently did nothing there. Centralising the
+ * append/click/remove dance means the mistake can't come back.
+ */
+function triggerDownload(url, filename, revokeAfterMs) {
+  const a = document.createElement('a');
+  a.href = url;
+  if (filename) a.download = filename;
+  a.style.display = 'none';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  if (revokeAfterMs) setTimeout(() => URL.revokeObjectURL(url), revokeAfterMs);
+}
+
 // ═══════════════════════════════════════════════════════
 // SESSIONS
 // ═══════════════════════════════════════════════════════
@@ -487,12 +507,7 @@ async function downloadProjectZip(sessionId, projectName) {
     }
     const blob = await res.blob();
     const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${(projectName || 'builder_project').replace(/[^a-zA-Z0-9_-]/g, '_')}.zip`;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
+    triggerDownload(url, `${(projectName || 'builder_project').replace(/[^a-zA-Z0-9_-]/g, '_')}.zip`);
     URL.revokeObjectURL(url);
   } catch (err) {
     alert('ZIP Download failed: ' + err.message);
@@ -747,11 +762,7 @@ function createFilespecCard(spec) {
       if (!fileRes.ok) throw new Error(`Could not fetch generated file (HTTP ${fileRes.status})`);
       const blob = await fileRes.blob();
       const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = file.originalName || filename;
-      a.click();
-      setTimeout(() => URL.revokeObjectURL(url), 2000);
+      triggerDownload(url, file.originalName || filename, 2000);
 
       btn.innerHTML = '✅ Downloaded!';
       btn.style.background = 'rgba(34, 197, 94, 0.2)';
@@ -765,8 +776,8 @@ function createFilespecCard(spec) {
     } catch (err) {
       console.error('[filespec] generation/download failed:', err);
       btn.innerHTML = '❌ Failed — retry';
-      btn.style.background = 'rgba(239, 68, 68, 0.2)';
-      btn.style.borderColor = '#ef4444';
+      btn.style.background = 'rgba(var(--red-rgb), 0.2)';
+      btn.style.borderColor = 'var(--red)';
       setTimeout(() => {
         btn.innerHTML = originalHtml;
         btn.style.background = '';
@@ -921,11 +932,7 @@ function createChartCard(chartData) {
 
   pngBtn.addEventListener('click', () => {
     try {
-      const a = document.createElement('a');
-      a.href = canvas.toDataURL('image/png');
-      a.download = (chartData.title || 'chart').replace(/\s+/g, '_') + '.png';
-      a.click();
-      pngBtn.textContent = '✅ Saved!';
+      triggerDownload(canvas.toDataURL('image/png'), (chartData.title || 'chart').replace(/\s+/g, '_') + '.png');      pngBtn.textContent = '✅ Saved!';
       setTimeout(() => { pngBtn.textContent = '⬇ PNG'; }, 1800);
     } catch (e) { /* ignore */ }
   });
@@ -995,10 +1002,7 @@ function downloadSvgAsPng(svgText, name) {
       ctx.fillRect(0, 0, canvas.width, canvas.height);
       ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
       URL.revokeObjectURL(url);
-      const a = document.createElement('a');
-      a.href = canvas.toDataURL('image/png');
-      a.download = (name || 'diagram').replace(/\s+/g, '_') + '.png';
-      a.click();
+      triggerDownload(canvas.toDataURL('image/png'), (name || 'diagram').replace(/\s+/g, '_') + '.png');
     };
     img.onerror = () => URL.revokeObjectURL(url);
     img.src = url;
@@ -1100,11 +1104,7 @@ function createFileCard(lang, filename, content) {
   card.querySelector('.file-gen-download-btn').addEventListener('click', () => {
     const blob = new Blob([content], { type: meta.mime });
     const url  = URL.createObjectURL(blob);
-    const a    = document.createElement('a');
-    a.href     = url;
-    a.download = finalName;
-    a.click();
-    setTimeout(() => URL.revokeObjectURL(url), 2000);
+    triggerDownload(url, finalName, 2000);
     // Animate button
     const btn = card.querySelector('.file-gen-download-btn');
     btn.textContent = '✅ Downloaded!';
@@ -1715,6 +1715,27 @@ function setupPasteImageSupport(textareaId, previewId, setPendingFn, clearFn) {
 setupPasteImageSupport('hack-chat-input', 'hack-file-preview', (f) => { pendingHackPasteImage = f; }, clearPastedHackImage);
 setupPasteImageSupport('stalk-chat-input', 'stalk-file-preview', (f) => { pendingStalkPasteImage = f; }, clearPastedStalkImage);
 
+/**
+ * BUGFIX: this function was referenced twice — as the '#remove-paste-btn' click
+ * handler above, and inside sendMessage() after a pasted image is sent — but it
+ * was never defined. Both call sites threw `ReferenceError: clearPastedImage is
+ * not defined`, so pasting a screenshot and clicking ✕ did nothing, and sending
+ * one aborted sendMessage mid-flight. The hack/stalk equivalents below existed;
+ * only the main chat one was missing.
+ *
+ * The `!pendingFile` guard matches the siblings: the chat preview strip is shared
+ * between a pasted screenshot and an attached file, so we must not blank it while
+ * the other one is still pending.
+ */
+function clearPastedImage() {
+  pendingPasteImage = null;
+  const p = document.getElementById('file-preview');
+  if (p && !pendingFile && !pendingStorageFile) {
+    p.classList.add('hidden');
+    p.innerHTML = '';
+  }
+}
+
 function clearPastedHackImage() {
   pendingHackPasteImage = null;
   const p = document.getElementById('hack-file-preview');
@@ -2036,14 +2057,22 @@ function clearPendingStorageFile() {
 
 function clearPendingFile() {
   pendingFile = null;
+  // Always reset the input, otherwise re-picking the SAME file fires no
+  // 'change' event and the attachment silently fails to re-attach.
+  const input = document.getElementById('file-upload-input');
+  if (input) input.value = '';
+
   if (pendingStorageFile) {
-    // If a storage file is also selected, keep preview or show storage file
+    // A storage file is also selected — keep showing that instead of blanking
+    // the shared preview strip.
     setStorageFileSelected(pendingStorageFile);
-  } else {
-    document.getElementById('file-preview').classList.add('hidden');
-    document.getElementById('file-upload-input').value = '';
-    sendBtn.disabled = !messageInput.value.trim();
+    return;
   }
+  // Don't hide the strip if a pasted screenshot is still waiting in it.
+  if (!pendingPasteImage) {
+    document.getElementById('file-preview').classList.add('hidden');
+  }
+  sendBtn.disabled = !messageInput.value.trim() && !pendingPasteImage;
 }
 
 function setStorageFileSelected(file) {
@@ -2224,12 +2253,11 @@ document.getElementById('stalk-file-upload-input')?.addEventListener('change', (
   document.getElementById('remove-stalk-file-btn').addEventListener('click', clearPendingStalkFile);
 });
 
-function clearPendingFile() {
-  pendingFile = null;
-  document.getElementById('file-preview').classList.add('hidden');
-  document.getElementById('file-upload-input').value = '';
-  sendBtn.disabled = !messageInput.value.trim();
-}
+// NOTE: clearPendingFile() is defined once, near clearPendingStorageFile().
+// There used to be a second, simpler copy of it right here — and because
+// function declarations hoist, THIS one silently overwrote the earlier one,
+// which meant the "keep the storage file selected" branch up there was
+// unreachable dead code. Removing the duplicate restores that behaviour.
 
 function clearPendingHackFile() {
   pendingHackFile = null;
@@ -2390,11 +2418,7 @@ async function downloadMonthlyFile(monthId) {
     if (!res.ok) throw new Error('Download failed');
     const blob = await res.blob();
     const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `Bob-Memory-${monthId}.md`;
-    a.click();
-    setTimeout(() => URL.revokeObjectURL(url), 2000);
+    triggerDownload(url, `Bob-Memory-${monthId}.md`, 2000);
   } catch (err) {
     alert('Failed to download: ' + err.message);
   }
@@ -2752,7 +2776,7 @@ function renderCategoryFactsList() {
                   </div>
                 </div>
                 <div class="memory-page-actions">
-                  <button class="btn-small btn-open-stalker-ws" data-prof-id="${p.id}" style="background:rgba(236,72,153,0.15); border:1px solid rgba(236,72,153,0.3); color:#f472b6;">💬 Stalker Workspace</button>
+                  <button class="btn-small btn-open-stalker-ws" data-prof-id="${p.id}" style="background:rgba(var(--cyan-rgb),0.15); border:1px solid rgba(var(--cyan-rgb),0.3); color:var(--cyan);">💬 Stalker Workspace</button>
                   <button class="btn-small btn-add-target-fact" data-prof-id="${p.id}" data-target-name="${escHtml(p.name)}" style="background:var(--surface2); border:1px solid var(--border2); color:var(--text);">＋ Add Insight</button>
                 </div>
               </div>
@@ -3677,23 +3701,15 @@ function renderFilesGrid() {
 
   // Attach Open listeners (Streams file directly with inline disposition so PDFs render natively)
   grid.querySelectorAll('[data-open-id]').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const fileId = btn.dataset.openId;
-      const url = `/api/files/${fileId}/view?token=${encodeURIComponent(idToken || '')}`;
-      window.open(url, '_blank', 'noopener');
+    btn.addEventListener('click', async () => {
+      await openStoredFile(btn.dataset.openId, 'view');
     });
   });
 
   // Attach Download listeners (Streams file directly with attachment disposition)
   grid.querySelectorAll('[data-download-id]').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const fileId = btn.dataset.downloadId;
-      const url = `/api/files/${fileId}/download?token=${encodeURIComponent(idToken || '')}`;
-      const a = document.createElement('a');
-      a.href = url;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
+    btn.addEventListener('click', async () => {
+      await openStoredFile(btn.dataset.downloadId, 'download');
     });
   });
 
@@ -3704,6 +3720,64 @@ function renderFilesGrid() {
       if (file) deleteUploadedFile(file.id, file.originalName || 'file');
     });
   });
+
+  // BUGFIX: openFilePreviewModal() existed but nothing ever called it, so
+  // clicking a file card's name/icon/snippet did absolutely nothing — the whole
+  // preview modal was unreachable dead code. Wire the card body to it.
+  grid.querySelectorAll('.file-card-body').forEach(body => {
+    body.addEventListener('click', () => {
+      const card = body.closest('.file-card');
+      if (!card) return;
+      const id = card.id.replace(/^file-card-/, '');
+      const file = allUploadedFiles.find(f => f.id === id);
+      if (file) openFilePreviewModal(file);
+    });
+  });
+}
+
+/**
+ * BUGFIX — this is the main reason "files don't open".
+ *
+ * Open/Download used to inline the module-level `idToken` into the URL. That
+ * variable is set once at login and only refreshed by a 50-minute setInterval,
+ * which the browser suspends on background/sleeping tabs. Firebase ID tokens
+ * expire after 60 minutes, so the very common case — leave the app open, come
+ * back later, click Open — produced a brand new tab containing the raw text
+ * `{"error":"Invalid or expired token"}`. Unlike every other request, these two
+ * paths bypassed apiFetch(), so they never got its 401-refresh-and-retry.
+ *
+ * Minting a fresh token immediately before navigating removes the whole class of
+ * failure. getIdToken() serves the cached token when it is still valid and
+ * silently refreshes it when it is not, so this is cheap.
+ */
+async function freshIdToken() {
+  const user = (auth && auth.currentUser) ? auth.currentUser : currentUser;
+  if (!user) throw new Error('You are signed out. Please sign in again.');
+  const token = await user.getIdToken();
+  // Keep the shared variable in sync so other callers benefit too.
+  idToken = token;
+  return token;
+}
+
+/**
+ * Opens (mode 'view') or downloads (mode 'download') a stored file through the
+ * authenticated proxy route, always with a freshly-minted token.
+ */
+async function openStoredFile(fileId, mode) {
+  if (!fileId) return;
+  try {
+    const token = await freshIdToken();
+    const url = `${API}/api/files/${encodeURIComponent(fileId)}/${mode}?token=${encodeURIComponent(token)}`;
+
+    if (mode === 'download') {
+      triggerDownload(url);
+    } else {
+      const win = window.open(url, '_blank', 'noopener');
+      if (!win) alert('Your browser blocked the new tab. Please allow pop-ups for this site.');
+    }
+  } catch (err) {
+    alert(`Could not open the file: ${err.message}`);
+  }
 }
 
 // ── File Preview Modal ───────────────────────────────────
@@ -3739,33 +3813,53 @@ function openFilePreviewModal(file) {
     }
   }
 
+  // BUGFIX: these used to be `dlLink.href = file.url` with no guard, so a record
+  // missing a url produced href="undefined" and a 404. They also pointed at the
+  // raw public Cloudinary URL, where `download` is ignored (cross-origin) and the
+  // asset has no file extension, so the browser got octet-stream with no
+  // filename. They are now <button> elements routed through our authenticated
+  // proxy, which sets a proper Content-Type and Content-Disposition.
   if (dlLink) {
-    dlLink.href = file.url;
-    dlLink.download = name;
+    dlLink.onclick = () => openStoredFile(file.id, 'download');
   }
   if (openLink) {
-    openLink.href = file.url;
+    openLink.onclick = () => openStoredFile(file.id, 'view');
   }
 
   // Populate preview body
   if (bodyEl) {
     const ext = getFileExtension(name);
-    if (['jpg', 'jpeg', 'png', 'gif', 'webp'].includes(ext) || file.resourceType === 'image') {
-      bodyEl.innerHTML = `<img src="${file.url}" alt="${escHtml(name)}" />`;
+    if (['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'ico'].includes(ext) || file.resourceType === 'image') {
+      // escHtml the URL — it lands inside a quoted attribute.
+      bodyEl.innerHTML = file.url
+        ? `<img src="${escHtml(file.url)}" alt="${escHtml(name)}" />`
+        : `<div style="padding:40px 20px; text-align:center; color:var(--text3);">Image preview unavailable (no stored URL).</div>`;
     } else if (file.extractedText) {
+      const shownChars = file.extractedText.length;
+      // listFiles() returns only the first slice of long documents, so report the
+      // real total rather than implying the snippet is the whole file.
+      const totalChars = typeof file.extractedTextLength === 'number' ? file.extractedTextLength : shownChars;
+      const note = file.extractedTextTruncated
+        ? `📄 Extracted content — showing first ${shownChars.toLocaleString()} of ${totalChars.toLocaleString()} characters`
+        : `📄 Extracted Document Content (${totalChars.toLocaleString()} characters)`;
       bodyEl.innerHTML = `
-        <div style="margin-bottom:8px; font-size:12px; color:var(--text3);">📄 Extracted Document Content (${file.extractedText.length} characters):</div>
+        <div style="margin-bottom:8px; font-size:12px; color:var(--text3);">${escHtml(note)}</div>
         <div class="file-preview-text-block">${escHtml(file.extractedText)}</div>
       `;
     } else {
+      const reason = file.extractionError
+        ? escHtml(file.extractionError)
+        : 'This file type does not support direct text preview. You can open it in a new browser tab or download it directly.';
       bodyEl.innerHTML = `
         <div style="text-align:center; padding: 40px 20px; color:var(--text2);">
           <div style="font-size:48px; margin-bottom:12px;">${icon}</div>
           <div style="font-size:15px; font-weight:600; margin-bottom:6px;">${escHtml(name)}</div>
-          <p style="font-size:13px; color:var(--text3); max-width:400px; margin:0 auto 16px;">This file type does not support direct text preview. You can open it in a new browser tab or download it directly.</p>
-          <a href="${file.url}" target="_blank" rel="noopener" class="btn-small btn-accent" style="text-decoration:none; display:inline-block;">🌐 Open in Browser</a>
+          <p style="font-size:13px; color:var(--text3); max-width:400px; margin:0 auto 16px;">${reason}</p>
+          <button type="button" class="btn-small btn-accent" id="modal-body-open-btn">🌐 Open in Browser</button>
         </div>
       `;
+      const bodyOpenBtn = document.getElementById('modal-body-open-btn');
+      if (bodyOpenBtn) bodyOpenBtn.addEventListener('click', () => openStoredFile(file.id, 'view'));
     }
   }
 
@@ -5022,7 +5116,7 @@ async function loadRoutines() {
         <div class="routine-actions">
           <button class="btn-small" data-act="run" data-id="${r.id}">▶ Run Now</button>
           <button class="btn-small" data-act="toggle" data-id="${r.id}">${r.active ? '⏸ Pause' : '▶ Activate'}</button>
-          <button class="btn-small" data-act="del" data-id="${r.id}" style="background:rgba(239,68,68,0.15);color:var(--red);">🗑 Delete</button>
+          <button class="btn-small" data-act="del" data-id="${r.id}" style="background:rgba(var(--red-rgb),0.15);color:var(--red);">🗑 Delete</button>
         </div>
       </div>`).join('');
 

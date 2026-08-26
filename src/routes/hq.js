@@ -53,7 +53,15 @@ router.get('/summary', requireAuth, async (req, res) => {
       },
       facts: facts.map(f => ({ id: f.id, text: f.text })),
       months: months.map(m => ({ id: m.id, filename: m.filename || null, createdAt: m.createdAt || null })),
-      files: files.map(f => ({ id: f.id, filename: f.filename || null, createdAt: f.createdAt || null })),
+      // BUGFIX: `f.filename` does not exist on a file record — fileService
+      // stores the display name as `originalName`. So this always resolved to
+      // null and the HQ Files card rendered raw Firestore document IDs.
+      files: files.map(f => ({
+        id: f.id,
+        filename: f.originalName || f.filename || null,
+        sizeBytes: f.sizeBytes || null,
+        createdAt: f.createdAt || null,
+      })),
       selfEdits: {
         count: edits.length,
         pending: edits.filter(e => e.status === 'pending').length,

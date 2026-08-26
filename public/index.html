@@ -584,34 +584,13 @@
           </div>
         </section>
 
-        <!-- File Content Preview Modal -->
-        <div id="file-preview-modal" class="file-preview-modal hidden">
-          <div class="file-preview-backdrop" id="file-preview-backdrop"></div>
-          <div class="file-preview-dialog">
-            <div class="file-preview-header">
-              <div class="file-preview-header-info">
-                <span id="modal-file-icon" style="font-size:20px;">📄</span>
-                <div>
-                  <h3 id="modal-file-name" class="modal-file-name">Document Title</h3>
-                  <span id="modal-file-meta" class="modal-file-meta">PDF · 1.2 MB</span>
-                </div>
-              </div>
-              <button class="icon-btn" id="modal-preview-close">✕</button>
-            </div>
-            <div class="file-preview-body" id="modal-preview-body">
-              <!-- Content injected here (Text preview / Image preview / Download frame) -->
-            </div>
-            <div class="file-preview-footer">
-              <span id="modal-extract-status" class="modal-extract-status"></span>
-              <div class="file-preview-footer-actions">
-                <a id="modal-download-link" class="btn-small" style="background:var(--surface2); border:1px solid var(--border2); text-decoration:none;" target="_blank" download>⬇️ Download</a>
-                <a id="modal-open-link" class="btn-small btn-accent" style="text-decoration:none;" target="_blank" rel="noopener">🌐 Open in New Tab</a>
-                <button id="modal-delete-btn" class="btn-small" style="background:rgba(239,68,68,0.2); border:1px solid rgba(239,68,68,0.4); color:#fca5a5;">🗑️ Delete File</button>
-              </div>
-            </div>
-          </div>
-        </div>
-
+        <!--
+          NOTE: The File Preview Modal used to live here, inside #views.
+          It was moved out (see near the Storage File Picker below) because
+          .views has `pointer-events: none` and only re-enables it for
+          `.view.active`. pointer-events is inherited, so every button and
+          link inside the modal was completely unclickable.
+        -->
 
         <!-- Secret Vault workspace -->
         <section class="view" id="view-vault">
@@ -655,7 +634,7 @@
                   <span class="badge-incognito">Encrypted</span>
                 </div>
                 <div style="display:flex;align-items:center;gap:8px;">
-                  <button id="wipe-vault-chat-btn" class="vault-relock-btn" style="color:var(--red); border-color:rgba(239,68,68,0.3);" title="Wipe secret chat history">🗑️ Wipe</button>
+                  <button id="wipe-vault-chat-btn" class="vault-relock-btn" style="color:var(--red); border-color:rgba(var(--red-rgb),0.3);" title="Wipe secret chat history">🗑️ Wipe</button>
                   <button id="relock-vault-btn" class="vault-relock-btn" title="Lock vault">🔒 Lock</button>
                   <button class="panel-close view-close" id="close-vault-unlocked">✕</button>
                 </div>
@@ -685,6 +664,43 @@
           <button id="app-modal-close" class="panel-close">✕</button>
         </div>
         <div id="app-modal-body" class="app-modal-body"></div>
+      </div>
+    </div>
+
+    <!--
+      File Content Preview Modal.
+      MUST stay outside #views: .views sets `pointer-events: none` and only
+      re-enables it on `.view.active`. pointer-events is inherited, so while
+      this modal lived inside #views every control in it was unclickable.
+      The Download / Open buttons are deliberately <button> (not <a href>) —
+      app.js routes them through openStoredFile() so they hit our
+      authenticated proxy with a freshly minted token instead of the raw
+      public Cloudinary URL.
+    -->
+    <div id="file-preview-modal" class="file-preview-modal hidden">
+      <div class="file-preview-backdrop" id="file-preview-backdrop"></div>
+      <div class="file-preview-dialog" role="dialog" aria-modal="true" aria-labelledby="modal-file-name">
+        <div class="file-preview-header">
+          <div class="file-preview-header-info">
+            <span id="modal-file-icon" style="font-size:20px;">📄</span>
+            <div>
+              <h3 id="modal-file-name" class="modal-file-name">Document Title</h3>
+              <span id="modal-file-meta" class="modal-file-meta">PDF · 1.2 MB</span>
+            </div>
+          </div>
+          <button type="button" class="icon-btn" id="modal-preview-close" title="Close preview" aria-label="Close preview">✕</button>
+        </div>
+        <div class="file-preview-body" id="modal-preview-body">
+          <!-- Content injected here (Text preview / Image preview / Download frame) -->
+        </div>
+        <div class="file-preview-footer">
+          <span id="modal-extract-status" class="modal-extract-status"></span>
+          <div class="file-preview-footer-actions">
+            <button type="button" id="modal-download-link" class="btn-small btn-neutral">⬇️ Download</button>
+            <button type="button" id="modal-open-link" class="btn-small btn-accent">🌐 Open in New Tab</button>
+            <button type="button" id="modal-delete-btn" class="btn-small btn-soft-danger">🗑️ Delete File</button>
+          </div>
+        </div>
       </div>
     </div>
 

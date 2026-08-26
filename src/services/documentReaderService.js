@@ -19,8 +19,13 @@ const mammoth = require('mammoth');
  * into the LLM context exactly like mediaDetector does for
  * YouTube/Instagram links.
  *
- * Supported: .pdf, .docx (.doc is NOT supported — mammoth only
- * reads the modern .docx XML format).
+ * Supported: .pdf, .docx, .pptx, .xlsx/.xls, and plain-text formats
+ * (.txt/.md/.csv/.tsv/.json/.xml/.yaml/.yml/.toml).
+ *
+ * NOT supported: the legacy binary .doc and .ppt formats (pre-2007 OLE
+ * compound files). mammoth only reads the modern .docx XML format, and there is
+ * no dependency here that can parse .doc/.ppt. Those extensions are still
+ * accepted for upload/storage — they just come back as unreadable assets.
  */
 
 // Cap how much extracted text we keep — long PDFs (100+ pages) would
@@ -35,9 +40,52 @@ function truncate(text) {
   return trimmed.slice(0, MAX_EXTRACTED_CHARS) + `\n\n[... truncated, original was ${trimmed.length} characters ...]`;
 }
 
+/**
+ * BUGFIX — small PDFs (< 32KB) could never be read.
+ *
+ * Node allocates any Buffer up to `Buffer.poolSize >>> 1` (32KB by default) as a
+ * VIEW into a shared 64KB pool, so `buf.byteOffset` is non-zero and
+ * `buf.buffer.byteLength` is 65536 rather than the file length. pdf-parse hands
+ * that Buffer straight to pdf.js (lib/pdf-parse.js:70 `getDocument(dataBuffer)`),
+ * and pdf.js reads the whole underlying ArrayBuffer — i.e. the entire pool,
+ * including unrelated memory before and after our file. It then walks off the end
+ * of the real document and dies with "bad XRef entry".
+ *
+ * Large PDFs happened to work because anything over the pool threshold gets its
+ * own exact-sized allocation, which is why this went unnoticed: every real-world
+ * test file was big enough. Verified locally: a 1,283-byte PDF fails, the same
+ * bytes copied into a standalone Uint8Array parse fine, and a 1.1MB PDF works
+ * either way.
+ *
+ * Fix: copy into a standalone Uint8Array whose ArrayBuffer is exactly the file,
+ * so pdf.js can only ever see our bytes.
+ */
+function toStandaloneBytes(buffer) {
+  const bytes = new Uint8Array(buffer.byteLength);
+  bytes.set(buffer);
+  return bytes;
+}
+
 async function extractFromPdf(buffer) {
-  const data = await pdfParse(buffer);
+  const data = await pdfParse(toStandaloneBytes(buffer));
   return { text: truncate(data.text), pageCount: data.numpages || null };
+}
+
+/**
+ * BUGFIX: this function was CALLED at the .docx branch of extractText() but was
+ * never defined anywhere in the file. Every .docx upload therefore threw
+ * `ReferenceError: extractFromDocx is not defined`, which the catch-all in
+ * extractText() silently converted into { supported: false }. Net effect: Bob
+ * stored every Word document as an opaque blob and told the user he couldn't
+ * read it, while `mammoth` sat imported-but-unused at the top of this file.
+ *
+ * mammoth.extractRawText gives us the document body as plain text with the
+ * XML/styling stripped. .docx has no fixed page count (pagination is decided by
+ * the renderer, not the file), so pageCount is intentionally null.
+ */
+async function extractFromDocx(buffer) {
+  const result = await mammoth.extractRawText({ buffer });
+  return { text: truncate(result && result.value), pageCount: null };
 }
 
 const ExcelJS = require('exceljs');
@@ -77,6 +125,50 @@ async function extractFromExcel(buffer) {
 }
 
 /**
+ * .pptx text extraction. A .pptx is just a ZIP of XML parts, and jszip is
+ * already a dependency (builderService uses it), so no new package is needed.
+ * Slide text lives in <a:t> nodes inside ppt/slides/slideN.xml.
+ *
+ * This closes a real gap: .pptx and .ppt were both in the upload allowlist and
+ * documentGenerator can WRITE .pptx, but reading one back always reported
+ * "text extraction not implemented yet".
+ */
+async function extractFromPowerpoint(buffer) {
+  const JSZip = require('jszip');
+  const zip = await JSZip.loadAsync(buffer);
+
+  // Sort numerically (slide2 before slide10) — default string sort gets this wrong.
+  const slideNames = Object.keys(zip.files)
+    .filter(n => /^ppt\/slides\/slide\d+\.xml$/.test(n))
+    .sort((a, b) => {
+      const na = Number(a.match(/(\d+)\.xml$/)[1]);
+      const nb = Number(b.match(/(\d+)\.xml$/)[1]);
+      return na - nb;
+    });
+
+  const slideTexts = [];
+  for (let i = 0; i < slideNames.length; i++) {
+    const xml = await zip.files[slideNames[i]].async('string');
+    // Pull every <a:t>…</a:t> run, then de-entity the XML escapes.
+    const runs = [...xml.matchAll(/<a:t[^>]*>([\s\S]*?)<\/a:t>/g)]
+      .map(m => m[1]
+        .replace(/&lt;/g, '<')
+        .replace(/&gt;/g, '>')
+        .replace(/&quot;/g, '"')
+        .replace(/&apos;/g, "'")
+        .replace(/&amp;/g, '&')
+        .trim())
+      .filter(Boolean);
+
+    if (runs.length) {
+      slideTexts.push(`### Slide ${i + 1}\n${runs.join('\n')}`);
+    }
+  }
+
+  return { text: truncate(slideTexts.join('\n\n')), pageCount: slideNames.length };
+}
+
+/**
  * Extracts readable text from a file buffer, based on its extension.
  * Returns { supported, text, pageCount, error }.
  * Never throws — callers can always safely use the result.
@@ -97,9 +189,23 @@ async function extractText(buffer, originalName = '') {
       const { text, pageCount } = await extractFromExcel(buffer);
       return { supported: true, text, pageCount, error: null };
     }
+    if (ext === 'pptx') {
+      const { text, pageCount } = await extractFromPowerpoint(buffer);
+      return { supported: true, text, pageCount, error: null };
+    }
     // Plain-text-ish formats: just decode as UTF-8, no library needed.
     if (['txt', 'md', 'csv', 'tsv', 'json', 'xml', 'yaml', 'yml', 'toml'].includes(ext)) {
       return { supported: true, text: truncate(buffer.toString('utf8')), pageCount: null, error: null };
+    }
+    // Legacy binary Office formats need an OLE parser we don't ship. Give a
+    // message the UI can actually show the user instead of a vague "not implemented".
+    if (ext === 'doc' || ext === 'ppt') {
+      return {
+        supported: false,
+        text: '',
+        pageCount: null,
+        error: `Legacy ".${ext}" format can't be read. Re-save it as ".${ext}x" and upload again.`,
+      };
     }
     return { supported: false, text: '', pageCount: null, error: `"${ext}" text extraction not implemented yet` };
   } catch (err) {
