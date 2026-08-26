@@ -1,5 +1,8 @@
 node_modules/
-.env
+# Ignore every .env variant (.env, .env1, .env.local, .env.production ...)
+# but keep the committed template. Order matters: the negation must come last.
+.env*
+!.env.example
 .vercel
 *.log
 

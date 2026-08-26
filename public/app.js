@@ -4883,7 +4883,7 @@ function renderProfileCard(p) {
         <div class="profile-sec">
           <div class="profile-sec-title">🌐 Discovered Links Network (${otherDiscovered.length})</div>
           <div class="profile-links" style="display:flex;flex-direction:column;gap:4px;max-height:140px;overflow-y:auto;">
-            ${otherDiscovered.map(l => `<a href="${escHtml(l.url)}" target="_blank" rel="noopener" title="${escHtml(l.url)}">🔗 ${escHtml(l.label || l.url)} <span style="opacity:0.6;font-size:10px;">(${escHtml(l.source || 'web')})</span></a>`).join('')}
+            ${otherDiscovered.map(l => `<a href="${escHtml(l.url)}" target="_blank" rel="noopener" title="${escHtml(l.url)}">🔗 ${escHtml(l.label || l.url)} <span style="color:var(--text3);font-size:11px;">(${escHtml(l.source || 'web')})</span></a>`).join('')}
           </div>
         </div>` : ''}
       ${(d.githubRepos || []).length ? `

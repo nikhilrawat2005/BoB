@@ -7,7 +7,13 @@
   <meta name="description" content="Bob is your personal AI assistant with memory, file handling, and intelligent conversation." />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+  <!-- JetBrains Mono was referenced in 12 CSS rules but never actually loaded,
+       so every code block silently fell back to Consolas on Windows and to a
+       generic monospace elsewhere. Both faces are now requested in one call.
+       Weight 650 used by headings is synthesised from 600/700. -->
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet" />
+  <meta name="theme-color" content="#08090c" />
+  <meta name="color-scheme" content="dark" />
   <link rel="stylesheet" href="style.css" />
   <!-- Favicon: Tech Builder Cat -->
   <link rel="icon" type="image/jpeg" href="/favicon.jpg" />
