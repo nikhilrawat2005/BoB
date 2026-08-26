@@ -164,12 +164,18 @@
               <span id="tts-icon">🔊</span>
               <span id="tts-label" style="font-size:12px; font-weight:500;">Voice ON</span>
             </button>
-            <select id="model-selector" class="model-select" title="Choose model">
-              <option value="">Auto (Writer)</option>
-              <option value="deepseek/deepseek-chat-v3">DeepSeek v3</option>
-              <option value="anthropic/claude-sonnet-4">Claude Sonnet</option>
-              <option value="openai/gpt-4o">GPT-4o</option>
-              <option value="google/gemini-2.0-flash-001">Gemini Flash</option>
+            <!-- This is a HINT, not a hard override. The server's resolveModel()
+                 will auto-shift off your pick if it cannot do the job — e.g.
+                 DeepSeek is text-only, so attaching an image switches to a
+                 vision model automatically. Slugs listed here must exist in
+                 MODEL_CAPS in src/services/llmService.js. -->
+            <select id="model-selector" class="model-select" title="Preferred model — Bob auto-switches if it can't handle your input (images, huge docs)">
+              <option value="">Auto (Smart)</option>
+              <option value="google/gemini-2.5-flash-lite">Gemini Flash Lite · cheap</option>
+              <option value="google/gemini-2.5-flash">Gemini Flash</option>
+              <option value="deepseek/deepseek-chat-v3">DeepSeek v3 · text only</option>
+              <option value="anthropic/claude-sonnet-4">Claude Sonnet · premium</option>
+              <option value="openai/gpt-4o">GPT-4o · premium</option>
             </select>
           </div>
         </div>

@@ -2,7 +2,7 @@ const fetch = require('node-fetch');
 const express = require('express');
 const router = express.Router();
 const { requireAuth } = require('../middleware/auth');
-const { callLLM, callLLMWithVision } = require('../services/llmService');
+const { callLLM } = require('../services/llmService');
 const memory = require('../services/memoryService');
 const scheduler = require('../services/schedulerService');
 const { enrichMessageWithMedia } = require('../services/mediaDetector');
@@ -704,32 +704,33 @@ Auto-extracted media data is provided in context below. Read full transcript/cap
     const systemPrompt = `${promptModules.join('\n\n')}\n\n- You have full access to historical chat summaries, habits, and stored facts about Master Nikhil.\n${memoryContext}${mediaEnrichment.mediaContext}${documentContext}`;
 
 
-    // 5. Call Answering Agent LLM — use Vision if images are present
+    // 5. Call Answering Agent LLM.
+    // One call, one router. callLLM() detects the images itself and auto-shifts
+    // to a vision-capable model if the requested/configured one is text-only,
+    // or to a bigger-context model if the prompt (docs, history, crawls) is too
+    // large. `model` from the client is a HINT, not a hard override.
     const baseMessages = [
       { role: 'system', content: systemPrompt },
       ...recent.map(m => ({ role: m.role, content: m.content })),
     ];
 
-    let llmResult;
     if (allImageUrls.length > 0) {
-      // Vision call: text + images (screenshots, thumbnails)
-      console.log(`[Chat] Using vision LLM with ${allImageUrls.length} image(s)`);
-      llmResult = await callLLMWithVision({
-        messages: baseMessages,
-        userText: promptMessage,
-        imageUrls: allImageUrls,
-        model,
-      });
-    } else {
-      // Standard text-only call
-      llmResult = await callLLM({
-        role: 'chat',
-        model,
-        messages: [
-          ...baseMessages,
-          { role: 'user', content: promptMessage },
-        ],
-      });
+      console.log(`[Chat] ${allImageUrls.length} image(s) attached — vision routing engaged`);
+    }
+
+    const llmResult = await callLLM({
+      role: 'chat',
+      model,
+      messages: [
+        ...baseMessages,
+        { role: 'user', content: promptMessage },
+      ],
+      userText: promptMessage,
+      imageUrls: allImageUrls,
+    });
+
+    if (llmResult.routing && llmResult.routing.length) {
+      console.log(`[Chat] model auto-shifted → ${llmResult.model} (${llmResult.routing.join(' | ')})`);
     }
 
     let { text, model: usedModel } = llmResult;
@@ -813,7 +814,15 @@ Auto-extracted media data is provided in context below. Read full transcript/cap
       }
     }
 
-    res.json({ reply: text, model: usedModel, scheduledTasks: createdTasks, updatedTitle });
+    res.json({
+      reply: text,
+      model: usedModel,
+      // Non-empty when the router shifted off the requested model (e.g. images
+      // attached to a text-only model). Lets the UI explain the swap.
+      routing: llmResult.routing || [],
+      scheduledTasks: createdTasks,
+      updatedTitle,
+    });
   } catch (err) {
     console.error('[Chat] Error:', err.message);
     const msg = /credits|quota|balance|afford/i.test(err.message)

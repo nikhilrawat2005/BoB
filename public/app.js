@@ -1961,6 +1961,20 @@ async function sendMessage() {
 
     removeTypingIndicator();
     appendMessage('assistant', data.reply);
+
+    // Surface which model actually ran. `routing` is non-empty ONLY when the
+    // server shifted off the requested model — e.g. an image attached while
+    // DeepSeek (text-only) was picked, or a prompt too big for its context.
+    if (data.model) {
+      const selEl = document.getElementById('model-selector');
+      const shifted = Array.isArray(data.routing) && data.routing.length > 0;
+      if (selEl) {
+        selEl.title = shifted
+          ? `Auto-switched to ${data.model} — ${data.routing.join(' | ')}`
+          : `Preferred model — Bob auto-switches if it can't handle your input (images, huge docs). Last used: ${data.model}`;
+      }
+      if (shifted) console.info('[Bob] model auto-switched →', data.model, data.routing);
+    }
   } catch (err) {
     removeTypingIndicator();
     appendMessage('assistant', `⚠️ Error: ${err.message}`);

@@ -408,46 +408,307 @@ function _builderKeyOrPool() {
 // ---------------------------------------------------------------------------
 // Model Roles
 // Priority: per-role env vars > hardcoded defaults
-// WRITER_MODEL  → used for the main chat / writing tasks
-// REVIEW_MODEL  → used for reviewing / reasoning tasks
-// AUDITOR_MODEL → used for auditing / safety checks
-// BUILDER_MODEL → used by "Bob the Builder" persona (planning/architecture)
+// WRITER_MODEL  → main chat / writing tasks
+// REVIEW_MODEL  → reviewing / reasoning tasks
+// AUDITOR_MODEL → auditing / safety checks
+// BUILDER_MODEL → "Bob the Builder" persona (planning/architecture)
+// VISION_MODEL  → screenshots / thumbnails / image analysis
+// CHEAP_MODEL   → router + summarizer calls that only emit a few tokens
 // ---------------------------------------------------------------------------
+
+// Safe universal default: vision-capable, 1M context, cheapest tier.
+// Used whenever a configured slug turns out to be retired or unusable.
+const FALLBACK_MODEL = 'google/gemini-2.5-flash-lite';
+
 const MODEL_ROLES = {
-  chat:            process.env.WRITER_MODEL   || 'google/gemini-2.0-flash-001',
-  writer:          process.env.WRITER_MODEL   || 'google/gemini-2.0-flash-001',
-  review:          process.env.REVIEW_MODEL   || 'anthropic/claude-sonnet-4',
-  auditor:         process.env.AUDITOR_MODEL  || 'openai/gpt-4o',
-  router:          process.env.WRITER_MODEL   || 'google/gemini-2.0-flash-001',
-  memorySummarize: process.env.WRITER_MODEL   || 'google/gemini-2.0-flash-001',
+  chat:            process.env.WRITER_MODEL   || FALLBACK_MODEL,
+  writer:          process.env.WRITER_MODEL   || FALLBACK_MODEL,
+  review:          process.env.REVIEW_MODEL   || 'google/gemini-2.5-flash',
+  auditor:         process.env.AUDITOR_MODEL  || 'google/gemini-2.5-flash',
+  // Router/classifier/summarizer work returns ~30 tokens of JSON. It never needs
+  // a strong model, so it gets the cheapest tier available.
+  router:          process.env.CHEAP_MODEL    || process.env.WRITER_MODEL || FALLBACK_MODEL,
+  memorySummarize: process.env.CHEAP_MODEL    || process.env.WRITER_MODEL || FALLBACK_MODEL,
   builder:         process.env.BUILDER_MODEL  || 'deepseek/deepseek-chat-v3',
-  // Vision-capable model for screenshots, thumbnails, and image analysis
-  vision:          process.env.VISION_MODEL   || 'google/gemini-2.0-flash-001',
+  vision:          process.env.VISION_MODEL   || FALLBACK_MODEL,
 };
+
+// ---------------------------------------------------------------------------
+// Model capability registry
+//
+// This is the piece that lets Bob pick a model by itself instead of the caller
+// (or the user's dropdown) having to know what each model can do.
+//
+//   vision  - accepts image_url content parts
+//   ctx     - context window in tokens
+//   costIn  - USD per 1M input tokens  (used to pick the CHEAPEST valid option)
+//   costOut - USD per 1M output tokens (informational / dashboards)
+//   tier    - 1 cheap · 2 mid · 3 premium
+//
+// Verified against https://openrouter.ai/api/v1/models. If you add a new slug to
+// .env, add it here too — an unknown slug is treated as "capabilities unknown"
+// and will be shifted away from whenever a hard requirement (images, context
+// size) has to be guaranteed. Run verifyModels() to re-check against live data.
+// ---------------------------------------------------------------------------
+const MODEL_CAPS = {
+  'google/gemini-2.5-flash-lite': { vision: true,  ctx: 1000000, costIn: 0.10, costOut: 0.40,  tier: 1 },
+  'google/gemini-2.5-flash':      { vision: true,  ctx: 1000000, costIn: 0.30, costOut: 2.50,  tier: 2 },
+  'deepseek/deepseek-chat-v3':    { vision: false, ctx:  163840, costIn: 0.26, costOut: 1.03,  tier: 1 },
+  'deepseek/deepseek-chat':       { vision: false, ctx:  163840, costIn: 0.26, costOut: 1.03,  tier: 1 },
+  'openai/gpt-4o':                { vision: true,  ctx:  128000, costIn: 2.50, costOut: 10.00, tier: 3 },
+  'anthropic/claude-sonnet-4':    { vision: true,  ctx: 1000000, costIn: 3.00, costOut: 15.00, tier: 3 },
+};
+
+// Slugs that still RESOLVE on OpenRouter but have ZERO serving endpoints, so any
+// call using them fails. These are silently replaced instead of burning a key
+// attempt on a guaranteed error.
+const DEAD_MODELS = new Set([
+  'google/gemini-2.0-flash-001',
+]);
+
+function _capsFor(model) {
+  return MODEL_CAPS[model] || null;
+}
+
+/** Cheapest non-dead model in MODEL_CAPS satisfying `predicate`, else null. */
+function _pickCheapest(predicate) {
+  let best = null;
+  for (const [slug, caps] of Object.entries(MODEL_CAPS)) {
+    if (DEAD_MODELS.has(slug)) continue;
+    if (!predicate(caps, slug)) continue;
+    if (!best || caps.costIn < best.caps.costIn) best = { slug, caps };
+  }
+  return best ? best.slug : null;
+}
+
+/**
+ * Rough token estimate for a messages array (~4 chars per token).
+ * Image parts are charged a flat ~1k tokens each, which is the right ballpark
+ * for Gemini/GPT-4o tiling. Only used to decide whether a prompt will FIT —
+ * it never needs to be exact, just not wildly low.
+ */
+function estimateTokens(messages, extraText = '') {
+  let chars = String(extraText || '').length;
+  for (const m of messages || []) {
+    if (typeof m.content === 'string') {
+      chars += m.content.length;
+    } else if (Array.isArray(m.content)) {
+      for (const part of m.content) {
+        if (part && part.type === 'text') chars += String(part.text || '').length;
+        else if (part && part.type === 'image_url') chars += 4000;
+      }
+    }
+  }
+  return Math.ceil(chars / 4);
+}
+
+/**
+ * THE model router. Single place that decides which model actually runs.
+ *
+ * Pure function — no network, no side effects beyond console warnings — so it is
+ * safe to call on every request and easy to unit test.
+ *
+ * Shift order:
+ *   1. configured/hinted slug is retired      → role default, else FALLBACK_MODEL
+ *   2. images attached but model is text-only → cheapest vision-capable model
+ *   3. prompt won't fit the context window    → cheapest roomy-enough model
+ *
+ * @param {object}  opts
+ * @param {string}  [opts.role='chat']      Role key from MODEL_ROLES.
+ * @param {string}  [opts.hint]             Caller/user preference. Honoured unless
+ *                                          it cannot do the job.
+ * @param {boolean} [opts.needsVision=false] True when image parts are present.
+ * @param {number}  [opts.estTokens=0]      Estimated prompt size; 0 = skip check.
+ * @returns {{model: string, why: string[]}} Chosen slug + why it was chosen.
+ */
+function resolveModel({ role = 'chat', hint, needsVision = false, estTokens = 0 } = {}) {
+  const why = [];
+  let model = hint || MODEL_ROLES[role] || MODEL_ROLES.chat || FALLBACK_MODEL;
+
+  // 1. Retired slug → never send it.
+  if (DEAD_MODELS.has(model)) {
+    const roleDefault = MODEL_ROLES[role];
+    const next = roleDefault && !DEAD_MODELS.has(roleDefault) ? roleDefault : FALLBACK_MODEL;
+    why.push(`dead-slug:${model}->${next}`);
+    model = next;
+  }
+
+  // 2. Vision requirement is hard — a blind model simply cannot answer.
+  if (needsVision) {
+    const caps = _capsFor(model);
+    if (!caps) {
+      const swap = _pickCheapest((c) => c.vision) || FALLBACK_MODEL;
+      if (swap !== model) {
+        console.warn(
+          `[llmService] "${model}" has unknown capabilities and images are attached. ` +
+          `Shifting to "${swap}". Add "${model}" to MODEL_CAPS to keep using it for vision.`
+        );
+        why.push(`unknown-caps-vision:${model}->${swap}`);
+        model = swap;
+      }
+    } else if (caps.vision !== true) {
+      const swap = _pickCheapest((c) => c.vision) || FALLBACK_MODEL;
+      if (swap !== model) {
+        why.push(`needs-vision:${model}->${swap}`);
+        model = swap;
+      }
+    }
+  }
+
+  // 3. Context requirement. 0.8 leaves headroom for the completion itself.
+  if (estTokens > 0) {
+    const caps = _capsFor(model);
+    if (caps && estTokens > caps.ctx * 0.8) {
+      const swap = _pickCheapest(
+        (c) => c.ctx >= estTokens * 1.25 && (!needsVision || c.vision)
+      );
+      if (swap && swap !== model) {
+        why.push(`needs-context:${estTokens}tok:${model}->${swap}`);
+        model = swap;
+      }
+    }
+  }
+
+  return { model, why };
+}
+
+/**
+ * On-demand health check for every slug referenced by MODEL_ROLES / MODEL_CAPS.
+ * Deliberately NOT called at boot — on Vercel that would add a network round
+ * trip to every cold start. Call it from an admin endpoint when you change
+ * models, and it will catch retired slugs and vision-capability drift for you.
+ *
+ * @returns {Promise<{ok: boolean, checked: number, problems: Array}>}
+ */
+async function verifyModels() {
+  const slugs = new Set([...Object.values(MODEL_ROLES), ...Object.keys(MODEL_CAPS)]);
+  const problems = [];
+
+  const res = await fetch('https://openrouter.ai/api/v1/models');
+  if (!res.ok) throw new Error(`OpenRouter model list failed: HTTP ${res.status}`);
+  const { data } = await res.json();
+
+  // Index by BOTH `id` and `canonical_slug`. Some working slugs are aliases that
+  // never appear as an `id` in the listing — e.g. "deepseek/deepseek-chat-v3" is
+  // an alias of "deepseek/deepseek-chat" and calls succeed, but a naive id-only
+  // lookup would wrongly report it as not-found.
+  const live = new Map();
+  for (const m of data || []) {
+    if (m.id) live.set(m.id, m);
+    if (m.canonical_slug && !live.has(m.canonical_slug)) live.set(m.canonical_slug, m);
+  }
+
+  for (const slug of slugs) {
+    const m = live.get(slug);
+    if (!m) {
+      problems.push({ slug, issue: 'not-found', detail: 'No such model id on OpenRouter.' });
+      continue;
+    }
+    const mods = (m.architecture && m.architecture.input_modalities) || [];
+    const caps = MODEL_CAPS[slug];
+
+    if (!caps) {
+      problems.push({ slug, issue: 'missing-from-MODEL_CAPS', detail: `modalities: ${mods.join(', ')}` });
+    } else if (caps.vision !== mods.includes('image')) {
+      problems.push({
+        slug,
+        issue: 'vision-mismatch',
+        detail: `MODEL_CAPS says vision=${caps.vision}, OpenRouter says image input=${mods.includes('image')}`,
+      });
+    }
+
+    if (DEAD_MODELS.has(slug)) {
+      problems.push({ slug, issue: 'marked-dead', detail: 'Listed in DEAD_MODELS; replaced automatically.' });
+    }
+  }
+
+  return { ok: problems.length === 0, checked: slugs.size, problems };
+}
+
 
 // ---------------------------------------------------------------------------
 // Core caller
 // ---------------------------------------------------------------------------
 
 /**
- * @param {object} opts
- * @param {string} [opts.role='chat']   - One of: chat | writer | review | auditor | router | memorySummarize
- * @param {string} [opts.model]         - Override model explicitly (ignores role)
- * @param {Array}  opts.messages        - OpenAI-format messages array
- * @param {number} [opts.temperature]   - Defaults to TEMPERATURE env var or 0.2
- * @param {number} [opts.max_tokens]    - Defaults to MAX_TOKENS env var or 2000
+ * Unified LLM caller — handles text-only AND multimodal (text + image) calls,
+ * and chooses the model itself via resolveModel().
+ *
+ * `model` is a HINT, not a command. If the hinted slug is retired, or is
+ * text-only while images are attached, or is too small for the prompt, the
+ * router silently shifts to a capable model and reports it in `routing`.
+ *
+ * @param {object}   opts
+ * @param {string}   [opts.role='chat']  Role key from MODEL_ROLES.
+ * @param {Array}    opts.messages       OpenAI-format messages array.
+ * @param {string}   [opts.model]        Preferred slug (caller or user dropdown).
+ * @param {string[]} [opts.imageUrls=[]] Image URLs. Non-empty ⇒ vision path.
+ * @param {string}   [opts.userText]     Current user text for the vision path.
+ *                                       Falls back to the last user message.
+ * @param {number}   [opts.temperature]  Defaults to TEMPERATURE env or 0.2.
+ * @param {number}   [opts.max_tokens]   Defaults to MAX_TOKENS env or 2000.
+ * @param {string}   [opts.persona]      'builder' ⇒ use the dedicated key.
+ * @returns {Promise<{text: string, model: string, usage: object|null, routing: string[]}>}
  */
-async function callLLM({ role = 'chat', messages, model, temperature, max_tokens, persona }) {
-  const selectedModel = model || MODEL_ROLES[role] || MODEL_ROLES.chat;
+async function callLLM({
+  role = 'chat',
+  messages,
+  model,
+  imageUrls = [],
+  userText,
+  temperature,
+  max_tokens,
+  persona,
+}) {
+  const hasImages = Array.isArray(imageUrls) && imageUrls.length > 0;
+
+  // --- Build the outgoing messages array -----------------------------------
+  // With images, the trailing user message is rebuilt as multimodal content.
+  // System and assistant history is always preserved untouched.
+  let finalMessages = Array.isArray(messages) ? messages : [];
+  if (hasImages) {
+    let text = userText;
+    if (text == null) {
+      const lastUser = [...finalMessages].reverse().find((m) => m.role === 'user');
+      text = lastUser && typeof lastUser.content === 'string' ? lastUser.content : '';
+    }
+
+    const userContent = [
+      { type: 'text', text },
+      ...imageUrls.map((url) => ({ type: 'image_url', image_url: { url } })),
+    ];
+
+    finalMessages = [...finalMessages];
+    const last = finalMessages[finalMessages.length - 1];
+    if (last && last.role === 'user') finalMessages.pop();
+    finalMessages.push({ role: 'user', content: userContent });
+  }
+
+  // --- Choose the model ----------------------------------------------------
+  // Plain chat + images ⇒ consult the dedicated `vision` role so VISION_MODEL
+  // stays meaningful. Any other role keeps its own default and relies on the
+  // capability shift inside resolveModel().
+  const effectiveRole = hasImages && role === 'chat' ? 'vision' : role;
+  const { model: selectedModel, why } = resolveModel({
+    role: effectiveRole,
+    hint: model,
+    needsVision: hasImages,
+    estTokens: estimateTokens(finalMessages),
+  });
+  if (why.length) {
+    console.log(`[llmService] model routing → ${selectedModel} (${why.join(' | ')})`);
+  }
+
   const apiKey = persona === 'builder' ? _builderKeyOrPool() : await _resolveRoleKey('BOB');
   const requestedMaxTokens = max_tokens ?? Number(process.env.MAX_TOKENS ?? 2000);
 
   const body = {
     model: selectedModel,
-    messages,
+    messages: finalMessages,
     temperature: temperature ?? Number(process.env.TEMPERATURE ?? 0.2),
     max_tokens:  requestedMaxTokens,
   };
+
 
   const res = await fetch(OPENROUTER_URL, {
     method: 'POST',
@@ -475,9 +736,13 @@ async function callLLM({ role = 'chat', messages, model, temperature, max_tokens
       throw err;
     }
     // max_tokens-only error → retry once with a smaller ceiling.
+    // Pass the already-resolved slug so the router does not run twice.
     if ((msg.includes('max_tokens')) && requestedMaxTokens > 1000) {
       console.warn(`[llmService] max_tokens limit hit (${requestedMaxTokens}). Retrying with max_tokens: 1500...`);
-      return callLLM({ role, messages, model, temperature, max_tokens: 1500, persona });
+      return callLLM({
+        role, messages, model: selectedModel, imageUrls, userText,
+        temperature, max_tokens: 1500, persona,
+      });
     }
     const err = new Error(msg || 'OpenRouter error');
     err.details = data.error;
@@ -492,110 +757,39 @@ async function callLLM({ role = 'chat', messages, model, temperature, max_tokens
   _recordUsage(apiKey, usedTokens);
 
   return {
-    text:  data.choices[0].message.content,
-    model: selectedModel,
-    usage: data.usage || null,
+    text:    data.choices[0].message.content,
+    model:   selectedModel,
+    usage:   data.usage || null,
+    routing: why,
   };
 }
 
 // ---------------------------------------------------------------------------
-// Vision caller — supports text + image_url multimodal messages
+// Vision caller — backwards-compatible wrapper
 // ---------------------------------------------------------------------------
 
 /**
- * Calls LLM with vision support (text + images in the same message).
- * Used for screenshot analysis, thumbnail inspection, and image understanding.
- *
- * @param {object} opts
- * @param {Array}  opts.messages     - Standard messages array (system + history)
- * @param {string} opts.userText     - The user's current message text
- * @param {string[]} opts.imageUrls  - Array of image URLs to include in the vision request
- * @param {string} [opts.model]      - Override model (defaults to vision role model)
- * @param {number} [opts.temperature]
- * @param {number} [opts.max_tokens]
+ * @deprecated Call callLLM({ imageUrls, userText, ... }) instead — it handles
+ * text and vision through one code path and one router. This wrapper only
+ * exists so older call sites keep working unchanged.
  */
 async function callLLMWithVision({ messages, userText, imageUrls = [], model, temperature, max_tokens }) {
-  const selectedModel = model || MODEL_ROLES.vision;
-  // FIX (#4): this used to call the plain round-robin _nextKey() instead of
-  // the role-aware _resolveRoleKey('BOB') that callLLM() uses. That meant
-  // vision calls could silently use a DIFFERENT key than the one the "BOB"
-  // role/dashboard was tracking, splitting token-budget bookkeeping across
-  // two untracked paths and making the HQ "Keys" role label unreliable.
-  // Vision now shares the same role-aware resolution as normal chat calls.
-  const apiKey = await _resolveRoleKey('BOB');
-  const requestedMaxTokens = max_tokens ?? Number(process.env.MAX_TOKENS ?? 2000);
-
-  // Build multimodal user content: text + images
-  const userContent = [
-    { type: 'text', text: userText },
-    ...imageUrls.map(url => ({
-      type: 'image_url',
-      image_url: { url },
-    })),
-  ];
-
-  // Only replace the last message if it is a user message (the current prompt).
-  // Assistant/system history is always preserved.
-  const visionMessages = [...messages];
-  const last = visionMessages[visionMessages.length - 1];
-  if (last && last.role === 'user') visionMessages.pop();
-  visionMessages.push({ role: 'user', content: userContent });
-
-  const body = {
-    model: selectedModel,
-    messages: visionMessages,
-    temperature: temperature ?? Number(process.env.TEMPERATURE ?? 0.2),
-    max_tokens:  requestedMaxTokens,
-  };
-
-   const res = await fetch(OPENROUTER_URL, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${apiKey}`,
-      'HTTP-Referer': 'https://github.com/nikhilrawat2005/BoB',
-      'X-Title': 'Bob Personal Assistant',
-    },
-    body: JSON.stringify(body),
+  return callLLM({
+    role: 'vision',
+    messages,
+    userText,
+    imageUrls,
+    model,
+    temperature,
+    max_tokens,
   });
-
-  const data = await res.json();
-
-  if (data.error) {
-    const msg = String(data.error.message || '');
-    const isCreditError = msg.includes('credits') || msg.includes('afford') || msg.includes('balance') || /requires more credits/.test(msg.toLowerCase());
-    if (isCreditError) {
-      markKeyExhausted(apiKey);
-      const err = new Error('OpenRouter credit/balance exhausted for this key — auto-skipped. ' + msg);
-      err.details = data.error;
-      err.code = 'CREDIT_EXHAUSTED';
-      throw err;
-    }
-    if (msg.includes('max_tokens') && requestedMaxTokens > 1000) {
-      console.warn(`[llmService] Vision max_tokens limit hit (${requestedMaxTokens}). Retrying with max_tokens: 1500...`);
-      return callLLMWithVision({ messages, userText, imageUrls, model, temperature, max_tokens: 1500 });
-    }
-    const err = new Error(msg || 'OpenRouter vision error');
-    err.details = data.error;
-    throw err;
-  }
-
-  if (!data.choices || !data.choices.length || !data.choices[0].message) {
-    throw new Error('OpenRouter returned an empty response');
-  }
-
-  const usedTokens = (data.usage && Number(data.usage.total_tokens)) || 0;
-  _recordUsage(apiKey, usedTokens);
-
-  return {
-    text:  data.choices[0].message.content,
-    model: selectedModel,
-    usage: data.usage || null,
-  };
 }
 
 module.exports = {
   callLLM, callLLMWithVision, MODEL_ROLES,
+  // Model routing
+  MODEL_CAPS, DEAD_MODELS, FALLBACK_MODEL,
+  resolveModel, estimateTokens, verifyModels,
   MAX_TOKENS_PER_KEY,
   checkKeyHealth, keyHealthSnapshot, markKeyExhausted,
   _rawKeys, _keyMeta,
