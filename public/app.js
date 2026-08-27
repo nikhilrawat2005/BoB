@@ -1917,8 +1917,47 @@ async function sendMessage() {
             extractedText: uploadedRecord.extractedText || '',
             textExtracted: !!uploadedRecord.textExtracted,
             extractionError: uploadedRecord.extractionError || null,
-          });
-        }
+});
+
+  const fixBtn = document.getElementById('seo-fixplan-btn');
+  if (fixBtn) fixBtn.addEventListener('click', () => openSeoFixPlan(site.id));
+
+  const expJson = document.getElementById('seo-export-json');
+  if (expJson) expJson.addEventListener('click', () => seoExportSite(site, 'json'));
+  const expCsv = document.getElementById('seo-export-csv');
+  if (expCsv) expCsv.addEventListener('click', () => seoExportSite(site, 'csv'));
+
+  const fp = document.getElementById('seo-fixplan');
+  if (fp) fp.addEventListener('click', async (ev) => {
+    const copyBtn = ev.target.closest('[data-seo-copy]');
+    let idx;
+    if (copyBtn && (idx = Number(copyBtn.dataset.seoCopy)) >= 0 && lastSeoPlan && lastSeoPlan.artifacts) {
+      const keys = ['robotsTxt', 'sitemap', 'canonical', 'ogBlock', 'jsonld'];
+      const code = lastSeoPlan.artifacts[keys[idx]] || '';
+      try {
+        await navigator.clipboard.writeText(code);
+        const old = copyBtn.textContent;
+        copyBtn.textContent = '✓ Copied';
+        setTimeout(() => { copyBtn.textContent = old; }, 1200);
+      } catch {
+        copyBtn.textContent = 'Copy failed';
+        setTimeout(() => { copyBtn.textContent = 'Copy'; }, 1200);
+      }
+    }
+    const dlBtn = ev.target.closest('[data-seo-dl]');
+    if (dlBtn && lastSeoPlan && lastSeoPlan.artifacts) {
+      const meta = [
+        ['robotsTxt', 'robots.txt', 'text/plain'],
+        ['sitemap', 'sitemap.xml', 'application/xml'],
+        ['canonical', 'canonical-fragment.html', 'text/html'],
+        ['ogBlock', 'og-tags.html', 'text/html'],
+        ['jsonld', 'schema.jsonld', 'application/ld+json'],
+      ];
+      const it = meta[Number(dlBtn.dataset.seoDl)];
+      if (it) seoDownloadBlob(`${(lastSeoPlan.domain || 'site')}-${it[1]}`, lastSeoPlan.artifacts[it[0]] || '', it[2]);
+    }
+  });
+}
       }
     }
 
@@ -4918,6 +4957,103 @@ async function selectSeo(id) {
   if (input) input.focus();
 }
 
+let lastSeoPlan = null;
+
+function seoSparkline(history) {
+  const pts = (Array.isArray(history) ? history : []).map(h => h.score).filter(n => typeof n === 'number');
+  if (pts.length < 2) return '';
+  const min = Math.min(...pts), max = Math.max(...pts);
+  const range = (max - min) || 1;
+  const w = 200, h = 32;
+  const step = w / (pts.length - 1);
+  const coords = pts.map((p, i) => `${(i * step).toFixed(1)},${(h - 4 - ((p - min) / range) * (h - 8)).toFixed(1)}`).join(' ');
+  return `<svg width="100%" viewBox="0 0 ${w} ${h}" style="display:block;margin-top:6px;"><polyline points="${coords}" fill="none" stroke="var(--amber)" stroke-width="2"/></svg><div style="font-size:10px;color:var(--text3);text-align:center;margin-top:2px;">${pts.join(' → ')}</div>`;
+}
+
+function seoDownloadBlob(name, content, type = 'text/plain') {
+  const blob = new Blob([content], { type });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = name;
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 600);
+}
+
+function seoExportSite(site, fmt) {
+  const a = site.audit || {};
+  const safeDomain = (site.domain || site.url || 'site').replace(/[^a-zA-Z0-9._-]/g, '_');
+  if (fmt === 'json') {
+    seoDownloadBlob(`seo-audit-${safeDomain}.json`,
+      JSON.stringify({ domain: site.domain, url: site.url, generatedAt: new Date().toISOString(), score: a.score, breakdown: a.breakdown || {}, issues: a.issues || [], recommendations: a.recommendations || [], signals: a.signals || {}, techNotes: a.techNotes || {}, history: site.history || [] }, null, 2),
+      'application/json');
+  } else {
+    const rows = [];
+    rows.push(['SEO AUDIT EXPORT']);
+    rows.push(['domain', site.domain, 'url', site.url, 'score', a.score]);
+    rows.push([]);
+    rows.push(['breakdown', 'score']);
+    Object.entries(a.breakdown || {}).forEach(([k, v]) => rows.push([k, v]));
+    rows.push([]);
+    rows.push(['severity', 'category', 'issue']);
+    (a.issues || []).forEach(i => rows.push([i.severity, i.category, i.text]));
+    rows.push([]);
+    rows.push(['priority', 'issue', 'fix']);
+    (a.recommendations || []).forEach(r => rows.push([r.priority, r.issue, r.fix]));
+    seoDownloadBlob(`seo-audit-${safeDomain}.csv`, rows.map(r => r.map(c => `"${String(c == null ? '' : c).replace(/"/g, '""')}"`).join(',')).join('\n'), 'text/csv');
+  }
+}
+
+async function openSeoFixPlan(siteId) {
+  const btn = document.getElementById('seo-fixplan-btn');
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Generating…'; }
+  try {
+    const { plan } = await apiFetch('/api/seo/' + siteId + '/fixplan');
+    lastSeoPlan = plan;
+    renderSeoFixPlan(plan);
+  } catch (err) {
+    alert('Fix plan failed: ' + err.message);
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '🛠 Fix Plan'; }
+  }
+}
+
+function renderSeoFixPlan(plan) {
+  const el = document.getElementById('seo-fixplan');
+  if (!el) return;
+  const art = plan.artifacts || {};
+  const items = [
+    { key: 'robotsTxt', title: '🤖 robots.txt', file: 'robots.txt', code: art.robotsTxt || '' },
+    { key: 'sitemap', title: '🗺 sitemap.xml', file: 'sitemap.xml', code: art.sitemap || '' },
+    { key: 'canonical', title: '🔗 Canonical tag', file: 'canonical-fragment.html', code: art.canonical || '' },
+    { key: 'ogBlock', title: '📱 OG + Twitter tags', file: 'og-tags.html', code: art.ogBlock || '' },
+    { key: 'jsonld', title: '🧩 Structured data (JSON-LD)', file: 'schema.jsonld', code: art.jsonld || '' },
+  ];
+  const blocks = items.map((it, idx) => `
+    <div class="ws-kb-block">
+      <div class="ws-kb-label" style="display:flex;justify-content:space-between;align-items:center;">
+        <span>${it.title}</span>
+        <span>
+          <button class="btn-small" data-seo-copy="${idx}">Copy</button>
+          <button class="btn-small" data-seo-dl="${idx}">Download</button>
+        </span>
+      </div>
+      <pre style="font-size:10.5px;background:#00000022;padding:8px;border-radius:6px;overflow:auto;max-height:200px;white-space:pre-wrap;word-break:break-word;color:var(--text1);">${escHtml(it.code)}</pre>
+    </div>`).join('');
+  const guidelines = (plan.guidelines || []).map(g => `<div style="font-size:12px;margin-bottom:6px;color:var(--text2);line-height:1.5;">• ${escHtml(g)}</div>`).join('');
+  el.innerHTML = `
+    <div class="ws-kb-block"><div class="ws-kb-label">🛠 Fix Plan — ${escHtml(plan.domain)}</div>
+    <div style="font-size:11px;color:var(--text3);">Generated ${new Date(plan.generatedAt).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })} · Abhi ka score ${typeof plan.score === 'number' ? plan.score + '/100' : '—'}. Files ready-to-upload hai — copy/download karke site par upload karo. Isse ke alawa regular exp: Re-audit karke score improvement dekho.</div></div>
+    ${blocks}
+    <div class="ws-kb-block"><div class="ws-kb-label">📌 Guidelines</div>${guidelines}</div>`;
+  requestAnimationFrame(() => {
+    setTimeout(() => {
+      const fixpanel = document.getElementById('seo-fixplan');
+      if (fixpanel) fixpanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 50);
+  });
+}
+
 function renderSeoAudit(site) {
   const el = document.getElementById('seo-audit');
   const a = site.audit || {};
@@ -4952,6 +5088,7 @@ function renderSeoAudit(site) {
   el.innerHTML = `
     <div class="ws-kb-block" style="text-align:center;">
       <div style="font-size:44px;font-weight:800;color:${seoScoreColor(score)};line-height:1.1;">${typeof score === 'number' ? score + '<span style="font-size:16px;">/100</span>' : '—'}</div>
+      ${seoSparkline(site.history)}
       <div style="font-size:11px;color:var(--text3);">${typeof a.pagesFound === 'number' ? a.pagesFound + ' pages audited · ' : ''}${a.auditedAt ? new Date(a.auditedAt).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }) : ''}</div>
     </div>
     ${a.summary ? `<div class="ws-kb-block"><div class="ws-kb-label">📝 Summary</div><div style="font-size:12px;line-height:1.5;">${escHtml(a.summary)}</div></div>` : ''}
@@ -4965,10 +5102,18 @@ function renderSeoAudit(site) {
       ${signalRow('🧱 Semantic tags', typeof signals.semanticCount === 'number' ? signals.semanticCount + '/7' : '—')}
       ${signalRow('🗺 Sitemap', typeof sitemapCount === 'number' ? sitemapCount + ' URLs' + (sitemapLastmod ? ' (📅 ' + sitemapLastmod + ' lastmod)' : '') : '-')}
       ${signalRow('🤖 robots.txt', robotsExists ? 'found' : 'missing')}
+      ${typeof signals.hreflangCount === 'number' ? signalRow('🌍 hreflang', signals.hreflangCount + (signals.hreflangCount === 1 ? ' lang' : ' langs')) : ''}
+      ${Array.isArray(signals.schemaTypes) && signals.schemaTypes.length ? signalRow('🧩 Schema', signals.schemaTypes.join(', ')) : ''}
     </div>
     <div class="ws-kb-block"><div class="ws-kb-label">⚠️ Issues</div>${issues}</div>
     <div class="ws-kb-block"><div class="ws-kb-label">🛠 Recommendations</div>${recs}</div>
+    <div style="display:flex;gap:6px;margin-top:8px;">
+      <button class="btn-small" id="seo-fixplan-btn" style="flex:1;">🛠 Fix Plan</button>
+      <button class="btn-small" id="seo-export-json" title="Download JSON" style="flex:1;">⤓ JSON</button>
+      <button class="btn-small" id="seo-export-csv" title="Download CSV" style="flex:1;">⤓ CSV</button>
+    </div>
     <button class="btn-small" id="re-audit-seo" style="width:100%;margin-top:8px;">↻ Re-Audit Website</button>
+    <div id="seo-fixplan" style="margin-top:8px;"></div>
   `;
 
   const ra = document.getElementById('re-audit-seo');

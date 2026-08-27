@@ -84,6 +84,17 @@ function parsePage(html, origin) {
   const ogTitle = !!$('meta[property="og:title"]').attr('content');
   const ogImage = !!$('meta[property="og:image"]').attr('content');
   const hasSchema = html.includes('application/ld+json');
+  const twitterCard = !!$('meta[name="twitter:card"]').attr('content');
+  const hreflangLinks = $('link[rel="alternate"][hreflang]').get().map((el) => $(el).attr('hreflang'));
+  const schemaTypes = (() => {
+    const types = [];
+    $('script[type="application/ld+json"]').each((_, el) => {
+      const raw = $(el).html() || '';
+      const m = raw.match(/"@type"\s*:\s*"([^"]+)"/);
+      if (m && !types.includes(m[1])) types.push(m[1]);
+    });
+    return types.slice(0, 4);
+  })();
 
   // ── Clean HTML structure signals ──
   const semanticTags = ['header', 'nav', 'main', 'article', 'section', 'aside', 'footer']
@@ -106,11 +117,13 @@ function parsePage(html, origin) {
   // ── Speed / resource signals ──
   const scriptTags = $('script').get();
   const scriptSrcCount = scriptTags.filter((el) => $(el).attr('src')).length;
-  const blockingScripts = scriptTags.filter((el) => {
-    const e = $(el);
-    if (!e.attr('src')) return false; // inline scripts don't count as blocking here
-    return !(e.attr('async') !== undefined || e.attr('defer') !== undefined);
-  }).length;
+  const blockingScriptEls = scriptTags.filter((el) => {
+      const e = $(el);
+      if (!e.attr('src')) return false; // inline scripts don't count as blocking here
+      return !(e.attr('async') !== undefined || e.attr('defer') !== undefined);
+    });
+  const blockingScripts = blockingScriptEls.length;
+  const blockingScriptSrcs = blockingScriptEls.map((el) => $(el).attr('src')).filter(Boolean).slice(0, 6);
   const cssLinkCount = $('link[rel="stylesheet"]').length;
 
   // Mixed content (http:// resources on page) — only a real issue on https origins
@@ -159,6 +172,9 @@ function parsePage(html, origin) {
     ogTitle,
     ogImage,
     hasSchema,
+    twitterCard,
+    hreflangCount: hreflangLinks.length,
+    schemaTypes,
     semanticTags,
     semanticCount: semanticTags.length,
     deprecatedTags,
@@ -166,12 +182,13 @@ function parsePage(html, origin) {
     duplicateIds,
     scriptSrcCount,
     blockingScripts,
+    blockingScriptSrcs,
     cssLinkCount,
     mixedContent: [...new Set(mixedContent)],
     wordCount,
     internalCount: uniqueInternal.length,
     externalCount: externalLinks.length,
-    internalLinks: uniqueInternal.slice(0, 8),
+    internalLinks: uniqueInternal.slice(0, 40),
   };
 }
 
@@ -281,6 +298,7 @@ function scoreAudit(home, robots, broken) {
   }
   if (!home.hasFavicon) issues.push({ severity: 'low', category: 'technical', text: 'Favicon nahi mila.' });
   if (home.viewportBlocksZoom) issues.push({ severity: 'low', category: 'technical', text: 'Viewport zoom block hai (user-scalable=no) — accessibility + mobile UX issue.' });
+  if (!home.twitterCard) issues.push({ severity: 'low', category: 'onpage', text: 'Twitter Card meta missing (social share preview).' });
 
   // On-page (100)
   let onpage = 0;
@@ -406,6 +424,19 @@ async function runAudit(originUrl) {
   const thinPages = pages.filter((p) => p.wordCount > 0 && p.wordCount < 120);
   if (thinPages.length) audit.issues.push({ severity: 'low', category: 'content', text: `${thinPages.length} internal page(s) thin content: ${thinPages.map((p) => p.url).join(', ')}` });
 
+  // Duplicate page titles → on-page signal (deterministic, no extra cost)
+  const seenTitles = new Set();
+  const dupTitles = [];
+  for (const p of pages) {
+    if (!p.title) continue;
+    const t = p.title.toLowerCase().trim();
+    if (seenTitles.has(t)) dupTitles.push(p.title.trim());
+    seenTitles.add(t);
+  }
+  if (dupTitles.length) {
+    audit.issues.push({ severity: 'medium', category: 'onpage', text: `Duplicate page titles ${[...new Set(dupTitles)].slice(0, 3).map((t) => `"${t}"`).join(' | ')} — har page ka title unique hona chahiye.` });
+  }
+
   const llm = await analyzeWithLLM(domain, u.href, audit);
 
   const signals = {
@@ -418,6 +449,9 @@ async function runAudit(originUrl) {
     imgCount: home.imageCount || 0,
     lazyImages: home.lazyCount || 0,
     semanticCount: home.semanticCount || 0,
+    hreflangCount: home.hreflangCount || 0,
+    schemaTypes: home.schemaTypes || [],
+    twitterCard: !!home.twitterCard,
     sitemapUrls: (robots.sitemapUrls || []).length,
     sitemapLastmod: robots.lastmodCount || 0,
     robotsExists: !!robots.robotsExists,
@@ -440,6 +474,8 @@ async function runAudit(originUrl) {
       signals,
     },
     broken,
+    crawledUrls: home.internalLinks || [],
+    crawledPages: pages.filter((p) => p.status === 200 && p.url).map((p) => ({ url: p.url, title: p.title || '', wordCount: p.wordCount || 0, status: p.status })).slice(0, 20),
   };
 }
 
@@ -494,6 +530,8 @@ async function createSite(userId, urlInput) {
       homeUrl: url,
       techNotes: robotsMetrics,
       broken,
+      crawledUrls: audit.crawledUrls,
+      crawledPages: audit.crawledPages,
       signals: audit.signals,
       auditedAt: audit.auditedAt,
     },
@@ -522,6 +560,8 @@ async function reAudit(userId, id) {
       homeUrl: url,
       techNotes: robotsMetrics,
       broken,
+      crawledUrls: audit.crawledUrls,
+      crawledPages: audit.crawledPages,
       signals: audit.signals,
       auditedAt: audit.auditedAt,
     },
@@ -618,12 +658,87 @@ Help with: explaining each SEO issue, what to fix first, how to improve the scor
   return { reply: text, model, sessionId: sid };
 }
 
+// ── Fix-Plan generator (deterministic, NO LLM cost) ──
+// Audit ke issues par based ready-to-deploy files: robots.txt, sitemap.xml,
+// canonical/meta/OG/JSON-LD snippets — copy ya download karke upload kar do.
+function escXml(s) {
+  return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+function generateFixPlan(site) {
+  const a = site.audit || {};
+  let origin;
+  try { origin = new URL(site.url).origin; } catch { origin = `https://${site.domain || 'example.com'}`; }
+  const host = site.domain || (() => { try { return new URL(origin).hostname; } catch { return 'example.com'; } })();
+  const title = (site.title || host).replace(/[|_-].*$/, '').trim() || host;
+
+  const urls = (Array.isArray(a.crawledUrls) ? a.crawledUrls : []).filter((u) => u && u !== site.url);
+  const sitemapLocations = [site.url, ...urls].filter((u, i, arr) => arr.indexOf(u) === i).slice(0, 200);
+
+  const robotsTxt = [
+    'User-agent: *',
+    'Allow: /$',
+    'Disallow: /api/',
+    'Disallow: /search',
+    'Disallow: /*?',
+    '',
+    `Sitemap: ${origin}/sitemap.xml`,
+    '',
+  ].join('\n');
+
+  const sitemap = `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${sitemapLocations.map((u) => `  <url>\n    <loc>${escXml(u)}</loc>\n  </url>`).join('\n')}\n</urlset>\n`;
+
+  const canonical = `<link rel="canonical" href="${escXml(site.url)}" />`;
+
+  const ogBlock = [
+    `<meta property="og:title" content="${escXml(title)}" />`,
+    `<meta property="og:description" content="Short compelling description — 120-155 chars." />`,
+    `<meta property="og:image" content="https://${host}/og-image.png" />`,
+    `<meta property="og:url" content="${escXml(site.url)}" />`,
+    `<meta property="og:type" content="website" />`,
+    `<meta property="og:site_name" content="${escXml(host)}" />`,
+    `<meta name="twitter:card" content="summary_large_image" />`,
+  ].join('\n');
+
+  const jsonld = `{
+  "@context": "https://schema.org",
+  "@type": "WebSite",
+  "name": "${escXml(title)}",
+  "url": "${escXml(site.url)}"
+}`;
+
+  const blockingCount = (a.signals && typeof a.signals.blockingScripts === 'number') ? a.signals.blockingScripts : 0;
+  const guidelines = [
+    'Meta description: har page par unique, 120-155 chars, CTA ke saath.',
+    `Render-blocking scripts: ${blockingCount} mile — src= script par async ya defer attribute lagao (head se pehle render hota rahe).`,
+    'Structured data ko smile: search.google.com/test/rich-results se validate, error 0 hona chahiye.',
+    'robots.txt + sitemap.xml upload ke baad Google Search Console me property verify karke sitemap submit karo.',
+    'Duplicate page titles wale pages ke title alag-alag banao (primary keyword aage).',
+  ];
+
+  return {
+    domain: host,
+    origin,
+    generatedAt: Date.now(),
+    score: a.score,
+    artifacts: {
+      robotsTxt,
+      sitemap,
+      canonical,
+      ogBlock,
+      jsonld,
+    },
+    guidelines,
+  };
+}
+
 module.exports = {
   listSites,
   getSite,
   createSite,
   reAudit,
   deleteSite,
+  generateFixPlan,
   chatList,
   chatSend,
 };

@@ -45,6 +45,17 @@ router.delete('/:id', requireAuth, async (req, res) => {
   }
 });
 
+// GET /api/seo/:id/fixplan — ready-to-deploy fix files for the latest audit
+router.get('/:id/fixplan', requireAuth, async (req, res) => {
+  try {
+    const site = await seo.getSite(req.userId, req.params.id);
+    if (!site) return res.status(404).json({ error: 'Site not found' });
+    res.json({ plan: seo.generateFixPlan(site) });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // GET /api/seo/:id/chat
 router.get('/:id/chat', requireAuth, async (req, res) => {
   try {
