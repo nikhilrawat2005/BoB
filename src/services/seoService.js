@@ -1,0 +1,480 @@
+const cheerio = require('cheerio');
+const { db } = require('../config/firebase');
+const memory = require('./memoryService');
+const { callLLM } = require('./llmService');
+const { validatePublicUrl, fetchWithTimeout } = require('./crawlerService');
+
+const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
+
+function coll(userId) {
+  return db.collection('users').doc(userId).collection('seoSites');
+}
+
+function normalizeUrl(input) {
+  let url = String(input || '').trim();
+  if (!url) throw new Error('URL is required.');
+  if (!/^https?:\/\//i.test(url)) url = 'https://' + url;
+  let u;
+  try {
+    u = new URL(url);
+  } catch {
+    throw new Error('Invalid URL provided.');
+  }
+  return u;
+}
+
+async function fetchText(url, timeoutMs = 10000) {
+  const res = await fetchWithTimeout(url, {
+    headers: { 'User-Agent': UA, Accept: 'text/html,application/xhtml+xml,text/xml,application/xml,*/*' },
+  }, timeoutMs);
+  return res;
+}
+
+// Fetch a page and return SEO-relevant fields only (no raw HTML blob stored / sent to LLM).
+function parsePage(html, origin) {
+  const $ = cheerio.load(html);
+  const title = $('title').first().text().trim();
+  const metaDescription = $('meta[name="description"]').attr('content') || '';
+  const canonical = $('link[rel="canonical"]').attr('href') || '';
+  const robotsMeta = ($('meta[name="robots"]').attr('content') || '').toLowerCase();
+  const viewport = !!$('meta[name="viewport"]').attr('content');
+  const lang = ($('html').attr('lang') || '').slice(0, 5);
+  const h1s = $('h1').map((_, el) => $(el).text().trim()).get();
+  const h2Count = $('h2').length;
+  const images = $('img').map((_, el) => $(el)).get();
+  const altCovered = images.filter((im) => (im.attr('alt') || '').trim()).length;
+  const ogTitle = !!$('meta[property="og:title"]').attr('content');
+  const ogImage = !!$('meta[property="og:image"]').attr('content');
+  const hasSchema = html.includes('application/ld+json');
+  $('script, style, noscript, svg').remove();
+  const bodyText = $('body').text().replace(/\s+/g, ' ').trim();
+  const wordCount = bodyText.split(/\s+/).filter(Boolean).length;
+
+  const internalLinks = [];
+  const externalLinks = [];
+  $('a[href]').each((_, el) => {
+    const href = $(el).attr('href') || '';
+    if (/^(mailto:|tel:|javascript:|#|data:)/i.test(href)) return;
+    try {
+      const abs = new URL(href, origin).href;
+      if (new URL(abs).hostname === new URL(origin).hostname) internalLinks.push(abs);
+      else externalLinks.push(abs);
+    } catch { /* skip malformed */ }
+  });
+  const uniqueInternal = [...new Set(internalLinks)].filter((u) => {
+    const p = new URL(u).pathname;
+    return p !== '/' && !/\.(png|jpe?g|gif|svg|webp|ico|css|js|woff2?|pdf|zip|mp4|webm)$/i.test(u);
+  });
+
+  return {
+    title,
+    metaDescription,
+    canonical: canonical || '',
+    noindex: robotsMeta.includes('noindex'),
+    viewport,
+    lang,
+    h1Count: h1s.length,
+    h1Texts: h1s.slice(0, 3),
+    h2Count,
+    imageCount: images.length,
+    altCovered,
+    altCoverage: images.length ? Math.round((altCovered / images.length) * 100) : 100,
+    ogTitle,
+    ogImage,
+    hasSchema,
+    wordCount,
+    internalCount: uniqueInternal.length,
+    externalCount: externalLinks.length,
+    internalLinks: uniqueInternal.slice(0, 8),
+  };
+}
+
+async function fetchRobotsAndSitemap(origin) {
+  const result = { robotsExists: false, robotsContent: '', sitemapFound: false, sitemapUrls: [] };
+  try {
+    const robots = await fetchText(new URL('/robots.txt', origin).href, 8000);
+    result.robotsExists = robots.ok;
+    if (result.robotsExists) {
+      result.robotsContent = robots.text.slice(0, 4000);
+      const sm = robots.text.match(/^sitemap:\s*(\S+)$/im);
+      if (sm) result.sitemapFound = true;
+    }
+  } catch { result.robotsExists = false; }
+  if (!result.sitemapFound) {
+    try {
+      const sm = await fetchText(new URL('/sitemap.xml', origin).href, 8000);
+      if (sm.ok) {
+        result.sitemapFound = true;
+        const locs = [...sm.text.matchAll(/<loc>(.*?)<\/loc>/gi)].map((m) => m[1].trim());
+        result.sitemapUrls = locs;
+      }
+    } catch { /* no sitemap */ }
+  }
+  return result;
+}
+
+async function checkBrokenLinks(urls, max = 6) {
+  const broken = [];
+  const list = [...new Set(urls)].slice(0, max);
+  const results = await Promise.allSettled(list.map(async (u) => {
+    try {
+      const res = await fetchWithTimeout(u, {
+        method: 'HEAD',
+        headers: { 'User-Agent': UA },
+      }, 6000);
+      let ok = res.ok;
+      let status = res.status;
+      if (!ok && (status === 405 || status === 403 || status === 501)) {
+        const get = await fetchWithTimeout(u, { headers: { 'User-Agent': UA } }, 6000);
+        ok = get.ok;
+        status = get.status;
+      }
+      return { url: u, ok, status };
+    } catch {
+      return { url: u, ok: false, status: 0 };
+    }
+  }));
+  for (const r of results) {
+    if (r.status === 'fulfilled' && !r.value.ok) broken.push(r.value);
+    else if (r.status === 'rejected') broken.push({ url: r.reason?.url || u, ok: false, status: 0 });
+  }
+  return broken;
+}
+
+// ── Deterministic scoring (no LLM cost) ───────────────
+function scoreAudit(home, robots, broken) {
+  const issues = [];
+
+  // Technical (100)
+  let tech = 0;
+  if (home.https) tech += 20; else issues.push({ severity: 'high', category: 'technical', text: 'Website HTTP pe hai — HTTPS pe shift karo.' });
+  if (home.status === 200) tech += 15; else issues.push({ severity: 'high', category: 'technical', text: `Homepage HTTP ${home.status} return kar raha hai.` });
+  if (robots.robotsExists) tech += 15; else issues.push({ severity: 'medium', category: 'technical', text: 'robots.txt nahi mila.' });
+  if (robots.sitemapFound) tech += 15; else issues.push({ severity: 'medium', category: 'technical', text: 'sitemap.xml nahi mila ya robots.txt mein declare nahi.' });
+  if (home.canonical) tech += 15; else issues.push({ severity: 'medium', category: 'technical', text: 'Canonical tag missing — duplicate content risk.' });
+  if (!home.noindex) tech += 10; else issues.push({ severity: 'high', category: 'technical', text: 'Page noindex flag hai — search me nahi aayega.' });
+  if (home.viewport) tech += 10; else issues.push({ severity: 'medium', category: 'technical', text: 'viewport meta missing — mobile SEO hurt.' });
+
+  // On-page (100)
+  let onpage = 0;
+  if (home.title) {
+    onpage += 25;
+    if (home.title.length >= 15 && home.title.length <= 70) onpage += 10;
+    else issues.push({ severity: 'low', category: 'onpage', text: `Title length ${home.title.length} chars — ideal 40-60.` });
+  } else issues.push({ severity: 'high', category: 'onpage', text: 'Title tag missing.' });
+  if (home.metaDescription) {
+    onpage += 20;
+    if (home.metaDescription.length >= 70 && home.metaDescription.length <= 170) onpage += 10;
+    else issues.push({ severity: 'low', category: 'onpage', text: `Meta description ${home.metaDescription.length} chars — ideal 120-160.` });
+  } else issues.push({ severity: 'medium', category: 'onpage', text: 'Meta description missing (CTR impact).' });
+  if (home.h1Count === 1) onpage += 15;
+  else issues.push({ severity: home.h1Count === 0 ? 'medium' : 'low', category: 'onpage', text: home.h1Count === 0 ? 'Koi H1 nahi.' : `${home.h1Count} H1 tags mile (sirf 1 hona chahiye).` });
+  if (home.ogTitle && home.ogImage) onpage += 10; else issues.push({ severity: 'low', category: 'onpage', text: 'OG social tags incomplete (title/image).' });
+  if (home.lang) onpage += 10; else issues.push({ severity: 'low', category: 'onpage', text: '<html lang> attribute missing.' });
+
+  // Content (100)
+  let content = 0;
+  const wc = home.wordCount;
+  if (wc >= 300) content += 40;
+  else if (wc >= 150) content += 28;
+  else if (wc >= 50) content += 16;
+  else content += 4;
+  if (wc < 150) issues.push({ severity: 'medium', category: 'content', text: `Thin content — sirf ${wc} words.` });
+  if (home.h2Count > 0) content += 20; else issues.push({ severity: 'low', category: 'content', text: 'Koi H2 heading nahi — structure weak.' });
+  if (home.imageCount === 0) content += 15;
+  else if (home.altCoverage >= 80) content += 15;
+  else content += 8;
+  if (home.imageCount > 0 && home.altCoverage < 80) issues.push({ severity: 'medium', category: 'content', text: `Sirf ${home.altCoverage}% images pe alt text hai.` });
+  if (home.internalCount > 0) content += 15; else issues.push({ severity: 'medium', category: 'content', text: 'Koi internal link nahi — crawl budget waste.' });
+  if (home.hasSchema) content += 10; else issues.push({ severity: 'low', category: 'content', text: 'Structured data (JSON-LD schema) nahi hai.' });
+
+  // Links (100)
+  let links = 0;
+  if (broken.length === 0) links += 50; else issues.push({ severity: 'medium', category: 'links', text: `${broken.length} broken internal link(s) mile: ${broken.map((b) => b.url).join(', ')}` });
+  if (home.internalCount > 0) links += 25; else issues.push({ severity: 'medium', category: 'links', text: 'Internal links nahi mile.' });
+  if (home.externalCount > 0) links += 25;
+
+  const breakdown = { technical: tech, onpage, content, links };
+  const score = Math.round((tech + onpage + content + links) / 4);
+  return { score, breakdown, issues };
+}
+
+// ── Single LLM pass for summary + recommendations ────
+async function analyzeWithLLM(domain, url, audit) {
+  const compact = {
+    domain,
+    url,
+    score: audit.score,
+    breakdown: audit.breakdown,
+    issues: audit.issues.map((i) => `${i.severity}:${i.category}: ${i.text}`).slice(0, 12),
+  };
+  const messages = [
+    {
+      role: 'system',
+      content: 'You are an expert SEO auditor working inside Bob the Builder workspace. Reply ONLY with valid JSON, no markdown, no code fences. Format: {"summary": "2-3 line plain-language overview of this site\'s SEO state in Hinglish where natural", "recommendations": [{"priority": "high|medium|low", "issue": "short issue name", "fix": "specific actionable fix"}]} Max 6 recommendations. Base everything strictly on the provided audit data — never invent facts.',
+    },
+    { role: 'user', content: JSON.stringify(compact) },
+  ];
+  try {
+    const { text } = await callLLM({
+      role: 'builder',
+      persona: 'builder',
+      messages,
+      temperature: 0.3,
+      max_tokens: 900,
+    });
+    const cleaned = text.replace(/```json|```/gi, '').trim();
+    const parsed = JSON.parse(cleaned);
+    return {
+      summary: parsed.summary || audit.issues[0]?.text || 'Audit done.',
+      recommendations: Array.isArray(parsed.recommendations) ? parsed.recommendations.slice(0, 6) : [],
+    };
+  } catch (e) {
+    console.error('[seoService] LLM analyze failed:', e.message);
+    return {
+      summary: 'LLM analysis unavailable — deterministic audit results below.',
+      recommendations: audit.issues.slice(0, 6).map((i) => ({ priority: i.severity, issue: i.category, fix: i.text })),
+    };
+  }
+}
+
+// ── Main audit pipeline ──────────────────────────────
+async function runAudit(originUrl) {
+  const u = normalizeUrl(originUrl);
+  const origin = u.origin;
+  const domain = u.hostname.replace(/^www\./, '');
+  const https = origin.startsWith('https://');
+
+  const homepage = await fetchText(u.href, 12000).catch((e) => {
+    throw new Error(`Could not fetch site: ${e.message}`);
+  });
+  const home = {
+    https,
+    status: homepage.status,
+    ...parsePage(homepage.text, origin),
+  };
+
+  const [robots, broken] = await Promise.all([
+    fetchRobotsAndSitemap(origin),
+    checkBrokenLinks(home.internalLinks, 6),
+  ]);
+
+  const audit = scoreAudit(home, robots, broken);
+
+  // Discovery light: up to 5 internal pages (title/desc/status only)
+  const pages = [];
+  const toFetch = home.internalLinks.slice(0, 5);
+  const pageResults = await Promise.allSettled(toFetch.map(async (link) => {
+    try {
+      const p = await fetchText(link, 9000);
+      return { url: link, status: p.status, ...parsePage(p.text, origin) };
+    } catch {
+      return { url: link, status: 0, title: '', metaDescription: '', h1Count: 0, wordCount: 0 };
+    }
+  }));
+  for (const r of pageResults) if (r.status === 'fulfilled' && r.value.status === 200) pages.push(r.value);
+  const thinPages = pages.filter((p) => p.wordCount > 0 && p.wordCount < 120);
+  if (thinPages.length) audit.issues.push({ severity: 'low', category: 'content', text: `${thinPages.length} internal page(s) thin content: ${thinPages.map((p) => p.url).join(', ')}` });
+
+  const llm = await analyzeWithLLM(domain, u.href, audit);
+
+  return {
+    domain,
+    url: u.href,
+    home,
+    robotsMetrics: { robotsExists: robots.robotsExists, sitemapFound: robots.sitemapFound, sitemapUrlCount: robots.sitemapUrls.length },
+    pagesFound: pages.length,
+    audit: {
+      score: audit.score,
+      breakdown: audit.breakdown,
+      issues: audit.issues.slice(0, 20),
+      summary: llm.summary,
+      recommendations: llm.recommendations,
+      auditedAt: Date.now(),
+    },
+    broken,
+  };
+}
+
+// ── Storage ──────────────────────────────────────────
+async function listSites(userId) {
+  const snap = await coll(userId).orderBy('updatedAt', 'desc').get();
+  return snap.docs.map((d) => {
+    const data = d.data();
+    return {
+      id: d.id,
+      url: data.url,
+      domain: data.domain,
+      chatSessionId: data.chatSessionId || null,
+      lastScore: data.audit?.score ?? null,
+      auditedAt: data.audit?.auditedAt ?? null,
+      createdAt: data.createdAt,
+      updatedAt: data.updatedAt,
+    };
+  });
+}
+
+async function getSite(userId, id) {
+  const doc = await coll(userId).doc(id).get();
+  if (!doc.exists) return null;
+  return { id: doc.id, ...doc.data() };
+}
+
+function withHistory(prev = [], audit) {
+  const entry = { score: audit.score, at: Date.now() };
+  const next = [...(Array.isArray(prev) ? prev : []), entry].slice(-10);
+  return next;
+}
+
+async function createSite(userId, urlInput) {
+  const { domain, url, home, robotsMetrics, pagesFound, audit, broken } = await runAudit(urlInput);
+  const ref = coll(userId).doc();
+  const now = Date.now();
+  const site = {
+    id: ref.id,
+    domain,
+    url,
+    title: home.title || domain,
+    lastScore: audit.score,
+    chatSessionId: null,
+    audit: {
+      score: audit.score,
+      breakdown: audit.breakdown,
+      issues: audit.issues,
+      summary: audit.summary,
+      recommendations: audit.recommendations,
+      pagesFound,
+      homeUrl: url,
+      techNotes: robotsMetrics,
+      broken,
+      auditedAt: audit.auditedAt,
+    },
+    history: withHistory([], audit),
+    createdAt: now,
+    updatedAt: now,
+  };
+  await ref.set(site);
+  return site;
+}
+
+async function reAudit(userId, id) {
+  const site = await getSite(userId, id);
+  if (!site) throw new Error('Site not found');
+  const { domain, url, home, robotsMetrics, pagesFound, audit, broken } = await runAudit(site.url);
+  const updated = {
+    title: home.title || domain,
+    lastScore: audit.score,
+    audit: {
+      score: audit.score,
+      breakdown: audit.breakdown,
+      issues: audit.issues,
+      summary: audit.summary,
+      recommendations: audit.recommendations,
+      pagesFound,
+      homeUrl: url,
+      techNotes: robotsMetrics,
+      broken,
+      auditedAt: audit.auditedAt,
+    },
+    history: withHistory(site.history, audit),
+    updatedAt: Date.now(),
+  };
+  await coll(userId).doc(id).set(updated, { merge: true });
+  return { id, ...(await getSite(userId, id)) };
+}
+
+async function deleteSite(userId, id) {
+  await coll(userId).doc(id).delete();
+  return true;
+}
+
+// ── Isolated chat (type 'seo', Mirrors hackathon pattern) ──
+async function ensureChatSession(userId, site) {
+  if (site.chatSessionId) return site.chatSessionId;
+  try {
+    const sessions = await memory.listSessions(userId);
+    const expectedTitle = `🔍 ${site.domain}`;
+    const match = sessions.find((s) => s.title === expectedTitle);
+    if (match) {
+      await coll(userId).doc(site.id).set({ chatSessionId: match.id }, { merge: true });
+      return match.id;
+    }
+  } catch (e) { /* best-effort */ }
+  const s = await memory.createSession(userId, `🔍 ${site.domain}`, 'seo');
+  await coll(userId).doc(site.id).set({ chatSessionId: s.id }, { merge: true });
+  return s.id;
+}
+
+function buildSeoContext(site) {
+  const a = site.audit || {};
+  const lines = [
+    `SITE: ${site.domain}`,
+    `URL: ${site.url}`,
+    `SEO SCORE: ${a.score ?? '—'}/100`,
+    `Breakdown: ${JSON.stringify(a.breakdown || {})}`,
+    `Pages audited: ${a.pagesFound ?? 0}`,
+    a.summary ? `Audit summary: ${a.summary}` : '',
+    `Top issues:\n${(a.issues || []).slice(0, 8).map((i) => `- [${i.severity}] ${i.text}`).join('\n') || 'none flagged'}`,
+    `Recommendations:\n${(a.recommendations || []).map((r) => `- [${r.priority}] ${r.issue}: ${r.fix}`).join('\n') || 'none yet'}`,
+  ].filter(Boolean);
+  return lines.join('\n');
+}
+
+async function chatList(userId, siteId) {
+  const site = await getSite(userId, siteId);
+  if (!site) throw new Error('Site not found');
+  let sid = site.chatSessionId;
+  if (!sid) {
+    try {
+      const sessions = await memory.listSessions(userId);
+      const expectedTitle = `🔍 ${site.domain}`;
+      const match = sessions.find((s) => s.title === expectedTitle);
+      if (match) {
+        sid = match.id;
+        await coll(userId).doc(siteId).set({ chatSessionId: sid }, { merge: true });
+      }
+    } catch (e) { /* best-effort */ }
+  }
+  if (!sid) return [];
+  return memory.getRecentMessages(userId, sid, 50);
+}
+
+async function chatSend(userId, siteId, message) {
+  const site = await getSite(userId, siteId);
+  if (!site) throw new Error('Site not found');
+  const sid = await ensureChatSession(userId, site);
+  await memory.addMessage(userId, sid, 'user', message);
+
+  const recent = await memory.getRecentMessages(userId, sid, 20);
+  const context = buildSeoContext(site);
+
+  const systemPrompt = `You are Bob the Builder, Master Nikhil's development AI, inside the SEO WORKING workspace for "${site.domain}".
+This chat is STRICTLY about this website's SEO audit, fixes, and optimization. Never bring up vault, stalking, hackathons, or other chats.
+
+CURRENT AUDIT DATA:
+${context}
+
+Help with: explaining each SEO issue, what to fix first, how to improve the score, content/title/meta suggestions. Be practical and specific. Use Hinglish when natural. Never claim data you don't have.`;
+
+  const { text, model } = await callLLM({
+    role: 'builder',
+    persona: 'builder',
+    messages: [
+      { role: 'system', content: systemPrompt },
+      ...recent.filter((m) => m.role === 'user' || m.role === 'assistant').map((m) => ({ role: m.role, content: m.content })),
+    ],
+  });
+
+  await memory.addMessage(userId, sid, 'assistant', text);
+  return { reply: text, model, sessionId: sid };
+}
+
+module.exports = {
+  listSites,
+  getSite,
+  createSite,
+  reAudit,
+  deleteSite,
+  chatList,
+  chatSend,
+};

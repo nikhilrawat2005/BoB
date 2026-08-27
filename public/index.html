@@ -296,6 +296,62 @@
           </div>
         </section>
 
+        <!-- SEO Working workspace (3-col layout) -->
+        <section class="view view-workspace" id="view-seo">
+          <div class="view-header">
+            <div class="view-header-left">
+              <button id="seo-panel-toggle" class="ws-panel-toggle icon-btn" title="Toggle left panel">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+              </button>
+              <div>
+                <h2 class="view-title">🔍 SEO Working</h2>
+                <p class="view-sub">Kisi bhi website ki basic SEO audit — score, issues aur fix recommendations.</p>
+              </div>
+            </div>
+            <div class="view-header-actions">
+              <button class="view-close icon-btn" title="Close (back to chat)">✕</button>
+            </div>
+          </div>
+          <div class="ws-mobile-tabs" id="seo-mobile-tabs">
+            <button class="ws-tab-btn active" data-tab="list">🗂️ Sites (<span id="seo-tab-count">0</span>)</button>
+            <button class="ws-tab-btn" data-tab="chat">💬 Chat</button>
+            <button class="ws-tab-btn" data-tab="knowledge">📊 Audit</button>
+          </div>
+          <div class="hack-workspace" data-active-tab="list">
+            <aside class="ws-col ws-list-col">
+              <div class="ws-col-title">
+                <span>Websites</span>
+                <button id="add-seo-btn-sidebar" class="ws-col-add-btn" title="Add Website for audit">＋</button>
+              </div>
+              <div class="ws-add-row">
+                <input id="seo-url-input" type="text" placeholder="https://example.com" />
+                <button id="seo-add-btn" class="btn-small">🔍 Audit</button>
+              </div>
+              <div id="seo-list" class="ws-list">
+                <div class="empty-msg">Abhi koi site add nahi hui. Upar website ka link daal kar AUDIT karo.</div>
+              </div>
+            </aside>
+            <main class="ws-col ws-chat-col">
+              <div class="ws-chat-header" id="seo-chat-header">
+                <span>Select a site to open its SEO chat</span>
+              </div>
+              <div id="seo-chat-messages" class="ws-chat-messages">
+                <div class="empty-msg">👈 Koi site chuno — uski SEO audit discuss karo.</div>
+              </div>
+              <div id="seo-chat-input-row" class="ws-chat-input-row">
+                <textarea id="seo-chat-input" rows="1" placeholder="SEO fixes ke baare me poochho…"></textarea>
+                <button id="seo-send-btn" class="btn-small">Send</button>
+              </div>
+            </main>
+            <aside class="ws-col ws-knowledge-col">
+              <div class="ws-col-title">📊 Audit</div>
+              <div id="seo-audit" class="ws-knowledge">
+                <div class="empty-msg">Right side me website ka SEO score + issues + recommendations khulega.</div>
+              </div>
+            </aside>
+          </div>
+        </section>
+
         <!-- Stalking workspace (3-col layout) -->
         <section class="view view-workspace" id="view-stalking">
           <div class="view-header">

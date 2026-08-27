@@ -305,11 +305,11 @@ function renderHqNotifications() {
 function renderSessions(sessions) {
   const list = document.getElementById('sessions-list');
   
-  // Filter out hackathon (🏆) and stalker (🕵️) workspace chats from main sidebar
+  // Filter out hackathon (🏆), stalker (🕵️) and SEO (🔍) workspace chats from main sidebar
   const normalSessions = (sessions || []).filter(s => {
-    if (s.type === 'hackathon' || s.type === 'stalker') return false;
+    if (s.type === 'hackathon' || s.type === 'stalker' || s.type === 'seo') return false;
     const title = s.title || '';
-    if (title.startsWith('🏆') || title.startsWith('🕵️')) return false;
+    if (title.startsWith('🏆') || title.startsWith('🕵️') || title.startsWith('🔍')) return false;
     return true;
   });
 
@@ -2565,7 +2565,7 @@ async function loadFacts() {
     }
 
     const sessRes = await apiFetch('/api/sessions').catch(() => ({ sessions: [] }));
-    cachedSessions = (sessRes.sessions || []).filter(s => !s.title?.startsWith('🏆') && !s.title?.startsWith('🕵️'));
+    cachedSessions = (sessRes.sessions || []).filter(s => !s.title?.startsWith('🏆') && !s.title?.startsWith('🕵️') && !s.title?.startsWith('🔍'));
 
     let totalPoints = allMemoryFacts.length;
     cachedStalkerProfiles.forEach(p => {
@@ -4257,12 +4257,20 @@ async function loadHQSummary() {
   const subEl = document.querySelector('#view-hq .view-sub');
 
   // ── Builder HQ: totally separate from Bob HQ ──
-  // Builder persona me koi Bob card nahi dikhega. Abhi ke liye area khali hai —
-  // yahan builder ke apne development cards (proper working setup) baad me banenge.
+  // Builder persona me koi Bob card nahi dikhega. Builder ke apne cards yahan
+  // render hote hain (proper working setup, ek-ek karke banenge).
   if (currentPersona === 'builder') {
     if (titleEl) titleEl.textContent = '🏗️ Builder HQ';
-    if (subEl) subEl.textContent = 'Builder workspace — cards yahan aayenge.';
-    grid.innerHTML = '';
+    if (subEl) subEl.textContent = 'Builder workspace — development tools aur audiences ke cards.';
+
+    const builderCards = [
+      hqCard({ id: 'seo', icon: '🔍', title: 'SEO Working', color: 'amber', badge: 'V1', meta: 'website audit · score · fix recommendations', items: [], action: '' }),
+    ];
+
+    grid.innerHTML = `<div class="hq-grid-inner">${builderCards.join('')}</div>`;
+    grid.querySelectorAll('[data-open]').forEach(card => {
+      card.addEventListener('click', () => openHqCard(card.dataset.open));
+    });
     return;
   }
 
@@ -4321,6 +4329,7 @@ function openHqCard(id) {
   if (id === 'builder') { startBobBuilderCollab(); return; }
   if (id === 'hackathons') { showView('hackathons'); loadHackathons(); return; }
   if (id === 'stalking') { showView('stalking'); loadStalking(); return; }
+  if (id === 'seo') { showView('seo'); loadSeoSites(); return; }
   if (id === 'routines') { showView('routines'); loadRoutines(); return; }
   if (id === 'live') { showView('live'); loadLive(); return; }
   if (id === 'hq') { showView('hq'); loadHQSummary(); return; }
@@ -5201,7 +5210,7 @@ async function loadLive() {
 // ── Shared workspace chat helpers ─────────────────────
 function renderWsChat(el, messages, tag) {
   if (!messages || !messages.length) { el.innerHTML = '<div class="empty-msg">Is workspace me abhi koi baat nahi hui. Pehla message bhejo — context totally isolated hai.</div>'; return; }
-  el.innerHTML = messages.map(m => wsMsgHTML(m.role, m.role === 'user' ? 'Nikhil' : (tag === 'hack' ? 'Bob 🏆' : 'Bob 🕵️'), m.content)).join('');
+  el.innerHTML = messages.map(m => wsMsgHTML(m.role, m.role === 'user' ? 'Nikhil' : (tag === 'hack' ? 'Bob 🏆' : tag === 'seo' ? 'Bob 🔍' : 'Bob 🕵️'), m.content)).join('');
   el.scrollTop = el.scrollHeight;
 }
 function wsMsgHTML(role, author, text) { return `<div class="ws-msg ${role}"><div class="ws-msg-role">${escHtml(author)}</div><div class="ws-msg-text">${escHtml(text)}</div></div>`; }

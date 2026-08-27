@@ -476,4 +476,6 @@ module.exports = {
   extractEventMeta,
   isHighValueProfileUrl,
   isJunkUrl,
+  validatePublicUrl,
+  fetchWithTimeout,
 };
