@@ -4894,10 +4894,22 @@ function resetSeoChat() {
 }
 
 async function selectSeo(id) {
-  const site = seoSitesCache.find(s => String(s.id) === String(id));
-  if (!site) return;
+  const cached = seoSitesCache.find(s => String(s.id) === String(id));
+  if (!cached) return;
+  let site = cached;
   currentSeoSite = site;
   renderSeoList();
+  try {
+    const { site: full } = await apiFetch('/api/seo/' + id);
+    if (full) {
+      site = full;
+      currentSeoSite = full;
+      const idx = seoSitesCache.findIndex(s => String(s.id) === String(id));
+      if (idx >= 0) seoSitesCache[idx] = full;
+    }
+  } catch (err) {
+    console.error('SEO full site load failed:', err);
+  }
 
   if (window.innerWidth <= 1024) {
     const ws = document.querySelector('#view-seo .hack-workspace');

@@ -57,6 +57,17 @@ router.patch('/:id', requireAuth, async (req, res) => {
   }
 });
 
+// GET /api/seo/:id — full site payload (audit + keywords + history) for refresh round-trips
+router.get('/:id', requireAuth, async (req, res) => {
+  try {
+    const site = await seo.getSite(req.userId, req.params.id);
+    if (!site) return res.status(404).json({ error: 'Site not found' });
+    res.json({ site });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // POST /api/seo/compare  { urls: "https://a.com, https://b.com" } — competitor comparison
 router.post('/compare', requireAuth, async (req, res) => {
   const urls = (req.body && req.body.urls) || '';
