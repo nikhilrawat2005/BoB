@@ -384,7 +384,7 @@ async function analyzeWithLLM(domain, url, audit) {
 }
 
 // ── Main audit pipeline ──────────────────────────────
-async function runAudit(originUrl) {
+async function runAudit(originUrl, { skipLlm = false } = {}) {
   const u = normalizeUrl(originUrl);
   const origin = u.origin;
   const domain = u.hostname.replace(/^www\./, '');
@@ -437,7 +437,7 @@ async function runAudit(originUrl) {
     audit.issues.push({ severity: 'medium', category: 'onpage', text: `Duplicate page titles ${[...new Set(dupTitles)].slice(0, 3).map((t) => `"${t}"`).join(' | ')} — har page ka title unique hona chahiye.` });
   }
 
-  const llm = await analyzeWithLLM(domain, u.href, audit);
+  const llm = skipLlm ? null : await analyzeWithLLM(domain, u.href, audit);
 
   const signals = {
     ttfbMs: home.ttfb || 0,
@@ -468,8 +468,8 @@ async function runAudit(originUrl) {
       score: audit.score,
       breakdown: audit.breakdown,
       issues: audit.issues.slice(0, 20),
-      summary: llm.summary,
-      recommendations: llm.recommendations,
+      summary: llm ? llm.summary : 'Deterministic audit (LLM analysis skipped for comparison).',
+      recommendations: llm ? llm.recommendations : (audit.issues.slice(0, 5).map((i) => ({ priority: i.severity, issue: i.category, fix: i.text }))),
       auditedAt: Date.now(),
       signals,
     },
@@ -802,6 +802,32 @@ function generateFixPlan(site) {
   };
 }
 
+// ── Competitor comparison (deterministic, no LLM) ─────
+async function compareSites(urlInputs) {
+  const raw = Array.isArray(urlInputs) ? urlInputs : String(urlInputs || '').split(',');
+  const list = raw.map((s) => String(s).trim()).filter(Boolean);
+  const unique = [];
+  for (const input of list.slice(0, 4)) {
+    let norm;
+    try { norm = normalizeUrl(input).href; } catch { continue; }
+    if (norm && !unique.some((u) => u.url === norm)) unique.push({ input, url: norm });
+  }
+  if (!unique.length) throw new Error('Koi valid URL nahi mila — comma-separated URLs do.');
+
+  const results = await Promise.allSettled(unique.map(async ({ url }) => {
+    const r = await runAudit(url, { skipLlm: true });
+    return {
+      domain: r.domain,
+      url: r.url,
+      score: r.audit.score,
+      breakdown: r.audit.breakdown,
+      topIssues: r.audit.issues.slice(0, 3).map((i) => i.text),
+    };
+  }));
+
+  return results.map((r, i) => r.status === 'fulfilled' ? r.value : { domain: unique[i].input, url: unique[i].url, score: null, error: r.reason && r.reason.message || 'Audit failed' });
+}
+
 module.exports = {
   listSites,
   getSite,
@@ -810,6 +836,7 @@ module.exports = {
   deleteSite,
   updateSiteSettings,
   processDueReAudits,
+  compareSites,
   generateFixPlan,
   chatList,
   chatSend,

@@ -57,6 +57,17 @@ router.patch('/:id', requireAuth, async (req, res) => {
   }
 });
 
+// POST /api/seo/compare  { urls: "https://a.com, https://b.com" } — competitor comparison
+router.post('/compare', requireAuth, async (req, res) => {
+  const urls = (req.body && req.body.urls) || '';
+  try {
+    const results = await seo.compareSites(urls);
+    res.json({ results });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // POST /api/seo/pump — background re-audit worker (GitHub Actions, every 5 min)
 router.post('/pump', cronAuth, async (req, res) => {
   try {

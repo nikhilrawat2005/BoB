@@ -5236,8 +5236,56 @@ async function addSeoSiteFromInput() {
   }
 }
 
+async function compareSitesFrontend() {
+  const input = document.getElementById('seo-compare-input');
+  const btn = document.getElementById('seo-compare-btn');
+  const urls = (input.value || '').trim();
+  if (!urls) { alert('URLs daalo — at least 2, comma-separated.'); return; }
+  input.disabled = true;
+  if (btn) { btn.disabled = true; btn.textContent = '⏳'; }
+  try {
+    const { results } = await apiFetch('/api/seo/compare', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ urls }) });
+    renderSeoCompare(results);
+  } catch (err) {
+    alert('Compare failed: ' + err.message);
+  } finally {
+    input.disabled = false;
+    if (btn) { btn.disabled = false; btn.textContent = '⚔️'; }
+  }
+}
+
+function renderSeoCompare(results) {
+  const el = document.getElementById('seo-audit');
+  if (!el) return;
+  const backBtn = currentSeoSite
+    ? `<button class="btn-small" id="seo-compare-back" style="width:100%;">← Site view (${escHtml(currentSeoSite.domain || currentSeoSite.url)})</button>`
+    : '';
+  const cards = (results || []).map(r => {
+    if (r.error) {
+      return `<div class="ws-kb-block"><div class="ws-kb-label">⚔️ ${escHtml(r.domain || r.url)}</div><div style="font-size:12px;color:var(--red);">⚠️ ${escHtml(r.error)}</div></div>`;
+    }
+    const cols = ['technical', 'onpage', 'content', 'links'].map(k =>
+      `<div style="display:flex;justify-content:space-between;font-size:12px;padding:2px 0;color:var(--text2);"><span>${k[0].toUpperCase() + k.slice(1)}</span><span style="font-weight:700;color:${seoScoreColor(r.breakdown[k] || 0)};">${r.breakdown[k] || 0}</span></div>`
+    ).join('');
+    const issues = (r.topIssues || []).map(i => `<div style="font-size:11px;color:var(--text2);line-height:1.4;">• ${escHtml(i)}</div>`).join('');
+    return `<div class="ws-kb-block">
+      <div class="ws-kb-label">⚔️ ${escHtml(r.domain || r.url)}</div>
+      <div style="text-align:center;font-size:32px;font-weight:800;color:${seoScoreColor(r.score)};">${typeof r.score === 'number' ? r.score : '—'}/100</div>
+      <div style="font-size:11px;color:var(--text2);margin-top:6px;">${cols}</div>
+      ${issues ? `<div style="margin-top:6px;">${issues}</div>` : ''}
+    </div>`;
+  }).join('');
+  el.innerHTML = `<div class="ws-kb-block"><div class="ws-kb-label">⚔️ Competitor Comparison</div>
+    <div style="font-size:11px;color:var(--text3);">Deterministic on-page score — har site par live quick audit. Detailed audit ke liye site ko add karke dekh sakte ho.</div>
+    ${backBtn}</div>${cards}`;
+  const back = document.getElementById('seo-compare-back');
+  if (back) back.addEventListener('click', () => { if (currentSeoSite) renderSeoAudit(currentSeoSite); });
+}
+
 document.getElementById('seo-send-btn')?.addEventListener('click', sendSeoMessage);
 attachAutoResizeTextarea('seo-chat-input', sendSeoMessage);
+document.getElementById('seo-compare-btn')?.addEventListener('click', compareSitesFrontend);
+document.getElementById('seo-compare-input')?.addEventListener('keydown', (e) => { if (e.key === 'Enter') compareSitesFrontend(); });
 document.getElementById('seo-add-btn')?.addEventListener('click', addSeoSiteFromInput);
 document.getElementById('add-seo-btn-sidebar')?.addEventListener('click', () => document.getElementById('seo-url-input')?.focus());
 document.getElementById('seo-url-input')?.addEventListener('keydown', (e) => { if (e.key === 'Enter') addSeoSiteFromInput(); });
