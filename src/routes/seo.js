@@ -99,6 +99,17 @@ router.get('/:id/fixplan', requireAuth, async (req, res) => {
   }
 });
 
+// GET /api/seo/:id/report — full HTML SEO report download
+router.get('/:id/report', requireAuth, async (req, res) => {
+  try {
+    const site = await seo.getSite(req.userId, req.params.id);
+    if (!site) return res.status(404).json({ error: 'Site not found' });
+    res.json({ html: seo.generateSeoReport(site) });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // GET /api/seo/:id/keywords — tracked target keywords
 router.get('/:id/keywords', requireAuth, async (req, res) => {
   try {

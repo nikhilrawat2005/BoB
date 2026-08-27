@@ -1918,64 +1918,6 @@ async function sendMessage() {
             textExtracted: !!uploadedRecord.textExtracted,
             extractionError: uploadedRecord.extractionError || null,
 });
-
-  const fixBtn = document.getElementById('seo-fixplan-btn');
-  if (fixBtn) fixBtn.addEventListener('click', () => openSeoFixPlan(site.id));
-
-  const expJson = document.getElementById('seo-export-json');
-  if (expJson) expJson.addEventListener('click', () => seoExportSite(site, 'json'));
-  const expCsv = document.getElementById('seo-export-csv');
-  if (expCsv) expCsv.addEventListener('click', () => seoExportSite(site, 'csv'));
-
-  const freq = document.getElementById('seo-reaudit-freq');
-  if (freq) {
-    freq.value = String(site.reAuditEnabled ? (Number(site.reAuditIntervalHours) || 24) : 0);
-    freq.addEventListener('change', async () => {
-      const val = Number(freq.value) || 0;
-      const enabled = val > 0;
-      try {
-        const { site: updated } = await apiFetch('/api/seo/' + site.id, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ reAuditEnabled: enabled, reAuditIntervalHours: val }) });
-        const idx = seoSitesCache.findIndex(x => String(x.id) === String(site.id));
-        if (idx !== -1) seoSitesCache[idx] = updated;
-        currentSeoSite = updated;
-        alert(enabled ? '✅ Auto re-audit ON — har ' + val + 'h mein background mein chalega (score history update hogi).' : 'Auto re-audit OFF.');
-      } catch (err) {
-        freq.value = String(site.reAuditEnabled ? (Number(site.reAuditIntervalHours) || 24) : 0);
-        alert('Settings update failed: ' + err.message);
-      }
-    });
-  }
-
-  const fp = document.getElementById('seo-fixplan');
-  if (fp) fp.addEventListener('click', async (ev) => {
-    const copyBtn = ev.target.closest('[data-seo-copy]');
-    let idx;
-    if (copyBtn && (idx = Number(copyBtn.dataset.seoCopy)) >= 0 && lastSeoPlan && lastSeoPlan.artifacts) {
-      const keys = ['robotsTxt', 'sitemap', 'canonical', 'ogBlock', 'jsonld'];
-      const code = lastSeoPlan.artifacts[keys[idx]] || '';
-      try {
-        await navigator.clipboard.writeText(code);
-        const old = copyBtn.textContent;
-        copyBtn.textContent = '✓ Copied';
-        setTimeout(() => { copyBtn.textContent = old; }, 1200);
-      } catch {
-        copyBtn.textContent = 'Copy failed';
-        setTimeout(() => { copyBtn.textContent = 'Copy'; }, 1200);
-      }
-    }
-    const dlBtn = ev.target.closest('[data-seo-dl]');
-    if (dlBtn && lastSeoPlan && lastSeoPlan.artifacts) {
-      const meta = [
-        ['robotsTxt', 'robots.txt', 'text/plain'],
-        ['sitemap', 'sitemap.xml', 'application/xml'],
-        ['canonical', 'canonical-fragment.html', 'text/html'],
-        ['ogBlock', 'og-tags.html', 'text/html'],
-        ['jsonld', 'schema.jsonld', 'application/ld+json'],
-      ];
-      const it = meta[Number(dlBtn.dataset.seoDl)];
-      if (it) seoDownloadBlob(`${(lastSeoPlan.domain || 'site')}-${it[1]}`, lastSeoPlan.artifacts[it[0]] || '', it[2]);
-    }
-  });
 }
       }
     }
@@ -5146,6 +5088,7 @@ function renderSeoAudit(site) {
       <button class="btn-small" id="seo-fixplan-btn" style="flex:1;">🛠 Fix Plan</button>
       <button class="btn-small" id="seo-export-json" title="Download JSON" style="flex:1;">⤓ JSON</button>
       <button class="btn-small" id="seo-export-csv" title="Download CSV" style="flex:1;">⤓ CSV</button>
+      <button class="btn-small" id="seo-report-btn" title="Download full HTML report" style="flex:1;">📄 Report</button>
     </div>
     <button class="btn-small" id="re-audit-seo" style="width:100%;margin-top:8px;">↻ Re-Audit Website</button>
     <div id="seo-fixplan" style="margin-top:8px;"></div>
@@ -5190,6 +5133,76 @@ function renderSeoAudit(site) {
       clearTimeout(safetyTimer);
       alert('Re-audit failed: ' + err.message);
       if (ra) { ra.disabled = false; ra.textContent = '↻ Re-Audit Website'; }
+    }
+  });
+
+  const fixBtn = document.getElementById('seo-fixplan-btn');
+  if (fixBtn) fixBtn.addEventListener('click', () => openSeoFixPlan(site.id));
+
+  const expJson = document.getElementById('seo-export-json');
+  if (expJson) expJson.addEventListener('click', () => seoExportSite(site, 'json'));
+  const expCsv = document.getElementById('seo-export-csv');
+  if (expCsv) expCsv.addEventListener('click', () => seoExportSite(site, 'csv'));
+
+  const rptBtn = document.getElementById('seo-report-btn');
+  if (rptBtn) rptBtn.addEventListener('click', async () => {
+    const old = rptBtn.textContent;
+    rptBtn.disabled = true; rptBtn.textContent = '⏳';
+    try {
+      const { html } = await apiFetch('/api/seo/' + site.id + '/report');
+      const safeDomain = (site.domain || site.url || 'site').replace(/[^a-zA-Z0-9._-]/g, '_');
+      seoDownloadBlob(`seo-report-${safeDomain}.html`, html, 'text/html');
+    } catch (err) { alert('Report failed: ' + err.message); }
+    finally { rptBtn.disabled = false; rptBtn.textContent = old; }
+  });
+
+  const freq = document.getElementById('seo-reaudit-freq');
+  if (freq) {
+    freq.value = String(site.reAuditEnabled ? (Number(site.reAuditIntervalHours) || 24) : 0);
+    freq.addEventListener('change', async () => {
+      const val = Number(freq.value) || 0;
+      const enabled = val > 0;
+      try {
+        const { site: updated } = await apiFetch('/api/seo/' + site.id, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ reAuditEnabled: enabled, reAuditIntervalHours: val }) });
+        const idx = seoSitesCache.findIndex(x => String(x.id) === String(site.id));
+        if (idx !== -1) seoSitesCache[idx] = updated;
+        currentSeoSite = updated;
+        alert(enabled ? '✅ Auto re-audit ON — har ' + val + 'h mein background mein chalega (score history update hogi).' : 'Auto re-audit OFF.');
+      } catch (err) {
+        freq.value = String(site.reAuditEnabled ? (Number(site.reAuditIntervalHours) || 24) : 0);
+        alert('Settings update failed: ' + err.message);
+      }
+    });
+  }
+
+  const fp = document.getElementById('seo-fixplan');
+  if (fp) fp.addEventListener('click', async (ev) => {
+    const copyBtn = ev.target.closest('[data-seo-copy]');
+    let idx;
+    if (copyBtn && (idx = Number(copyBtn.dataset.seoCopy)) >= 0 && lastSeoPlan && lastSeoPlan.artifacts) {
+      const keys = ['robotsTxt', 'sitemap', 'canonical', 'ogBlock', 'jsonld'];
+      const code = lastSeoPlan.artifacts[keys[idx]] || '';
+      try {
+        await navigator.clipboard.writeText(code);
+        const old = copyBtn.textContent;
+        copyBtn.textContent = '✓ Copied';
+        setTimeout(() => { copyBtn.textContent = old; }, 1200);
+      } catch {
+        copyBtn.textContent = 'Copy failed';
+        setTimeout(() => { copyBtn.textContent = 'Copy'; }, 1200);
+      }
+    }
+    const dlBtn = ev.target.closest('[data-seo-dl]');
+    if (dlBtn && lastSeoPlan && lastSeoPlan.artifacts) {
+      const meta = [
+        ['robotsTxt', 'robots.txt', 'text/plain'],
+        ['sitemap', 'sitemap.xml', 'application/xml'],
+        ['canonical', 'canonical-fragment.html', 'text/html'],
+        ['ogBlock', 'og-tags.html', 'text/html'],
+        ['jsonld', 'schema.jsonld', 'application/ld+json'],
+      ];
+      const it = meta[Number(dlBtn.dataset.seoDl)];
+      if (it) seoDownloadBlob(`${(lastSeoPlan.domain || 'site')}-${it[1]}`, lastSeoPlan.artifacts[it[0]] || '', it[2]);
     }
   });
 }

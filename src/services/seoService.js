@@ -456,6 +456,11 @@ async function runAudit(originUrl, { skipLlm = false, keywords = [] } = {}) {
     ttfbMs: home.ttfb || 0,
     loadMs: home.loadMs || 0,
     htmlBytes: home.htmlBytes || 0,
+    metaDescription: home.metaDescription || '',
+    canonical: home.canonical || '',
+    ogTitle: home.ogTitle || '',
+    ogImage: home.ogImage || '',
+    noindex: !!home.noindex,
     scriptSrcCount: home.scriptSrcCount || 0,
     blockingScripts: home.blockingScripts || 0,
     cssLinkCount: home.cssLinkCount || 0,
@@ -877,6 +882,158 @@ async function compareSites(urlInputs) {
   return results.map((r, i) => r.status === 'fulfilled' ? r.value : { domain: unique[i].input, url: unique[i].url, score: null, error: r.reason && r.reason.message || 'Audit failed' });
 }
 
+// ── Full SEO report (HTML) — combines audit + fix plan + topic coverage ──
+function generateSeoReport(site) {
+  const a = site.audit || {};
+  const sig = a.signals || {};
+  const issues = Array.isArray(a.issues) ? a.issues : [];
+  const recs = Array.isArray(a.recommendations) ? a.recommendations : [];
+  const checks = { p: { c: '#16a34a', l: 'Pass' }, w: { c: '#d97706', l: 'Warn' }, f: { c: '#dc2626', l: 'Fail' }, m: { c: '#64748b', l: 'Manual' } };
+
+  const bd = (k) => (a.breakdown && a.breakdown[k]) || 0;
+  const metaDesc = (sig.metaDescription != null) ? sig.metaDescription : null;
+  const kwChecks = Array.isArray(a.keywordChecks) ? a.keywordChecks : [];
+  const crawledUrls = Array.isArray(a.crawledUrls) ? a.crawledUrls : [];
+  const broken = Array.isArray(a.broken) ? a.broken.filter((b) => !b.ok) : [];
+
+  const coverage = [];
+  const homeUrl = String(site.url || '');
+  const pathname = (() => { try { return new URL(homeUrl).pathname; } catch { return ''; } })();
+  const urlClear = !homeUrl.includes('?') && !homeUrl.includes('#') && !/[A-Z]/.test(pathname.replace(/\/$/, ''));
+  coverage.push({ t: 'URL Architecture', s: urlClear ? 'p' : 'w', n: urlClear ? 'Clean, query-less URL structure' : 'URL mein query/#/uppercase segments hain — clean URLs preferred' });
+
+  coverage.push({ t: 'Redirects & Status Codes', s: broken.length ? 'f' : 'p', n: broken.length ? `${broken.length} broken link(s): ${broken.slice(0, 3).map((b) => b.url).join(', ')}` : 'No broken links detected' });
+
+  const hasCanonical = !!sig.canonical;
+  coverage.push({ t: 'Canonicalization', s: hasCanonical ? 'p' : 'w', n: hasCanonical ? 'Self-referencing canonical present' : 'Canonical tag nahi mila — duplicate-content protection missing' });
+
+  const schemaTypes = Array.isArray(sig.schemaTypes) ? sig.schemaTypes : [];
+  coverage.push({ t: 'Structured Data (JSON-LD)', s: schemaTypes.length ? 'p' : 'w', n: schemaTypes.length ? `Found: ${schemaTypes.join(', ')}` : 'No JSON-LD schema detected' });
+
+  const md = typeof metaDesc === 'string' ? metaDesc.trim() : '';
+  coverage.push({ t: 'Meta Description', s: md.length >= 120 && md.length <= 200 ? 'p' : md.length ? 'w' : 'f', n: md.length >= 120 && md.length <= 200 ? `${md.length} chars (optimal 120-200)` : md.length ? `${md.length} chars — target 120-200` : 'Missing meta description' });
+
+  const ogOk = !!sig.ogTitle || !!sig.ogImage;
+  const twOk = !!sig.twitterCard;
+  coverage.push({ t: 'Open Graph + Twitter Cards', s: ogOk && twOk ? 'p' : ogOk || twOk ? 'w' : 'f', n: ogOk && twOk ? 'OG + Twitter card both present' : ogOk ? 'OG present, Twitter card missing' : 'Social tags missing' });
+
+  const sitemapCount = typeof sig.sitemapUrls === 'number' ? sig.sitemapUrls : 0;
+  coverage.push({ t: 'XML Sitemap', s: sig.sitemapFound && sitemapCount > 0 ? 'p' : 'f', n: sig.sitemapFound ? `${sitemapCount} URL(s) in sitemap` : 'No sitemap found — add /sitemap.xml' });
+
+  coverage.push({ t: 'robots.txt', s: sig.robotsExists ? 'p' : 'f', n: sig.robotsExists ? 'Found' : 'Missing — add robots.txt' });
+
+  const hreflang = typeof sig.hreflangCount === 'number' ? sig.hreflangCount : 0;
+  coverage.push({ t: 'hreflang / International SEO', s: hreflang ? 'p' : 'm', n: hreflang ? `${hreflang} language tag(s)` : 'Multilingual nahi hai to optional (manual check needed)' });
+
+  const blocking = typeof sig.blockingScripts === 'number' ? sig.blockingScripts : 0;
+  coverage.push({ t: 'Crawl Budget & Renderability', s: blocking === 0 ? 'p' : blocking <= 2 ? 'w' : 'f', n: blocking === 0 ? 'No render-blocking scripts' : `${blocking} render-blocking script(s) — async/defer lagao` });
+
+  const ttfb = typeof sig.ttfbMs === 'number' ? sig.ttfbMs : 0;
+  const loadMs = typeof sig.loadMs === 'number' ? sig.loadMs : 0;
+  const perf = ttfb < 600 && loadMs < 2500 ? 'p' : (ttfb < 1500 && loadMs < 5000) ? 'w' : 'f';
+  coverage.push({ t: 'Core Web Vitals / Performance', s: perf, n: `TTFB ${ttfb}ms · load ${loadMs}ms` });
+
+  const noindexFlag = !!sig.noindex;
+  coverage.push({ t: 'Indexability', s: noindexFlag ? 'w' : 'p', n: noindexFlag ? 'noindex meta present on homepage — check if intentional' : 'Pages default-indexable' });
+
+  const internal = crawledUrls.length;
+  coverage.push({ t: 'Internal Linking', s: internal >= 3 ? 'p' : 'w', n: `${internal} internal link(s) found on homepage` });
+
+  coverage.push({ t: 'Log-file Analysis', s: 'm', n: 'Public crawl se detect nahi hota — Search Console / server logs se manual' });
+
+  const covRows = coverage.map((c) => {
+    const ch = checks[c.s];
+    return `<tr><td style="padding:6px 8px;border-bottom:1px solid #e5e7eb;font-weight:600;">${escXml(c.t)}</td><td style="padding:6px 8px;border-bottom:1px solid #e5e7eb;color:#444;">${escXml(c.n)}</td><td style="padding:6px 8px;border-bottom:1px solid #e5e7eb;text-align:center;color:#fff;font-weight:700;background:${ch.c};border-radius:4px;font-size:11px;">${ch.l}</td></tr>`;
+  }).join('');
+
+  const signalRows = [
+    ['TTFB', typeof sig.ttfbMs === 'number' ? sig.ttfbMs + 'ms' : '—'],
+    ['Page size', typeof sig.htmlBytes === 'number' ? Math.round(sig.htmlBytes / 1024) + ' KB' : '—'],
+    ['Scripts', typeof sig.scriptSrcCount === 'number' ? sig.scriptSrcCount + ' (' + (typeof sig.blockingScripts === 'number' ? sig.blockingScripts : 0) + ' blocking)' : '—'],
+    ['CSS files', typeof sig.cssLinkCount === 'number' ? sig.cssLinkCount : '—'],
+    ['Images', typeof sig.imgCount === 'number' ? sig.imgCount + ' (' + (typeof sig.lazyImages === 'number' ? sig.lazyImages : 0) + ' lazy)' : '—'],
+    ['Semantic tags', typeof sig.semanticCount === 'number' ? sig.semanticCount + '/7' : '—'],
+    ['Sitemap URLs', typeof sig.sitemapUrls === 'number' ? sig.sitemapUrls : '—'],
+    ['robots.txt', sig.robotsExists ? 'Found' : 'Missing'],
+    ['hreflang', typeof sig.hreflangCount === 'number' ? sig.hreflangCount : '—'],
+    ['Schema', Array.isArray(sig.schemaTypes) && sig.schemaTypes.length ? sig.schemaTypes.join(', ') : 'None'],
+  ].map(([k, v]) => `<tr><td style="padding:4px 8px;border-bottom:1px solid #f1f5f9;color:#666;">${escXml(k)}</td><td style="padding:4px 8px;border-bottom:1px solid #f1f5f9;font-weight:600;text-align:right;">${escXml(v)}</td></tr>`).join('');
+
+  const kwRows = (site.keywords || []).map((kw) => {
+    const ck = kwChecks.find((x) => x.keyword.toLowerCase() === String(kw).toLowerCase());
+    return `<tr><td style="padding:4px 8px;border-bottom:1px solid #f1f5f9;">${escXml(kw)}</td><td style="padding:4px 8px;border-bottom:1px solid #f1f5f9;font-weight:700;color:${ck ? (ck.found ? '#16a34a' : '#dc2626') : '#64748b'};">${ck ? (ck.found ? '✓ Found' : '✗ Missing') : 'Pending'}</td></tr>`;
+  }).join('') || '<tr><td style="padding:4px 8px;color:#64748b;">No keywords tracked</td></tr>';
+
+  const issueRows = issues.slice(0, 30).map((i) => `<div style="padding:6px 0;border-bottom:1px dashed #e5e7eb;font-size:13px;"><span style="display:inline-block;min-width:74px;font-weight:700;text-transform:uppercase;font-size:11px;color:${i.severity === 'high' ? '#dc2626' : i.severity === 'medium' ? '#d97706' : '#64748b'};">${escXml(i.severity)}</span> ${escXml(i.text)}</div>`).join('') || '<div style="color:#64748b;font-size:13px;">No issues — clean!</div>';
+
+  const recRows = recs.map((r) => `<div style="padding:6px 0;border-bottom:1px dashed #e5e7eb;font-size:13px;"><strong style="color:${r.priority === 'high' ? '#dc2626' : r.priority === 'medium' ? '#d97706' : '#111827'};">${escXml(String(r.priority).toUpperCase())}</strong> ${escXml(r.issue)}<div style="color:#444;margin-top:2px;">→ ${escXml(r.fix)}</div></div>`).join('') || '<div style="color:#64748b;font-size:13px;">No recommendations.</div>';
+
+  const plan = generateFixPlan(site);
+  const art = plan.artifacts || {};
+  const artBlocks = [
+    ['🤖 robots.txt', art.robotsTxt || ''],
+    ['🗺 sitemap.xml', art.sitemap || ''],
+    ['🔗 Canonical tag', art.canonical || ''],
+    ['📱 OG + Twitter tags', art.ogBlock || ''],
+    ['🧩 JSON-LD schema', art.jsonld || ''],
+  ].map(([t, code]) => `<div style="border:1px solid #e5e7eb;border-radius:8px;margin:10px 0;overflow:hidden;"><div style="background:#f8fafc;padding:8px 12px;font-weight:700;font-size:13px;">${t}</div><pre style="background:#0f172a;color:#e2e8f0;padding:12px;margin:0;overflow:auto;font-size:11px;white-space:pre-wrap;word-break:break-word;">${escXml(code)}</pre></div>`).join('');
+
+  const bb = ['technical', 'onpage', 'content', 'links'].map((k) => `<tr><td style="padding:4px 8px;color:#666;text-transform:capitalize;">${k}</td><td style="padding:4px 8px;"><div style="background:#e5e7eb;border-radius:4px;height:8px;overflow:hidden;"><div style="width:${Math.max(0, Math.min(100, bd(k)))}%;height:100%;background:${bd(k) >= 70 ? '#16a34a' : bd(k) >= 50 ? '#d97706' : '#dc2626'};border-radius:4px;"></div></div></td><td style="padding:4px 8px;font-weight:700;text-align:right;">${bd(k)}/100</td></tr>`).join('');
+
+  const historyLine = (Array.isArray(site.history) && site.history.length ? site.history.map((h) => h.score).join(' → ') : '—');
+
+  const sc = typeof a.score === 'number' ? a.score : null;
+  const scolor = sc == null ? '#64748b' : sc >= 70 ? '#16a34a' : sc >= 50 ? '#d97706' : '#dc2626';
+
+  return `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"/><title>SEO Report — ${escXml(site.domain || site.url)}</title></head><body style="margin:0;background:#f1f5f9;font-family:'Segoe UI',system-ui,sans-serif;color:#111827;">
+<div style="max-width:860px;margin:0 auto;padding:24px;">
+  <div style="background:#0f172a;color:#fff;border-radius:12px;padding:20px 24px;">
+    <div style="font-size:22px;font-weight:800;">🔍 SEO Audit Report</div>
+    <div style="font-size:13px;color:#94a3b8;margin-top:4px;">${escXml(site.domain || site.url)} · ${new Date(a.auditedAt || Date.now()).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })}</div>
+    <div style="margin-top:14px;font-size:40px;font-weight:800;color:${scolor};">${sc != null ? sc + ' <span style="font-size:15px;color:#94a3b8;">/100</span>' : '—'}</div>
+    <div style="font-size:12px;color:#94a3b8;margin-top:6px;">Score history: ${escXml(historyLine)}</div>
+  </div>
+
+  <div style="background:#fff;border-radius:12px;padding:16px 20px;margin-top:16px;">
+    <div style="font-weight:800;font-size:15px;margin-bottom:8px;">📊 Breakdown</div>
+    <table style="width:100%;border-collapse:collapse;font-size:13px;">${bb}</table>
+  </div>
+
+  <div style="background:#fff;border-radius:12px;padding:16px 20px;margin-top:16px;">
+    <div style="font-weight:800;font-size:15px;margin-bottom:8px;">🌐 Technical Signals</div>
+    <table style="width:100%;border-collapse:collapse;font-size:13px;">${signalRows}</table>
+  </div>
+
+  <div style="background:#fff;border-radius:12px;padding:16px 20px;margin-top:16px;">
+    <div style="font-weight:800;font-size:15px;margin-bottom:8px;">🎯 Keyword Tracking</div>
+    <table style="width:100%;border-collapse:collapse;font-size:13px;">${kwRows}</table>
+  </div>
+
+  <div style="background:#fff;border-radius:12px;padding:16px 20px;margin-top:16px;">
+    <div style="font-weight:800;font-size:15px;margin-bottom:8px;">❌ Issues</div>
+    ${issueRows}
+  </div>
+
+  <div style="background:#fff;border-radius:12px;padding:16px 20px;margin-top:16px;">
+    <div style="font-weight:800;font-size:15px;margin-bottom:8px;">🔧 Recommendations</div>
+    ${recRows}
+  </div>
+
+  <div style="background:#fff;border-radius:12px;padding:16px 20px;margin-top:16px;">
+    <div style="font-weight:800;font-size:15px;margin-bottom:8px;">🧾 SEO Engineering Coverage (14 topics)</div>
+    <table style="width:100%;border-collapse:collapse;font-size:12.5px;">${covRows}</table>
+  </div>
+
+  <div style="background:#fff;border-radius:12px;padding:16px 20px;margin-top:16px;">
+    <div style="font-weight:800;font-size:15px;margin-bottom:8px;">🛠 Ready-to-Deploy Fix Files</div>
+    ${artBlocks}
+  </div>
+
+  <div style="text-align:center;color:#94a3b8;font-size:11px;margin-top:20px;">Generated by Bob — SEO Working Workspace</div>
+</div>
+</body></html>`;
+}
+
 module.exports = {
   listSites,
   getSite,
@@ -887,6 +1044,7 @@ module.exports = {
   processDueReAudits,
   compareSites,
   generateFixPlan,
+  generateSeoReport,
   getKeywords,
   addKeyword,
   removeKeyword,
