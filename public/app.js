@@ -5278,6 +5278,12 @@ function renderSeoIssues(site) {
   const el = document.getElementById('seo-op-issues');
   if (!el) return;
   const issues = (site.audit && site.audit.issues) || [];
+  const recs = (site.audit && site.audit.recommendations) || [];
+  const recsHtml = recs.length ? `
+    <div class="ws-kb-block" style="margin-bottom:8px;">
+      <div class="ws-kb-label">🛠 Recommendations</div>
+      ${recs.slice(0, 8).map(r => `<div style="font-size:12px;margin-bottom:6px;color:var(--text2);line-height:1.5;">• ${escHtml(r)}</div>`).join('')}
+    </div>` : '';
   const cats = [...new Set(issues.map(i => i.category || 'misc'))];
   const sevOrder = { high: 3, medium: 2, low: 1 };
   const filtered = issues.filter(i =>
@@ -5301,6 +5307,7 @@ function renderSeoIssues(site) {
       <button class="btn-small seo-issue-fix" data-fix="${escHtml(i.text)}" style="margin-top:6px;width:100%;">🤖 Fix with Builder</button>
     </div>`).join('') : `<div style="font-size:12px;color:var(--text3);">Is filter mein koi issue nahi — 🎉</div>`;
   el.innerHTML = `
+    ${recsHtml}
     <div style="font-size:11px;color:var(--text3);margin-bottom:6px;">${issues.length} issues total — <span style="color:#f87171;">${counts.high} high</span> · <span style="color:#fbbf24;">${counts.medium} med</span> · <span style="color:var(--text3);">${counts.low} low</span></div>
     <div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:6px;align-items:center;">
       <span style="font-size:10px;color:var(--text3);">Severity:</span>${sevChips}
