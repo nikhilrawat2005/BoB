@@ -18,11 +18,22 @@ if (process.env.OPENROUTER_API_KEY && process.env.OPENROUTER_API_KEY.trim()) {
   _rawKeys.push(process.env.OPENROUTER_API_KEY.trim());
 }
 
-// The dedicated Builder key stays OUT of Bob's rotation pool.
-const _builderKey = (process.env.BUILDER_API_KEY || '').trim();
-if (_builderKey) {
+// Dedicated Builder keys stay OUT of Bob's rotation pool.
+// Supports BUILDER_API_KEY1 … BUILDER_API_KEY30 (multi-key rotation, like Bob),
+// with BUILDER_API_KEY kept as the legacy alias for BUILDER_API_KEY1.
+const _builderKeys = [];
+for (let i = 1; i <= 30; i++) {
+  const k = process.env[`BUILDER_API_KEY${i}`];
+  if (k && k.trim()) _builderKeys.push(k.trim());
+}
+{
+  const b0 = (process.env.BUILDER_API_KEY || '').trim();
+  if (b0 && !_builderKeys.includes(b0)) _builderKeys.unshift(b0);
+}
+const _builderKey = _builderKeys[0] || '';
+for (const bk of _builderKeys) {
   for (let i = _rawKeys.length - 1; i >= 0; i--) {
-    if (_rawKeys[i] === _builderKey) _rawKeys.splice(i, 1);
+    if (_rawKeys[i] === bk) _rawKeys.splice(i, 1);
   }
 }
 
@@ -46,6 +57,12 @@ function _roleOf(key) {
       if (m.status !== 'exhausted' && (m.lastBalance ?? 0) >= 0) return role;
     }
   }
+  // Builder keys keep the BUILDER label forever (never 'REPLACEMENT'), so the
+  // pool machinery can't pull them in as Bob/Center swap-ins.
+  if (_builderKeys.includes(key)) {
+    const m = _keyMeta(key);
+    if (m.status !== 'exhausted' && (m.lastBalance ?? 0) >= 0) return 'BUILDER';
+  }
   return 'REPLACEMENT';
 }
 
@@ -57,11 +74,11 @@ if (_rawKeys.length === 0) {
 }
 
 // All keys visible in the HQ "Keys" card. Rotation pool (_rawKeys) EXCLUDES the
-// Builder key; the Builder key is shown separately so you can see its status
-// without letting Bob ever borrow it. KEY1..KEY9 ordering: env rotation keys
-// first, Builder last (KEY9).
+// Builder keys; Builder keys are shown separately so you can see their status
+// without letting Bob ever borrow them. KEY1..KEYn ordering: env rotation keys
+// first, Builder keys last.
 function _allVisibleKeys() {
-  return _builderKey ? [..._rawKeys, _builderKey] : _rawKeys.slice();
+  return _builderKeys.length ? [..._rawKeys, ..._builderKeys] : _rawKeys.slice();
 }
 
 // Stable key identity (KEY1..KEY9) across cold starts — index within _allVisibleKeys.
@@ -172,8 +189,8 @@ function _freeReplacements(forRole) {
     const idx = parseInt(String(kid).replace('KEY', ''), 10) - 1;
     if (visible[idx]) held.add(visible[idx]);
   });
-  // builder key is never a replacement
-  if (_builderKey) held.add(_builderKey);
+  // builder keys are never replacements
+  _builderKeys.forEach(bk => held.add(bk));
   return visible.filter(k => {
     const m = _keyMeta(k);
     return m.status !== 'exhausted' && (m.lastBalance ?? 0) >= 0 && !held.has(k);
@@ -393,12 +410,30 @@ function _recordUsage(key, usedTokens) {
 }
 
 // ---------------------------------------------------------------------------
-// Dedicated "Bob the Builder" key — planning/architecture persona stays on its
-// own API key (BUILDER_API_KEY, declared above) so it never fights the main
-// Bob pool for rate limits. Falls back to the shared pool if unset.
+// Dedicated "Bob the Builder" keys — planning/architecture persona runs on its
+// own key pool (BUILDER_API_KEY1..N, declared above) so it never fights the
+// main Bob pool for rate limits. Rotates within that pool, skips exhausted /
+// negative-balance builder keys, and only falls back to the shared Bob pool
+// when every builder key is dead (so builder features never hard-fail).
 // ---------------------------------------------------------------------------
-function _builderKeyOrPool() {
-  if (_builderKey) return _builderKey;
+async function _builderKeyOrPool() {
+  await _ensureInit();
+  if (_builderKeys.length) {
+    const usable = _builderKeys.filter(k => {
+      const m = _keyMeta(k);
+      return m.status !== 'exhausted' && (m.lastBalance ?? 0) >= 0;
+    });
+    if (usable.length) {
+      // New keys first, then active — mirrors _nextKey()'s pool priority.
+      usable.sort((a, b) => {
+        const pa = _poolOf(_keyMeta(a)) === 'NEW' ? 1 : 0;
+        const pb = _poolOf(_keyMeta(b)) === 'NEW' ? 1 : 0;
+        return pb - pa;
+      });
+      return usable[0];
+    }
+    console.warn('[llmService] All builder keys exhausted — falling back to the shared Bob pool.');
+  }
   if (_rawKeys.length === 0) throw new Error('No OpenRouter API key configured.');
   const key = _rawKeys[_keyIndex % _rawKeys.length];
   _keyIndex++;
@@ -699,7 +734,7 @@ async function callLLM({
     console.log(`[llmService] model routing → ${selectedModel} (${why.join(' | ')})`);
   }
 
-  const apiKey = persona === 'builder' ? _builderKeyOrPool() : await _resolveRoleKey('BOB');
+  const apiKey = persona === 'builder' ? await _builderKeyOrPool() : await _resolveRoleKey('BOB');
   const requestedMaxTokens = max_tokens ?? Number(process.env.MAX_TOKENS ?? 2000);
 
   const body = {
