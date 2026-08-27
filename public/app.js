@@ -4793,6 +4793,290 @@ document.getElementById('add-hack-btn')?.addEventListener('click', openAddHackat
 document.getElementById('add-hack-btn-sidebar')?.addEventListener('click', openAddHackathonModal);
 
 // ═══════════════════════════════════════════════════════
+// SEO WORKSPACE (3-col)
+// ═══════════════════════════════════════════════════════
+
+let seoSitesCache = [];
+let currentSeoSite = null;
+
+function seoScoreColor(score) {
+  if (typeof score !== 'number') return '#888';
+  if (score >= 70) return '#4ade80';
+  if (score >= 50) return '#fbbf24';
+  return '#f87171';
+}
+
+function seoScoreClass(score) {
+  if (typeof score !== 'number') return 'grey';
+  if (score >= 70) return 'green';
+  if (score >= 50) return 'amber';
+  return 'grey';
+}
+
+async function loadSeoSites() {
+  try {
+    const { sites } = await apiFetch('/api/seo');
+    seoSitesCache = sites || [];
+  } catch (err) {
+    console.error('loadSeoSites error:', err);
+    seoSitesCache = [];
+  }
+  renderSeoList();
+  if (seoSitesCache.length) {
+    if (!currentSeoSite || !seoSitesCache.some(s => String(s.id) === String(currentSeoSite.id))) {
+      await selectSeo(seoSitesCache[0].id);
+    } else {
+      await selectSeo(currentSeoSite.id);
+    }
+  } else {
+    resetSeoChat();
+  }
+}
+
+function renderSeoList() {
+  const tabCountEl = document.getElementById('seo-tab-count');
+  if (tabCountEl) tabCountEl.textContent = seoSitesCache.length;
+  const list = document.getElementById('seo-list');
+  if (!seoSitesCache.length) {
+    list.innerHTML = `<div class="empty-msg">🔍 Abhi koi website add nahi hui. Upar URL daal kar basic SEO audit chalao.</div>`;
+    return;
+  }
+  list.innerHTML = seoSitesCache.map(s => {
+    const score = s.lastScore;
+    const sel = currentSeoSite && String(currentSeoSite.id) === String(s.id) ? ' selected' : '';
+    const dot = typeof score !== 'number' ? 'grey' : score >= 70 ? 'green' : score >= 50 ? 'amber' : 'red';
+    return `
+      <div class="ws-item${sel}" data-id="${s.id}">
+        <div class="ws-item-row">
+          <span class="status-dot ${dot}"></span>
+          <span class="ws-item-title">${escHtml(s.domain || s.url)}</span>
+        </div>
+        <div class="ws-item-meta-row">
+          <span class="ws-item-sub">${escHtml(s.url)}</span>
+        </div>
+        <div class="ws-item-actions">
+          <span style="font-size:11px;color:var(--text2);font-weight:600;">${typeof score === 'number' ? '📈 ' + score + '/100' : '— not audited'}</span>
+          <button class="ws-del" data-id="${s.id}" title="Delete website">🗑</button>
+        </div>
+      </div>`;
+  }).join('');
+
+  list.querySelectorAll('.ws-item[data-id]').forEach(item => {
+    item.addEventListener('click', (e) => {
+      if (e.target.closest('.ws-del')) return;
+      selectSeo(item.dataset.id);
+    });
+  });
+  list.querySelectorAll('.ws-del').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      if (!confirm('Delete this website audit?')) return;
+      try {
+        await apiFetch('/api/seo/' + btn.dataset.id, { method: 'DELETE' });
+        if (currentSeoSite && String(currentSeoSite.id) === String(btn.dataset.id)) resetSeoChat();
+        await loadSeoSites();
+      } catch (err) { alert('Delete failed: ' + err.message); }
+    });
+  });
+}
+
+function resetSeoChat() {
+  currentSeoSite = null;
+  const header = document.getElementById('seo-chat-header');
+  if (header) header.innerHTML = `<span>Select a site to open its SEO chat</span>`;
+  const msgs = document.getElementById('seo-chat-messages');
+  if (msgs) msgs.innerHTML = `<div class="empty-msg">👈 Koi website chuno — uski SEO audit discuss karo.</div>`;
+  const input = document.getElementById('seo-chat-input');
+  if (input) { input.disabled = true; input.placeholder = 'Pehle koi website select karo…'; }
+  const sendBtn = document.getElementById('seo-send-btn');
+  if (sendBtn) sendBtn.disabled = true;
+  const audit = document.getElementById('seo-audit');
+  if (audit) audit.innerHTML = `<div class="empty-msg">Right side me website ka SEO score + issues + recommendations khulega.</div>`;
+}
+
+async function selectSeo(id) {
+  const site = seoSitesCache.find(s => String(s.id) === String(id));
+  if (!site) return;
+  currentSeoSite = site;
+  renderSeoList();
+
+  if (window.innerWidth <= 1024) {
+    const ws = document.querySelector('#view-seo .hack-workspace');
+    if (ws && ws.dataset.activeTab === 'list') setWorkspaceTab('seo', 'chat');
+  }
+
+  const score = site.lastScore;
+  const header = document.getElementById('seo-chat-header');
+  if (header) header.innerHTML = `<span>🔍 ${escHtml(site.domain || site.url)}</span>${typeof score === 'number' ? `<span class="ws-chat-header-status ${seoScoreClass(score)}">${score}/100</span>` : ''}`;
+
+  const input = document.getElementById('seo-chat-input');
+  if (input) { input.disabled = false; input.placeholder = 'SEO fixes ke baare me poochho…'; }
+  const sendBtn = document.getElementById('seo-send-btn');
+  if (sendBtn) sendBtn.disabled = false;
+
+  renderSeoAudit(site);
+  await loadSeoChat(id);
+  if (input) input.focus();
+}
+
+function renderSeoAudit(site) {
+  const el = document.getElementById('seo-audit');
+  const a = site.audit || {};
+  const score = a.score;
+  const signals = a.signals || {};
+  const techNotes = a.techNotes || {};
+  const sitemapCount = typeof signals.sitemapUrls === 'number' ? signals.sitemapUrls : techNotes.sitemapUrlCount;
+  const sitemapLastmod = typeof signals.sitemapLastmod === 'number' ? signals.sitemapLastmod : techNotes.sitemapLastmod;
+  const robotsExists = typeof signals.robotsExists === 'boolean' ? signals.robotsExists : techNotes.robotsExists;
+
+  const bar = (val) => {
+    const color = val >= 70 ? 'var(--green)' : val >= 50 ? 'var(--amber)' : 'var(--red)';
+    return `<div style="height:6px;background:#00000033;border-radius:4px;margin-top:4px;"><div style="width:${Math.max(0, Math.min(100, val))}%;height:100%;background:${color};border-radius:4px;"></div></div>`;
+  };
+
+  const breakdownRows = ['technical', 'onpage', 'content', 'links'].map(k => {
+    const val = (a.breakdown && a.breakdown[k]) || 0;
+    return `<div style="font-size:12px;margin-top:8px;"><div style="display:flex;justify-content:space-between;color:var(--text2);"><span>${k.charAt(0).toUpperCase() + k.slice(1)}</span><span>${val}/100</span></div>${bar(val)}</div>`;
+  }).join('');
+
+  const issues = (a.issues || []).slice(0, 8).map(i =>
+    `<div style="font-size:12px;margin-bottom:8px;line-height:1.5;"><span style="color:${i.severity === 'high' ? '#f87171' : i.severity === 'medium' ? '#fbbf24' : 'var(--text3)'};font-weight:700;text-transform:capitalize;">[${i.severity}]</span> <span style="color:var(--text1);">${escHtml(i.text)}</span></div>`
+  ).join('') || '<div style="font-size:12px;color:var(--text3);">No issues flagged — clean setup!</div>';
+
+  const recs = (a.recommendations || []).slice(0, 6).map(r =>
+    `<div style="font-size:12px;margin-bottom:8px;line-height:1.5;"><span style="font-weight:700;color:${r.priority === 'high' ? '#f87171' : r.priority === 'medium' ? '#fbbf24' : 'var(--text2)'};text-transform:uppercase;">${escHtml(r.priority)}</span> <span style="color:var(--text1);">${escHtml(r.issue)}</span><div style="color:var(--text2);">→ ${escHtml(r.fix)}</div></div>`
+  ).join('') || '<div style="font-size:12px;color:var(--text3);">No recommendations yet.</div>';
+
+  const signalRow = (label, value) =>
+    `<div style="display:flex;justify-content:space-between;font-size:12px;padding:3px 0;color:var(--text2);"><span>${label}</span><span style="font-weight:600;color:var(--text1);">${value}</span></div>`;
+
+  el.innerHTML = `
+    <div class="ws-kb-block" style="text-align:center;">
+      <div style="font-size:44px;font-weight:800;color:${seoScoreColor(score)};line-height:1.1;">${typeof score === 'number' ? score + '<span style="font-size:16px;">/100</span>' : '—'}</div>
+      <div style="font-size:11px;color:var(--text3);">${typeof a.pagesFound === 'number' ? a.pagesFound + ' pages audited · ' : ''}${a.auditedAt ? new Date(a.auditedAt).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }) : ''}</div>
+    </div>
+    ${a.summary ? `<div class="ws-kb-block"><div class="ws-kb-label">📝 Summary</div><div style="font-size:12px;line-height:1.5;">${escHtml(a.summary)}</div></div>` : ''}
+    <div class="ws-kb-block"><div class="ws-kb-label">📊 Breakdown</div>${breakdownRows}</div>
+    <div class="ws-kb-block"><div class="ws-kb-label">🌐 Technical signals</div>
+      ${signalRow('⚡ TTFB', typeof signals.ttfbMs === 'number' ? signals.ttfbMs + 'ms' : '—')}
+      ${signalRow('📦 Page size', typeof signals.htmlBytes === 'number' ? (signals.htmlBytes / 1024).toFixed(0) + ' KB' : '—')}
+      ${signalRow('🧩 Scripts', typeof signals.scriptSrcCount === 'number' ? signals.scriptSrcCount + ' (⚠️ ' + signals.blockingScripts + ' blocking)' : '—')}
+      ${signalRow('🎨 CSS files', typeof signals.cssLinkCount === 'number' ? signals.cssLinkCount : '—')}
+      ${signalRow('🖼 Images', typeof signals.imgCount === 'number' ? signals.imgCount + ' (⌛ ' + signals.lazyImages + ' lazy)' : '—')}
+      ${signalRow('🧱 Semantic tags', typeof signals.semanticCount === 'number' ? signals.semanticCount + '/7' : '—')}
+      ${signalRow('🗺 Sitemap', typeof sitemapCount === 'number' ? sitemapCount + ' URLs' + (sitemapLastmod ? ' (📅 ' + sitemapLastmod + ' lastmod)' : '') : '-')}
+      ${signalRow('🤖 robots.txt', robotsExists ? 'found' : 'missing')}
+    </div>
+    <div class="ws-kb-block"><div class="ws-kb-label">⚠️ Issues</div>${issues}</div>
+    <div class="ws-kb-block"><div class="ws-kb-label">🛠 Recommendations</div>${recs}</div>
+    <button class="btn-small" id="re-audit-seo" style="width:100%;margin-top:8px;">↻ Re-Audit Website</button>
+  `;
+
+  const ra = document.getElementById('re-audit-seo');
+  if (ra) ra.addEventListener('click', async () => {
+    ra.disabled = true; ra.textContent = '⏳ Auditing…';
+    const safetyTimer = setTimeout(() => { if (ra) { ra.disabled = false; ra.textContent = '↻ Re-Audit Website'; } }, 60000);
+    try {
+      const { site: updated } = await apiFetch('/api/seo/' + site.id + '/analyze', { method: 'POST' });
+      clearTimeout(safetyTimer);
+      const idx = seoSitesCache.findIndex(x => String(x.id) === String(site.id));
+      if (idx !== -1) seoSitesCache[idx] = updated;
+      currentSeoSite = updated;
+      renderSeoList();
+      renderSeoAudit(updated);
+      const header = document.getElementById('seo-chat-header');
+      if (header && typeof updated.lastScore === 'number') {
+        header.innerHTML = `<span>🔍 ${escHtml(updated.domain || updated.url)}</span><span class="ws-chat-header-status ${seoScoreClass(updated.lastScore)}">${updated.lastScore}/100</span>`;
+      }
+    } catch (err) {
+      clearTimeout(safetyTimer);
+      alert('Re-audit failed: ' + err.message);
+      if (ra) { ra.disabled = false; ra.textContent = '↻ Re-Audit Website'; }
+    }
+  });
+}
+
+async function loadSeoChat(id) {
+  const el = document.getElementById('seo-chat-messages');
+  if (!el) return;
+  try {
+    const { messages } = await apiFetch('/api/seo/' + id + '/chat');
+    renderWsChat(el, messages || [], 'seo');
+  } catch (err) {
+    el.innerHTML = `<div class="empty-msg">⚠️ ${escHtml(err.message)}</div>`;
+  }
+}
+
+async function sendSeoMessage() {
+  const input = document.getElementById('seo-chat-input');
+  const el = document.getElementById('seo-chat-messages');
+  const text = (input.value || '').trim();
+  if (!text || !el) return;
+  input.value = '';
+  input.style.height = 'auto';
+  appendWsMsg(el, 'user', 'Nikhil', text);
+
+  if (!currentSeoSite) {
+    appendWsMsg(el, 'assistant', 'Bob 🔍', '⏳ Website audit + chat setup ho raha hai…');
+    try {
+      const { site } = await apiFetch('/api/seo', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url: text }) });
+      el.querySelector('.ws-msg.assistant:last-of-type')?.remove();
+      seoSitesCache.unshift(site);
+      renderSeoList();
+      await selectSeo(site.id);
+      appendWsMsg(el, 'assistant', 'Bob 🔍', `✅ "${site.domain}" ka audit complete! Score: ${typeof site.lastScore === 'number' ? site.lastScore + '/100' : '—'} — right side panel me details milegi.`);
+    } catch (err) {
+      const last = el.querySelector('.ws-msg.assistant:last-of-type');
+      if (last) last.innerHTML = wsMsgHTML('assistant', 'Bob 🔍', '⚠️ ' + err.message);
+    }
+  } else {
+    appendWsMsg(el, 'assistant', 'Bob 🔍', '⏳ Thinking…');
+    try {
+      const data = await apiFetch('/api/seo/' + currentSeoSite.id + '/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ message: text }) });
+      const last = el.querySelector('.ws-msg.assistant:last-of-type');
+      if (last) last.remove();
+      appendWsMsg(el, 'assistant', 'Bob 🔍', data.reply || '…');
+    } catch (err) {
+      const last = el.querySelector('.ws-msg.assistant:last-of-type');
+      if (last) last.innerHTML = wsMsgHTML('assistant', 'Bob 🔍', '⚠️ ' + err.message);
+    }
+  }
+  input.focus();
+}
+
+async function addSeoSiteFromInput() {
+  const input = document.getElementById('seo-url-input');
+  const addBtn = document.getElementById('seo-add-btn');
+  const url = (input.value || '').trim();
+  if (!url) return;
+  input.disabled = true;
+  if (addBtn) { addBtn.disabled = true; addBtn.textContent = '⏳'; }
+  try {
+    const { site } = await apiFetch('/api/seo', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url }) });
+    seoSitesCache.unshift(site);
+    renderSeoList();
+    input.value = '';
+    await selectSeo(site.id);
+  } catch (err) {
+    alert('Audit failed: ' + err.message);
+  } finally {
+    input.disabled = false;
+    if (addBtn) { addBtn.disabled = false; addBtn.textContent = '🔍 Audit'; }
+  }
+}
+
+document.getElementById('seo-send-btn')?.addEventListener('click', sendSeoMessage);
+attachAutoResizeTextarea('seo-chat-input', sendSeoMessage);
+document.getElementById('seo-add-btn')?.addEventListener('click', addSeoSiteFromInput);
+document.getElementById('add-seo-btn-sidebar')?.addEventListener('click', () => document.getElementById('seo-url-input')?.focus());
+document.getElementById('seo-url-input')?.addEventListener('keydown', (e) => { if (e.key === 'Enter') addSeoSiteFromInput(); });
+document.querySelectorAll('#seo-mobile-tabs .ws-tab-btn').forEach(btn => {
+  btn.addEventListener('click', () => setWorkspaceTab('seo', btn.dataset.tab));
+});
+document.getElementById('seo-panel-toggle')?.addEventListener('click', () => {
+  document.querySelector('#view-seo .hack-workspace')?.classList.toggle('list-collapsed');
+});
+
+// ═══════════════════════════════════════════════════════
 // STALKING WORKSPACE
 // ═══════════════════════════════════════════════════════
 
