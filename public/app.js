@@ -177,6 +177,14 @@ async function handleAuthUser(user) {
   currentUser = user;
   idToken     = await user.getIdToken();
 
+  // Mobile App Auth Bridge: if opened from mobile with ?mobile=1, redirect token back to mobile app
+  const urlParams = new URLSearchParams(window.location.search);
+  if (urlParams.get('mobile') === '1') {
+    const customScheme = urlParams.get('redirect') || 'bobmobile://auth';
+    window.location.href = `${customScheme}?token=${encodeURIComponent(idToken)}&email=${encodeURIComponent(email)}`;
+    return;
+  }
+
   // Refresh token every 50 min (expires at 60)
   setInterval(async () => { idToken = await user.getIdToken(true); }, 50 * 60 * 1000);
 

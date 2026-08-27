@@ -57,6 +57,48 @@ app.get('/api/config', (req, res) => {
   res.json(cfg);
 });
 
+// Secure endpoint for authorized accounts to set/update their password and get instant custom token
+const { auth: adminAuth } = require('./config/firebase');
+const ALLOWED_EMAILS = String(process.env.ALLOWED_EMAILS || '')
+  .split(',')
+  .map(e => e.trim().toLowerCase())
+  .filter(Boolean);
+
+app.post('/api/auth/set-password', async (req, res) => {
+  try {
+    const { email, password } = req.body;
+    if (!email || !password || password.length < 6) {
+      return res.status(400).json({ error: 'Valid email and password (minimum 6 characters) required.' });
+    }
+    const cleanEmail = email.trim().toLowerCase();
+    if (!ALLOWED_EMAILS.includes(cleanEmail)) {
+      return res.status(403).json({ error: 'Access Denied: Email is not in authorized list.' });
+    }
+    
+    if (!adminAuth) {
+      return res.status(500).json({ error: 'Firebase Admin not initialized on server.' });
+    }
+
+    let userRecord;
+    try {
+      userRecord = await adminAuth.getUserByEmail(cleanEmail);
+      await adminAuth.updateUser(userRecord.uid, { password });
+    } catch (userErr) {
+      if (userErr.code === 'auth/user-not-found') {
+        userRecord = await adminAuth.createUser({ email: cleanEmail, password });
+      } else {
+        throw userErr;
+      }
+    }
+
+    const customToken = await adminAuth.createCustomToken(userRecord.uid);
+    res.json({ success: true, customToken, message: 'Password set successfully.' });
+  } catch (err) {
+    console.error('[auth] Set password error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.use('/api/chat',          chatRoute);
 app.use('/api/sessions',      sessionsRoute);
 app.use('/api/memory',        memoryRoute);
