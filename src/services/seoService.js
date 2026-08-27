@@ -574,7 +574,77 @@ async function reAudit(userId, id) {
 
 async function deleteSite(userId, id) {
   await coll(userId).doc(id).delete();
+  await db.collection('seoPumpQueue').doc(id).delete().catch(() => {});
   return true;
+}
+
+// ── Scheduled re-audit settings + background pump ──────
+const PUMP_COLL = () => db.collection('seoPumpQueue');
+
+async function updateSiteSettings(userId, id, { reAuditEnabled, reAuditIntervalHours }) {
+  const site = await getSite(userId, id);
+  if (!site) throw new Error('Site not found');
+  const enabled = Boolean(reAuditEnabled);
+  const intervalHours = Math.max(1, Number(reAuditIntervalHours) || 24);
+  const now = Date.now();
+  const patch = {
+    reAuditEnabled: enabled,
+    reAuditIntervalHours: enabled ? intervalHours : 0,
+    updatedAt: now,
+  };
+  await coll(userId).doc(id).set(patch, { merge: true });
+
+  const qRef = PUMP_COLL().doc(id);
+  if (enabled) {
+    const lastAuditAt = (site.audit && site.audit.auditedAt) || now - intervalHours * 3600 * 1000;
+    await qRef.set(
+      { userId, siteId: id, enabled: true, nextDueAt: lastAuditAt + intervalHours * 3600 * 1000, inProgress: false },
+      { merge: true }
+    );
+  } else {
+    await qRef.set({ enabled: false, inProgress: false }, { merge: true });
+  }
+  return getSite(userId, id);
+}
+
+// Background pump (POST /api/seo/pump, GitHub Actions every 5 min).
+// Re-audits at most `limit` sites whose nextDueAt has passed. One-failure
+// doesn't block the rest; inProgress + 10-min stall guard prevents double work.
+async function processDueReAudits(limit = 1) {
+  let due;
+  try {
+    due = await PUMP_COLL().where('enabled', '==', true).where('nextDueAt', '<=', Date.now()).orderBy('nextDueAt', 'asc').limit(limit).get();
+  } catch (e) {
+    throw new Error(`seoPumpQueue query failed (index missing?): ${e.message}`);
+  }
+  const results = [];
+  for (const doc of due.docs) {
+    const data = doc.data() || {};
+    const { userId, siteId } = data;
+    if (!userId || !siteId) { results.push({ siteId: doc.id, error: 'invalid queue entry' }); continue; }
+    if (data.inProgress && Date.now() - (data.lastStartedAt || 0) < 10 * 60 * 1000) {
+      results.push({ siteId, skipped: 'in progress' });
+      continue;
+    }
+    try {
+      await PUMP_COLL().doc(doc.id).set({ inProgress: true, lastStartedAt: Date.now() }, { merge: true });
+      const site = await getSite(userId, siteId);
+      if (!site) {
+        await PUMP_COLL().doc(doc.id).delete().catch(() => {});
+        results.push({ siteId, removed: true });
+        continue;
+      }
+      const updated = await reAudit(userId, siteId);
+      const intervalHours = Math.max(1, Number(site.reAuditIntervalHours) || 24);
+      const nextDueAt = Date.now() + intervalHours * 3600 * 1000;
+      await PUMP_COLL().doc(doc.id).set({ inProgress: false, lastRunAt: Date.now(), nextDueAt }, { merge: true });
+      results.push({ siteId, domain: (updated && updated.domain) || site.domain, score: updated && updated.lastScore, nextDueAt });
+    } catch (e) {
+      await PUMP_COLL().doc(doc.id).set({ inProgress: false }, { merge: true }).catch(() => {});
+      results.push({ siteId, error: e.message });
+    }
+  }
+  return results;
 }
 
 // ── Isolated chat (type 'seo', Mirrors hackathon pattern) ──
@@ -738,6 +808,8 @@ module.exports = {
   createSite,
   reAudit,
   deleteSite,
+  updateSiteSettings,
+  processDueReAudits,
   generateFixPlan,
   chatList,
   chatSend,

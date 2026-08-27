@@ -1927,6 +1927,25 @@ async function sendMessage() {
   const expCsv = document.getElementById('seo-export-csv');
   if (expCsv) expCsv.addEventListener('click', () => seoExportSite(site, 'csv'));
 
+  const freq = document.getElementById('seo-reaudit-freq');
+  if (freq) {
+    freq.value = String(site.reAuditEnabled ? (Number(site.reAuditIntervalHours) || 24) : 0);
+    freq.addEventListener('change', async () => {
+      const val = Number(freq.value) || 0;
+      const enabled = val > 0;
+      try {
+        const { site: updated } = await apiFetch('/api/seo/' + site.id, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ reAuditEnabled: enabled, reAuditIntervalHours: val }) });
+        const idx = seoSitesCache.findIndex(x => String(x.id) === String(site.id));
+        if (idx !== -1) seoSitesCache[idx] = updated;
+        currentSeoSite = updated;
+        alert(enabled ? '✅ Auto re-audit ON — har ' + val + 'h mein background mein chalega (score history update hogi).' : 'Auto re-audit OFF.');
+      } catch (err) {
+        freq.value = String(site.reAuditEnabled ? (Number(site.reAuditIntervalHours) || 24) : 0);
+        alert('Settings update failed: ' + err.message);
+      }
+    });
+  }
+
   const fp = document.getElementById('seo-fixplan');
   if (fp) fp.addEventListener('click', async (ev) => {
     const copyBtn = ev.target.closest('[data-seo-copy]');
@@ -5107,6 +5126,14 @@ function renderSeoAudit(site) {
     </div>
     <div class="ws-kb-block"><div class="ws-kb-label">⚠️ Issues</div>${issues}</div>
     <div class="ws-kb-block"><div class="ws-kb-label">🛠 Recommendations</div>${recs}</div>
+    <div class="ws-kb-block"><div class="ws-kb-label">⏱ Auto re-audit</div>
+      <select id="seo-reaudit-freq" style="width:100%;padding:4px;border-radius:6px;background:#00000033;color:var(--text1);border:1px solid #ffffff22;">
+        <option value="0">Off — sirf manual re-audit</option>
+        <option value="24">Daily (har 24h)</option>
+        <option value="168">Weekly (har 168h)</option>
+      </select>
+      <div style="font-size:10px;color:var(--text3);margin-top:4px;">GitHub Actions ke background pump se auto re-audit chalega — score ka trend history me jude rahega.</div>
+    </div>
     <div style="display:flex;gap:6px;margin-top:8px;">
       <button class="btn-small" id="seo-fixplan-btn" style="flex:1;">🛠 Fix Plan</button>
       <button class="btn-small" id="seo-export-json" title="Download JSON" style="flex:1;">⤓ JSON</button>

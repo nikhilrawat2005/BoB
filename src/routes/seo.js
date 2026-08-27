@@ -3,6 +3,17 @@ const router = express.Router();
 const { requireAuth } = require('../middleware/auth');
 const seo = require('../services/seoService');
 
+// Cron auth for the background pump (GitHub Actions) — CRON_SECRET bearer
+function cronAuth(req, res, next) {
+  const cronSecret = process.env.CRON_SECRET;
+  const provided = (req.headers['authorization'] || '').replace(/^Bearer\s+/i, '').trim();
+  if (cronSecret) {
+    if (provided === cronSecret) return next();
+    return res.status(401).json({ error: 'Unauthorized cron call' });
+  }
+  return requireAuth(req, res, next);
+}
+
 // GET /api/seo — list audited sites
 router.get('/', requireAuth, async (req, res) => {
   try {
@@ -30,6 +41,27 @@ router.post('/:id/analyze', requireAuth, async (req, res) => {
   try {
     const site = await seo.reAudit(req.userId, req.params.id);
     res.json({ site });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PATCH /api/seo/:id  { reAuditEnabled, reAuditIntervalHours } — scheduled re-audit settings
+router.patch('/:id', requireAuth, async (req, res) => {
+  try {
+    const site = await seo.updateSiteSettings(req.userId, req.params.id, req.body || {});
+    if (!site) return res.status(404).json({ error: 'Site not found' });
+    res.json({ site });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/seo/pump — background re-audit worker (GitHub Actions, every 5 min)
+router.post('/pump', cronAuth, async (req, res) => {
+  try {
+    const results = await seo.processDueReAudits(1);
+    res.json({ ok: true, audited: results });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

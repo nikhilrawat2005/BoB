@@ -24,5 +24,9 @@ jobs:
             -X POST \
             -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
             "$URL/api/routines/pump"
+          curl -sS -o /dev/null -w "seo-pump HTTP %{http_code}\n" \
+            -X POST \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            "$URL/api/seo/pump"
         env:
           BOB_URL: ${{ secrets.BOB_URL }}
