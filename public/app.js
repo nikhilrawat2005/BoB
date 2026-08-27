@@ -4253,6 +4253,22 @@ function hqCard(o) {
 
 async function loadHQSummary() {
   const grid = document.getElementById('hq-grid');
+  const titleEl = document.querySelector('#view-hq .view-title');
+  const subEl = document.querySelector('#view-hq .view-sub');
+
+  // ── Builder HQ: totally separate from Bob HQ ──
+  // Builder persona me koi Bob card nahi dikhega. Abhi ke liye area khali hai —
+  // yahan builder ke apne development cards (proper working setup) baad me banenge.
+  if (currentPersona === 'builder') {
+    if (titleEl) titleEl.textContent = '🏗️ Builder HQ';
+    if (subEl) subEl.textContent = 'Builder workspace — cards yahan aayenge.';
+    grid.innerHTML = '';
+    return;
+  }
+
+  if (titleEl) titleEl.textContent = '🏠 Bob HQ';
+  if (subEl) subEl.textContent = 'Interconnected headquarters — saare modules ek nazar me, har ek ka apna alag mind.';
+
   grid.innerHTML = '<div class="empty-msg">Loading HQ…</div>';
   try {
     const data = await apiFetch('/api/hq/summary');
