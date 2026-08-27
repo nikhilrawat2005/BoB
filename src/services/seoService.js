@@ -176,12 +176,13 @@ function parsePage(html, origin) {
 }
 
 async function fetchRobotsAndSitemap(origin) {
-  const result = { robotsExists: false, robotsContent: '', sitemapFound: false, sitemapUrls: [] };
+  const result = { robotsExists: false, robotsContent: '', rulesPresent: false, sitemapFound: false, sitemapUrls: [], lastmodCount: 0, isSitemapIndex: false };
   try {
     const robots = await fetchText(new URL('/robots.txt', origin).href, 8000);
     result.robotsExists = robots.ok;
     if (result.robotsExists) {
       result.robotsContent = robots.text.slice(0, 4000);
+      result.rulesPresent = /user-agent/i.test(robots.text);
       const sm = robots.text.match(/^sitemap:\s*(\S+)$/im);
       if (sm) result.sitemapFound = true;
     }
@@ -193,6 +194,8 @@ async function fetchRobotsAndSitemap(origin) {
         result.sitemapFound = true;
         const locs = [...sm.text.matchAll(/<loc>(.*?)<\/loc>/gi)].map((m) => m[1].trim());
         result.sitemapUrls = locs;
+        result.lastmodCount = (sm.text.match(/<lastmod>/gi) || []).length;
+        result.isSitemapIndex = /<sitemap>/i.test(sm.text);
       }
     } catch { /* no sitemap */ }
   }
@@ -415,17 +418,17 @@ async function runAudit(originUrl) {
     imgCount: home.imageCount || 0,
     lazyImages: home.lazyCount || 0,
     semanticCount: home.semanticCount || 0,
-    sitemapUrls: robots.sitemapUrls.length,
-    sitemapLastmod: robots.lastmodCount,
-    robotsExists: robots.robotsExists,
-    sitemapFound: robots.sitemapFound,
+    sitemapUrls: (robots.sitemapUrls || []).length,
+    sitemapLastmod: robots.lastmodCount || 0,
+    robotsExists: !!robots.robotsExists,
+    sitemapFound: !!robots.sitemapFound,
   };
 
   return {
     domain,
     url: u.href,
     home,
-    robotsMetrics: { robotsExists: robots.robotsExists, rulesPresent: robots.rulesPresent, sitemapFound: robots.sitemapFound, sitemapUrlCount: robots.sitemapUrls.length, sitemapLastmod: robots.lastmodCount, isSitemapIndex: robots.isSitemapIndex },
+    robotsMetrics: { robotsExists: !!robots.robotsExists, rulesPresent: !!robots.rulesPresent, sitemapFound: !!robots.sitemapFound, sitemapUrlCount: (robots.sitemapUrls || []).length, sitemapLastmod: robots.lastmodCount || 0, isSitemapIndex: !!robots.isSitemapIndex },
     pagesFound: pages.length,
     audit: {
       score: audit.score,
