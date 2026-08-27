@@ -5126,6 +5126,14 @@ function renderSeoAudit(site) {
     </div>
     <div class="ws-kb-block"><div class="ws-kb-label">⚠️ Issues</div>${issues}</div>
     <div class="ws-kb-block"><div class="ws-kb-label">🛠 Recommendations</div>${recs}</div>
+    <div class="ws-kb-block"><div class="ws-kb-label">🎯 Target Keywords</div>
+      <div style="display:flex;gap:6px;">
+        <input id="seo-kw-input" type="text" placeholder="e.g. wedding planner" style="flex:1;padding:4px;border-radius:6px;background:#00000033;color:var(--text1);border:1px solid #ffffff22;" />
+        <button class="btn-small" id="seo-kw-add">＋</button>
+      </div>
+      <div id="seo-kw-list" style="margin-top:6px;"></div>
+      <div style="font-size:10px;color:var(--text3);margin-top:4px;">Har re-audit par har keyword homepage (title/meta/body) mein search hoga — ✓ found / ✗ missing.</div>
+    </div>
     <div class="ws-kb-block"><div class="ws-kb-label">⏱ Auto re-audit</div>
       <select id="seo-reaudit-freq" style="width:100%;padding:4px;border-radius:6px;background:#00000033;color:var(--text1);border:1px solid #ffffff22;">
         <option value="0">Off — sirf manual re-audit</option>
@@ -5142,6 +5150,25 @@ function renderSeoAudit(site) {
     <button class="btn-small" id="re-audit-seo" style="width:100%;margin-top:8px;">↻ Re-Audit Website</button>
     <div id="seo-fixplan" style="margin-top:8px;"></div>
   `;
+
+  renderSeoKeyList(site);
+
+  const kwInput = document.getElementById('seo-kw-input');
+  const kwAdd = document.getElementById('seo-kw-add');
+  const addKeyword = async () => {
+    const kw = (kwInput ? kwInput.value : '').trim();
+    if (!kw || !site.id) return;
+    if (kwAdd) { kwAdd.disabled = true; }
+    try {
+      const { keywords } = await apiFetch('/api/seo/' + site.id + '/keywords', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ keyword: kw }) });
+      site.keywords = keywords;
+      renderSeoKeyList(site);
+      if (kwInput) kwInput.value = '';
+    } catch (err) { alert('Add failed: ' + err.message); }
+    finally { if (kwAdd) kwAdd.disabled = false; }
+  };
+  if (kwAdd) kwAdd.addEventListener('click', addKeyword);
+  if (kwInput) kwInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') addKeyword(); });
 
   const ra = document.getElementById('re-audit-seo');
   if (ra) ra.addEventListener('click', async () => {
@@ -5164,6 +5191,34 @@ function renderSeoAudit(site) {
       alert('Re-audit failed: ' + err.message);
       if (ra) { ra.disabled = false; ra.textContent = '↻ Re-Audit Website'; }
     }
+  });
+}
+
+function renderSeoKeyList(site) {
+  const el = document.getElementById('seo-kw-list');
+  if (!el) return;
+  const kws = site.keywords || [];
+  const checks = (site.audit && site.audit.keywordChecks) || [];
+  if (!kws.length) {
+    el.innerHTML = `<div style="font-size:11px;color:var(--text3);">Abhi koi keyword track nahi ho raha.</div>`;
+    return;
+  }
+  el.innerHTML = kws.map((kw) => {
+    const c = checks.find((x) => x.keyword.toLowerCase() === String(kw).toLowerCase());
+    const badge = c ? (c.found ? '<span style="color:var(--green);font-weight:700;">✓</span>' : '<span style="color:#f87171;font-weight:700;">✗</span>') : '<span style="color:var(--text3);">·</span>';
+    return `<div style="display:flex;justify-content:space-between;align-items:center;font-size:12px;padding:3px 0;border-bottom:1px dashed #ffffff14;">
+      <span style="color:var(--text1);">${badge} ${escHtml(kw)}</span>
+      <button class="ws-del" data-kw="${escHtml(kw)}" title="Remove keyword">✕</button>
+    </div>`;
+  }).join('');
+  el.querySelectorAll('.ws-del[data-kw]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      try {
+        const { keywords } = await apiFetch('/api/seo/' + site.id + '/keywords/' + encodeURIComponent(btn.dataset.kw), { method: 'DELETE' });
+        site.keywords = keywords;
+        renderSeoKeyList(site);
+      } catch (err) { alert('Remove failed: ' + err.message); }
+    });
   });
 }
 

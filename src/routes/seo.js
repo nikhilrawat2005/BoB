@@ -99,6 +99,37 @@ router.get('/:id/fixplan', requireAuth, async (req, res) => {
   }
 });
 
+// GET /api/seo/:id/keywords — tracked target keywords
+router.get('/:id/keywords', requireAuth, async (req, res) => {
+  try {
+    const keywords = await seo.getKeywords(req.userId, req.params.id);
+    res.json({ keywords });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/seo/:id/keywords  { keyword } — add target keyword
+router.post('/:id/keywords', requireAuth, async (req, res) => {
+  const { keyword } = req.body || {};
+  try {
+    const keywords = await seo.addKeyword(req.userId, req.params.id, keyword);
+    res.json({ keywords });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// DELETE /api/seo/:id/keywords/:keyword — remove target keyword
+router.delete('/:id/keywords/:keyword', requireAuth, async (req, res) => {
+  try {
+    const keywords = await seo.removeKeyword(req.userId, req.params.id, req.params.keyword);
+    res.json({ keywords });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // GET /api/seo/:id/chat
 router.get('/:id/chat', requireAuth, async (req, res) => {
   try {

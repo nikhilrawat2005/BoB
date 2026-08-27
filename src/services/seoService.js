@@ -384,7 +384,7 @@ async function analyzeWithLLM(domain, url, audit) {
 }
 
 // ── Main audit pipeline ──────────────────────────────
-async function runAudit(originUrl, { skipLlm = false } = {}) {
+async function runAudit(originUrl, { skipLlm = false, keywords = [] } = {}) {
   const u = normalizeUrl(originUrl);
   const origin = u.origin;
   const domain = u.hostname.replace(/^www\./, '');
@@ -439,6 +439,19 @@ async function runAudit(originUrl, { skipLlm = false } = {}) {
 
   const llm = skipLlm ? null : await analyzeWithLLM(domain, u.href, audit);
 
+  // Keyword presence check — target keywords appearing in title/meta/body text.
+  const haystack = `${home.title || ''} ${home.metaDescription || ''} ${homepage.text || ''}`.toLowerCase();
+  const keywordChecks = (Array.isArray(keywords) ? keywords : []).filter((k) => k && k.trim()).map((k) => {
+    const kw = String(k).trim();
+    const found = haystack.includes(kw.toLowerCase());
+    if (found) {
+      audit.issues = audit.issues.filter((i) => !(i.category === 'keyword' && i.keyword === kw));
+    } else {
+      audit.issues.push({ severity: 'medium', category: 'keyword', keyword: kw, text: `Target keyword "${kw}" not found on homepage (title/meta/body).` });
+    }
+    return { keyword: kw, found };
+  });
+
   const signals = {
     ttfbMs: home.ttfb || 0,
     loadMs: home.loadMs || 0,
@@ -472,6 +485,7 @@ async function runAudit(originUrl, { skipLlm = false } = {}) {
       recommendations: llm ? llm.recommendations : (audit.issues.slice(0, 5).map((i) => ({ priority: i.severity, issue: i.category, fix: i.text }))),
       auditedAt: Date.now(),
       signals,
+      keywordChecks,
     },
     broken,
     crawledUrls: home.internalLinks || [],
@@ -510,32 +524,35 @@ function withHistory(prev = [], audit) {
 }
 
 async function createSite(userId, urlInput) {
-  const { domain, url, home, robotsMetrics, pagesFound, audit, broken } = await runAudit(urlInput);
+  const res = await runAudit(urlInput);
+  const achievedAudit = { ...res.audit, keywordChecks: res.audit.keywordChecks };
   const ref = coll(userId).doc();
   const now = Date.now();
   const site = {
     id: ref.id,
-    domain,
-    url,
-    title: home.title || domain,
-    lastScore: audit.score,
+    domain: res.domain,
+    url: res.url,
+    title: res.home.title || res.domain,
+    lastScore: res.audit.score,
+    keywords: [],
     chatSessionId: null,
     audit: {
-      score: audit.score,
-      breakdown: audit.breakdown,
-      issues: audit.issues,
-      summary: audit.summary,
-      recommendations: audit.recommendations,
-      pagesFound,
-      homeUrl: url,
-      techNotes: robotsMetrics,
-      broken,
-      crawledUrls: audit.crawledUrls,
-      crawledPages: audit.crawledPages,
-      signals: audit.signals,
-      auditedAt: audit.auditedAt,
+      score: res.audit.score,
+      breakdown: res.audit.breakdown,
+      issues: res.audit.issues,
+      summary: res.audit.summary,
+      recommendations: res.audit.recommendations,
+      pagesFound: res.pagesFound,
+      homeUrl: res.url,
+      techNotes: res.robotsMetrics,
+      broken: res.broken,
+      crawledUrls: res.audit.crawledUrls,
+      crawledPages: res.audit.crawledPages,
+      signals: res.audit.signals,
+      keywordChecks: achievedAudit.keywordChecks,
+      auditedAt: res.audit.auditedAt,
     },
-    history: withHistory([], audit),
+    history: withHistory([], res.audit),
     createdAt: now,
     updatedAt: now,
   };
@@ -546,30 +563,62 @@ async function createSite(userId, urlInput) {
 async function reAudit(userId, id) {
   const site = await getSite(userId, id);
   if (!site) throw new Error('Site not found');
-  const { domain, url, home, robotsMetrics, pagesFound, audit, broken } = await runAudit(site.url);
+  const res = await runAudit(site.url, { keywords: site.keywords || [] });
   const updated = {
-    title: home.title || domain,
-    lastScore: audit.score,
+    title: res.home.title || res.domain,
+    lastScore: res.audit.score,
     audit: {
-      score: audit.score,
-      breakdown: audit.breakdown,
-      issues: audit.issues,
-      summary: audit.summary,
-      recommendations: audit.recommendations,
-      pagesFound,
-      homeUrl: url,
-      techNotes: robotsMetrics,
-      broken,
-      crawledUrls: audit.crawledUrls,
-      crawledPages: audit.crawledPages,
-      signals: audit.signals,
-      auditedAt: audit.auditedAt,
+      score: res.audit.score,
+      breakdown: res.audit.breakdown,
+      issues: res.audit.issues,
+      summary: res.audit.summary,
+      recommendations: res.audit.recommendations,
+      pagesFound: res.pagesFound,
+      homeUrl: res.url,
+      techNotes: res.robotsMetrics,
+      broken: res.broken,
+      crawledUrls: res.audit.crawledUrls,
+      crawledPages: res.audit.crawledPages,
+      signals: res.audit.signals,
+      keywordChecks: res.audit.keywordChecks,
+      auditedAt: res.audit.auditedAt,
     },
-    history: withHistory(site.history, audit),
+    history: withHistory(site.history, res.audit),
     updatedAt: Date.now(),
   };
   await coll(userId).doc(id).set(updated, { merge: true });
   return { id, ...(await getSite(userId, id)) };
+}
+
+// ── Keyword tracking ──────────────────────────────
+async function getKeywords(userId, id) {
+  const site = await getSite(userId, id);
+  if (!site) throw new Error('Site not found');
+  return site.keywords || [];
+}
+
+async function addKeyword(userId, id, keyword) {
+  const site = await getSite(userId, id);
+  if (!site) throw new Error('Site not found');
+  const kw = String(keyword || '').trim();
+  if (!kw) throw new Error('Keyword khali hai.');
+  if (kw.length > 80) throw new Error('Keyword max 80 chars.');
+  const next = (site.keywords || []).filter((k) => k.toLowerCase() !== kw.toLowerCase());
+  if (next.length === (site.keywords || []).length) {
+    if (next.length >= 10) throw new Error('Max 10 keywords per site.');
+  }
+  next.push(kw);
+  await coll(userId).doc(id).set({ keywords: next, updatedAt: Date.now() }, { merge: true });
+  return next;
+}
+
+async function removeKeyword(userId, id, keyword) {
+  const site = await getSite(userId, id);
+  if (!site) throw new Error('Site not found');
+  const kw = String(keyword || '');
+  const next = (site.keywords || []).filter((k) => k.toLowerCase() !== kw.toLowerCase());
+  await coll(userId).doc(id).set({ keywords: next, updatedAt: Date.now() }, { merge: true });
+  return next;
 }
 
 async function deleteSite(userId, id) {
@@ -838,6 +887,9 @@ module.exports = {
   processDueReAudits,
   compareSites,
   generateFixPlan,
+  getKeywords,
+  addKeyword,
+  removeKeyword,
   chatList,
   chatSend,
 };
