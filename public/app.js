@@ -5091,8 +5091,8 @@ function renderSeoAudit(site) {
         <button class="btn-small" id="re-audit-seo" style="width:100%;margin-top:8px;">↻ Re-Audit Website</button>
       </div>
     </div>
-    <div class="seo-op-pane" data-seopath="issues" hidden></div>
-    <div class="seo-op-pane" data-seopath="topics" hidden></div>
+    <div class="seo-op-pane" data-seopath="issues" hidden id="seo-op-issues"></div>
+    <div class="seo-op-pane" data-seopath="topics" hidden id="seo-op-topics"></div>
     <div class="seo-op-pane" data-seopath="fixplan" hidden>
       <div id="seo-fp-meta"></div>
       <button class="btn-small" id="seo-fp-gen" style="width:100%;margin:8px 0;">🛠 Generate Fix Plan</button>
