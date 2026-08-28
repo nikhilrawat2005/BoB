@@ -5070,7 +5070,7 @@ function renderSeoAudit(site) {
   if (genPlanBtn) {
     genPlanBtn.addEventListener('click', async () => {
       genPlanBtn.disabled = true;
-      genPlanBtn.textContent = '⏳ Master Bob Analyzing & Formulating Plan…';
+      genPlanBtn.textContent = '⏳ Formulating Plan…';
       try {
         const res = await apiFetch('/api/seo/' + site.id + '/actionplan', { method: 'POST' });
         if (site.audit) site.audit.aiActionPlan = res.plan;
