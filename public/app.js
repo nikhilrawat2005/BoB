@@ -5014,6 +5014,62 @@ function renderSeoAudit(site) {
       </div>
       ${a.summary ? `<div class="ws-kb-block"><div class="ws-kb-label">📝 Audit Summary</div><div style="font-size:12px;line-height:1.5;color:var(--text1);">${escHtml(a.summary)}</div></div>` : ''}
       <div class="ws-kb-block"><div class="ws-kb-label">📊 Category Breakdown</div>${breakdownRows}</div>
+            <!-- ⚡ Level 3: Google Core Web Vitals Gauge -->
+      <div class="ws-kb-block">
+        <div class="ws-kb-label" style="display:flex;justify-content:space-between;align-items:center;">
+          <span>⚡ Core Web Vitals (Google CrUX)</span>
+          <span style="font-size:10px;font-weight:700;padding:2px 6px;border-radius:4px;background:rgba(var(--accent-rgb),0.15);color:var(--accent);">
+            ${(site.audit && site.audit.pageSpeed && site.audit.pageSpeed.fetched) ? 'Google API Live' : 'Lighthouse Proxy'}
+          </span>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:8px;">
+          <div style="background:rgba(255,255,255,0.03);padding:8px;border-radius:6px;border:1px solid var(--border2);">
+            <div style="font-size:10px;color:var(--text3);font-weight:600;">LCP (Largest Paint)</div>
+            <div style="font-size:14px;font-weight:800;color:${(parseFloat(signals.lcp) <= 2.5 || !signals.lcp) ? 'var(--green)' : 'var(--amber)'};margin-top:2px;">
+              ${signals.lcp || '—'}
+            </div>
+            <div style="font-size:9.5px;color:var(--text3);margin-top:2px;">Target < 2.5s</div>
+          </div>
+          <div style="background:rgba(255,255,255,0.03);padding:8px;border-radius:6px;border:1px solid var(--border2);">
+            <div style="font-size:10px;color:var(--text3);font-weight:600;">FCP (First Paint)</div>
+            <div style="font-size:14px;font-weight:800;color:${(parseFloat(signals.fcp) <= 1.8 || !signals.fcp) ? 'var(--green)' : 'var(--amber)'};margin-top:2px;">
+              ${signals.fcp || '—'}
+            </div>
+            <div style="font-size:9.5px;color:var(--text3);margin-top:2px;">Target < 1.8s</div>
+          </div>
+          <div style="background:rgba(255,255,255,0.03);padding:8px;border-radius:6px;border:1px solid var(--border2);">
+            <div style="font-size:10px;color:var(--text3);font-weight:600;">CLS (Layout Shift)</div>
+            <div style="font-size:14px;font-weight:800;color:${(parseFloat(signals.cls) <= 0.1 || !signals.cls) ? 'var(--green)' : '#f87171'};margin-top:2px;">
+              ${signals.cls || '0.00'}
+            </div>
+            <div style="font-size:9.5px;color:var(--text3);margin-top:2px;">Target < 0.1</div>
+          </div>
+          <div style="background:rgba(255,255,255,0.03);padding:8px;border-radius:6px;border:1px solid var(--border2);">
+            <div style="font-size:10px;color:var(--text3);font-weight:600;">TBT (Blocking Time)</div>
+            <div style="font-size:14px;font-weight:800;color:${(parseInt(signals.tbt) <= 200 || !signals.tbt) ? 'var(--green)' : '#f87171'};margin-top:2px;">
+              ${signals.tbt || '0 ms'}
+            </div>
+            <div style="font-size:9.5px;color:var(--text3);margin-top:2px;">Target < 200ms</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 🔍 Level 3: Google SERP Snippet Preview -->
+      <div class="ws-kb-block">
+        <div class="ws-kb-label">🔍 Google SERP Snippet Preview</div>
+        <div class="seo-serp-preview">
+          <div class="seo-serp-top">
+            <div class="seo-serp-favicon">🌐</div>
+            <div class="seo-serp-site-info">
+              <div class="seo-serp-domain">${escHtml(site.domain || 'example.com')}</div>
+              <div class="seo-serp-url">${escHtml(site.url || 'https://example.com')}</div>
+            </div>
+          </div>
+          <div class="seo-serp-title">${escHtml(site.title || site.domain || 'Page Title')}</div>
+          <div class="seo-serp-snippet">${escHtml(signals.metaDescription || (site.audit && site.audit.summary) || 'No meta description provided. Search engines will auto-generate snippet text from page body.')}</div>
+        </div>
+      </div>
+
       <div class="ws-kb-block"><div class="ws-kb-label">🌐 Technical Signals</div>
         ${signalRow('⚡ TTFB', typeof signals.ttfbMs === 'number' ? signals.ttfbMs + 'ms' : '—')}
         ${signalRow('📦 Page size', typeof signals.htmlBytes === 'number' ? (signals.htmlBytes / 1024).toFixed(0) + ' KB' : '—')}

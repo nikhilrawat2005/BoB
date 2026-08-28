@@ -2467,6 +2467,64 @@ body.persona-builder #model-selector { display: none !important; }
 .seo-page-row.open .seo-page-body {
   display: block;
 }
+
+/* Level 3: Google SERP Preview */
+.seo-serp-preview {
+  background: var(--surface);
+  border: 1px solid var(--border2);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  margin-top: 6px;
+  font-family: Arial, sans-serif;
+}
+.seo-serp-top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+.seo-serp-favicon {
+  font-size: 14px;
+}
+.seo-serp-site-info {
+  display: flex;
+  flex-direction: column;
+}
+.seo-serp-domain {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text1);
+  line-height: 1.2;
+}
+.seo-serp-url {
+  font-size: 10px;
+  color: var(--text3);
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.seo-serp-title {
+  font-size: 13.5px;
+  color: #8ab4f8;
+  font-weight: 500;
+  line-height: 1.35;
+  margin-bottom: 3px;
+  cursor: pointer;
+}
+.seo-serp-title:hover {
+  text-decoration: underline;
+}
+.seo-serp-snippet {
+  font-size: 11px;
+  color: var(--text2);
+  line-height: 1.45;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
 .card-green .card-badge { background: rgba(var(--green-rgb),0.14); color: var(--green); border-color: rgba(var(--green-rgb),0.35); }
 .card-amber .card-badge { background: rgba(var(--amber-rgb),0.14); color: var(--amber); border-color: rgba(var(--amber-rgb),0.35); }
 .card-red .card-badge { background: rgba(var(--red-rgb),0.14); color: var(--red); border-color: rgba(var(--red-rgb),0.35); }
