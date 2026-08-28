@@ -5004,6 +5004,7 @@ function renderSeoAudit(site) {
       ${opTab('issues', false, '⚠️ Problems (' + ((a.issues || []).length) + ')')}
       ${opTab('strengths', false, '✅ Strengths')}
       ${opTab('topics', false, '🗺 16-Topics')}
+      ${opTab('pages', false, '🗂️ Pages (' + ((a.crawledPages || []).length) + ')')}
     </div>
     <div class="seo-op-pane" data-seopath="dash">
       <div class="ws-kb-block" style="text-align:center;">
@@ -5043,11 +5044,13 @@ function renderSeoAudit(site) {
     <div class="seo-op-pane" data-seopath="issues" hidden id="seo-op-issues"></div>
     <div class="seo-op-pane" data-seopath="strengths" hidden id="seo-op-strengths"></div>
     <div class="seo-op-pane" data-seopath="topics" hidden id="seo-op-topics"></div>
+    <div class="seo-op-pane" data-seopath="pages" hidden id="seo-op-pages"></div>
   `;
 
   renderSeoIssues(site);
   renderSeoStrengths(site);
   renderSeoTopics(site);
+  renderSeoPages(site);
 
   const ra = document.getElementById('re-audit-seo');
   if (ra) ra.addEventListener('click', async () => {
@@ -5460,6 +5463,81 @@ function renderSeoTopics(site) {
     hdr.addEventListener('click', () => {
       const parent = hdr.closest('.seo-topic-card');
       if (parent) parent.classList.toggle('open');
+    });
+  });
+}
+
+
+function renderSeoPages(site) {
+  const el = document.getElementById('seo-op-pages');
+  if (!el) return;
+  const pages = (site.audit && site.audit.crawledPages) || [];
+
+  if (!pages.length) {
+    el.innerHTML = `
+      <div class="ws-kb-block">
+        <div class="ws-kb-label">🗂️ Page Architecture Explorer</div>
+        <div style="font-size:12px;color:var(--text3);padding:12px 0;text-align:center;">
+          No internal pages crawled yet — Re-Audit website to start multi-page scan.
+        </div>
+      </div>`;
+    return;
+  }
+
+  const orphans = pages.filter(p => p.isOrphan).length;
+  const thinCount = pages.filter(p => p.wordCount > 0 && p.wordCount < 120).length;
+  const noH1Count = pages.filter(p => !p.h1).length;
+
+  const statusDot = (p) => {
+    if (p.isOrphan) return '<span style="color:#f87171;font-size:10px;font-weight:700;" title="Orphan page">⛓</span>';
+    if (p.wordCount > 0 && p.wordCount < 120) return '<span style="color:#fbbf24;font-size:10px;" title="Thin content">📄</span>';
+    if (!p.h1) return '<span style="color:#fbbf24;font-size:10px;" title="No H1">H</span>';
+    return '<span style="color:var(--green);font-size:10px;">✓</span>';
+  };
+
+  const rows = pages.map((p, i) => `
+    <div class="seo-page-row" data-page-idx="${i}">
+      <div class="seo-page-row-header">
+        <div style="display:flex;align-items:center;gap:6px;flex:1;min-width:0;">
+          ${statusDot(p)}
+          <span style="font-size:11.5px;font-weight:600;color:var(--text1);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${escHtml(p.url)}">${escHtml(p.path || p.url)}</span>
+        </div>
+        <div style="display:flex;gap:4px;align-items:center;flex-shrink:0;">
+          <span style="font-size:10px;padding:1px 5px;border-radius:4px;background:${p.status === 200 ? 'rgba(52,211,153,0.12)' : 'rgba(248,113,113,0.12)'};color:${p.status === 200 ? 'var(--green)' : 'var(--red)'};">${p.status}</span>
+          <span style="font-size:10px;color:var(--text3);">${p.wordCount} wds</span>
+          <span class="seo-page-chevron" style="font-size:9px;color:var(--text3);transition:transform 0.2s;">▼</span>
+        </div>
+      </div>
+      <div class="seo-page-body">
+        <div style="display:grid;grid-template-columns:auto 1fr;gap:3px 10px;font-size:11px;color:var(--text2);line-height:1.6;">
+          <span style="color:var(--text3);">Title</span><span>${escHtml(p.title || '(missing)')}</span>
+          <span style="color:var(--text3);">H1</span><span>${escHtml(p.h1 || '(missing)')}</span>
+          <span style="color:var(--text3);">Meta</span><span style="color:${p.metaDesc ? 'var(--text2)' : '#f87171'}">${p.metaDesc ? escHtml(p.metaDesc.slice(0, 80)) + (p.metaDesc.length > 80 ? '…' : '') : '(missing)'}</span>
+          <span style="color:var(--text3);">Incoming</span><span style="color:${p.incomingLinks > 0 ? 'var(--green)' : '#f87171'}">${p.incomingLinks} internal link${p.incomingLinks !== 1 ? 's' : ''}${p.isOrphan ? ' ⚠️ orphan' : ''}</span>
+          <span style="color:var(--text3);">Canonical</span><span style="color:${p.hasCanonical ? 'var(--green)' : '#fbbf24'}">${p.hasCanonical ? '✓ set' : '✗ missing'}</span>
+          <span style="color:var(--text3);">Scripts</span><span style="color:${p.blockingScripts > 0 ? '#fbbf24' : 'var(--text2)'}">${p.blockingScripts > 0 ? p.blockingScripts + ' blocking' : 'clean'}</span>
+        </div>
+      </div>
+    </div>`).join('');
+
+  el.innerHTML = `
+    <div class="ws-kb-block" style="margin-bottom:12px;">
+      <div class="ws-kb-label">🗂️ Page Architecture Explorer</div>
+      <div style="font-size:11.5px;color:var(--text3);margin-top:2px;">${pages.length} internal pages crawled — Click any row to inspect health details.</div>
+    </div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;">
+      <span style="font-size:11px;padding:3px 8px;border-radius:99px;background:rgba(52,211,153,0.1);color:var(--green);">✓ ${pages.length - orphans - thinCount} Healthy</span>
+      ${orphans ? `<span style="font-size:11px;padding:3px 8px;border-radius:99px;background:rgba(248,113,113,0.1);color:#f87171;">⛓ ${orphans} Orphan</span>` : ''}
+      ${thinCount ? `<span style="font-size:11px;padding:3px 8px;border-radius:99px;background:rgba(251,191,36,0.1);color:#fbbf24;">📄 ${thinCount} Thin</span>` : ''}
+      ${noH1Count ? `<span style="font-size:11px;padding:3px 8px;border-radius:99px;background:rgba(251,191,36,0.1);color:#fbbf24;">H ${noH1Count} No H1</span>` : ''}
+    </div>
+    <div style="display:flex;flex-direction:column;gap:3px;">${rows}</div>
+  `;
+
+  el.querySelectorAll('.seo-page-row-header').forEach(hdr => {
+    hdr.addEventListener('click', () => {
+      const row = hdr.closest('.seo-page-row');
+      if (row) row.classList.toggle('open');
     });
   });
 }

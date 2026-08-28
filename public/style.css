@@ -2428,6 +2428,45 @@ body.persona-builder #model-selector { display: none !important; }
   from { opacity: 0; transform: translateY(-4px); }
   to { opacity: 1; transform: translateY(0); }
 }
+
+/* Level 2 Page Explorer */
+.seo-page-row {
+  background: var(--surface);
+  border: 1px solid var(--border2);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  margin-bottom: 5px;
+  transition: border-color 0.2s ease;
+}
+.seo-page-row:hover {
+  border-color: var(--border);
+}
+.seo-page-row.open {
+  border-color: rgba(var(--accent-rgb), 0.4);
+}
+.seo-page-row-header {
+  padding: 8px 10px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  cursor: pointer;
+  user-select: none;
+  gap: 8px;
+}
+.seo-page-row.open .seo-page-chevron {
+  transform: rotate(180deg);
+  color: var(--text1);
+}
+.seo-page-body {
+  display: none;
+  padding: 8px 10px 10px;
+  border-top: 1px dashed var(--border2);
+  background: rgba(0, 0, 0, 0.25);
+  animation: seoSlideDown 0.2s ease;
+}
+.seo-page-row.open .seo-page-body {
+  display: block;
+}
 .card-green .card-badge { background: rgba(var(--green-rgb),0.14); color: var(--green); border-color: rgba(var(--green-rgb),0.35); }
 .card-amber .card-badge { background: rgba(var(--amber-rgb),0.14); color: var(--amber); border-color: rgba(var(--amber-rgb),0.35); }
 .card-red .card-badge { background: rgba(var(--red-rgb),0.14); color: var(--red); border-color: rgba(var(--red-rgb),0.35); }

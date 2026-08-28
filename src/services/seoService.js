@@ -496,32 +496,111 @@ async function runAudit(originUrl, { skipLlm = false, keywords = [] } = {}) {
 
   const audit = scoreAudit(home, robots, broken);
 
-  // Discovery light: up to 5 internal pages (title/desc/status only)
-  const pages = [];
-  const toFetch = home.internalLinks.slice(0, 5);
-  const pageResults = await Promise.allSettled(toFetch.map(async (link) => {
-    try {
-      const p = await fetchText(link, 9000);
-      return { url: link, status: p.status, ...parsePage(p.text, origin) };
-    } catch {
-      return { url: link, status: 0, title: '', metaDescription: '', h1Count: 0, wordCount: 0 };
-    }
-  }));
-  for (const r of pageResults) if (r.status === 'fulfilled' && r.value.status === 200) pages.push(r.value);
-  const thinPages = pages.filter((p) => p.wordCount > 0 && p.wordCount < 120);
-  if (thinPages.length) audit.issues.push({ severity: 'low', category: 'content', text: `${thinPages.length} internal page(s) thin content: ${thinPages.map((p) => p.url).join(', ')}` });
+  // ── Level 2: 20-page BFS Site Architecture Crawler ─────────────────────
+  const MAX_PAGES = 20;
+  const CONCURRENCY = 4;
 
-  // Duplicate page titles → on-page signal (deterministic, no extra cost)
+  // BFS queue — start with homepage's internal links then expand
+  const crawlQueue = [...new Set(home.internalLinks)].slice(0, 40);
+  const crawlVisited = new Set([u.href, origin + '/', origin]);
+  const pages = [];
+
+  // Concurrency-limited BFS fetch loop
+  async function crawlBatch(urls) {
+    const results = await Promise.allSettled(urls.map(async (link) => {
+      if (crawlVisited.has(link)) return null;
+      crawlVisited.add(link);
+      try {
+        const p = await fetchText(link, 9000);
+        if (p.status !== 200) return { url: link, status: p.status, title: '', h1Count: 0, wordCount: 0, internalLinks: [] };
+        const parsed = parsePage(p.text, origin);
+        return { url: link, status: p.status, ...parsed };
+      } catch {
+        return { url: link, status: 0, title: '', h1Count: 0, wordCount: 0, internalLinks: [] };
+      }
+    }));
+    return results.filter(r => r.status === 'fulfilled' && r.value).map(r => r.value);
+  }
+
+  // BFS in batches
+  let cursor = 0;
+  while (pages.length < MAX_PAGES && cursor < crawlQueue.length) {
+    const batch = crawlQueue.slice(cursor, cursor + CONCURRENCY);
+    cursor += CONCURRENCY;
+    const batchResults = await crawlBatch(batch);
+    for (const pg of batchResults) {
+      if (!pg || pages.length >= MAX_PAGES) break;
+      pages.push(pg);
+      // Enqueue newly discovered links from this page
+      if (Array.isArray(pg.internalLinks)) {
+        for (const link of pg.internalLinks) {
+          if (!crawlVisited.has(link) && !crawlQueue.includes(link)) {
+            crawlQueue.push(link);
+          }
+        }
+      }
+    }
+  }
+
+  // ── Per-page linkage map (for orphan detection) ──
+  // Build a map of which pages receive links from other pages
+  const receivesLinkFrom = {}; // url -> count of internal pages pointing to it
+  const allCrawledUrls = [u.href, ...pages.map(p => p.url)];
+  for (const pg of pages) {
+    for (const linked of (pg.internalLinks || [])) {
+      if (allCrawledUrls.includes(linked)) {
+        receivesLinkFrom[linked] = (receivesLinkFrom[linked] || 0) + 1;
+      }
+    }
+  }
+  // Homepage always receives links (it's the root)
+  receivesLinkFrom[u.href] = (receivesLinkFrom[u.href] || 999);
+
+  // Tag each page with orphan status + incoming link count
+  const pagesWithMeta = pages.map(pg => ({
+    ...pg,
+    incomingLinks: receivesLinkFrom[pg.url] || 0,
+    isOrphan: !receivesLinkFrom[pg.url],
+  }));
+
+  // ── Issue detection across all crawled pages ──
+  const thinPages = pagesWithMeta.filter((p) => p.status === 200 && p.wordCount > 0 && p.wordCount < 120);
+  if (thinPages.length) audit.issues.push({ severity: 'low', category: 'content', text: `${thinPages.length} page(s) mein thin content (<120 words): ${thinPages.slice(0, 3).map((p) => new URL(p.url).pathname).join(', ')}` });
+
+  const orphanPages = pagesWithMeta.filter(p => p.status === 200 && p.isOrphan);
+  if (orphanPages.length) audit.issues.push({ severity: 'medium', category: 'links', text: `${orphanPages.length} orphan page(s) mile — koi internal link point nahi karta: ${orphanPages.slice(0, 3).map(p => new URL(p.url).pathname).join(', ')}` });
+
+  const missingH1Pages = pagesWithMeta.filter(p => p.status === 200 && !p.h1Count);
+  if (missingH1Pages.length > 1) audit.issues.push({ severity: 'medium', category: 'onpage', text: `${missingH1Pages.length} internal page(s) par H1 tag nahi hai: ${missingH1Pages.slice(0, 3).map(p => new URL(p.url).pathname).join(', ')}` });
+
+  const noMetaDescPages = pagesWithMeta.filter(p => p.status === 200 && !p.metaDescription);
+  if (noMetaDescPages.length > 1) audit.issues.push({ severity: 'low', category: 'onpage', text: `${noMetaDescPages.length} internal page(s) par meta description nahi: ${noMetaDescPages.slice(0, 3).map(p => new URL(p.url).pathname).join(', ')}` });
+
+  // Duplicate titles
   const seenTitles = new Set();
   const dupTitles = [];
-  for (const p of pages) {
+  for (const p of pagesWithMeta) {
     if (!p.title) continue;
     const t = p.title.toLowerCase().trim();
     if (seenTitles.has(t)) dupTitles.push(p.title.trim());
     seenTitles.add(t);
   }
   if (dupTitles.length) {
-    audit.issues.push({ severity: 'medium', category: 'onpage', text: `Duplicate page titles ${[...new Set(dupTitles)].slice(0, 3).map((t) => `"${t}"`).join(' | ')} — har page ka title unique hona chahiye.` });
+    audit.issues.push({ severity: 'medium', category: 'onpage', text: `Duplicate page titles: ${[...new Set(dupTitles)].slice(0, 3).map((t) => `"${t}"`).join(' | ')} — har page ka title unique hona chahiye.` });
+  }
+
+  // Duplicate H1s
+  const seenH1s = new Set();
+  const dupH1s = [];
+  for (const p of pagesWithMeta) {
+    const h = Array.isArray(p.h1Texts) ? p.h1Texts[0] : null;
+    if (!h) continue;
+    const hl = h.toLowerCase().trim();
+    if (seenH1s.has(hl)) dupH1s.push(h.trim());
+    seenH1s.add(hl);
+  }
+  if (dupH1s.length) {
+    audit.issues.push({ severity: 'low', category: 'onpage', text: `Duplicate H1 tags across pages: ${[...new Set(dupH1s)].slice(0, 3).map(h => `"${h}"`).join(' | ')}` });
   }
 
   const llm = skipLlm ? null : await analyzeWithLLM(domain, u.href, audit);
@@ -577,7 +656,7 @@ async function runAudit(originUrl, { skipLlm = false, keywords = [] } = {}) {
     url: u.href,
     home,
     robotsMetrics: { robotsExists: !!robots.robotsExists, rulesPresent: !!robots.rulesPresent, sitemapFound: !!robots.sitemapFound, sitemapUrlCount: (robots.sitemapUrls || []).length, sitemapLastmod: robots.lastmodCount || 0, isSitemapIndex: !!robots.isSitemapIndex },
-    pagesFound: pages.length,
+    pagesFound: pagesWithMeta ? pagesWithMeta.length : pages.length,
     audit: {
       score: audit.score,
       breakdown: audit.breakdown,
@@ -590,7 +669,22 @@ async function runAudit(originUrl, { skipLlm = false, keywords = [] } = {}) {
     },
     broken,
     crawledUrls: home.internalLinks || [],
-    crawledPages: pages.filter((p) => p.status === 200 && p.url).map((p) => ({ url: p.url, title: p.title || '', wordCount: p.wordCount || 0, status: p.status })).slice(0, 20),
+    crawledPages: (typeof pagesWithMeta !== 'undefined' ? pagesWithMeta : pages)
+      .filter((p) => p.status === 200 && p.url)
+      .map((p) => ({
+        url: p.url,
+        path: (() => { try { return new URL(p.url).pathname; } catch { return p.url; } })(),
+        title: p.title || '',
+        h1: Array.isArray(p.h1Texts) && p.h1Texts.length ? p.h1Texts[0] : (p.h1Count ? '(found)' : ''),
+        metaDesc: p.metaDescription || '',
+        wordCount: p.wordCount || 0,
+        status: p.status,
+        incomingLinks: p.incomingLinks || 0,
+        isOrphan: !!p.isOrphan,
+        hasCanonical: !!p.canonical,
+        blockingScripts: p.blockingScripts || 0,
+        semanticCount: p.semanticCount || 0,
+      })).slice(0, 20),
   };
 }
 
