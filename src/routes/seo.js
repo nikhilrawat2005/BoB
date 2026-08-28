@@ -99,6 +99,16 @@ router.delete('/:id', requireAuth, async (req, res) => {
   }
 });
 
+// POST /api/seo/:id/actionplan — Level 4 Token-Optimized AI Action Plan
+router.post('/:id/actionplan', requireAuth, async (req, res) => {
+  try {
+    const plan = await seo.generateAiActionPlan(req.userId, req.params.id);
+    res.json({ plan });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // GET /api/seo/:id/fixplan — ready-to-deploy fix files for the latest audit
 router.get('/:id/fixplan', requireAuth, async (req, res) => {
   try {

@@ -5012,6 +5012,50 @@ function renderSeoAudit(site) {
         ${seoSparkline(site.history)}
         <div style="font-size:11px;color:var(--text3);">${typeof a.pagesFound === 'number' ? a.pagesFound + ' pages audited · ' : ''}${a.auditedAt ? new Date(a.auditedAt).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }) : ''}</div>
       </div>
+      <!-- ✨ Level 4: Token-Optimized AI Action Plan -->
+      <div class="ws-kb-block" id="seo-ai-plan-block">
+        <div class="ws-kb-label" style="display:flex;justify-content:space-between;align-items:center;">
+          <span>✨ AI Action Plan & Strategy</span>
+          ${(a.aiActionPlan) ? '<span style="font-size:10px;color:var(--green);font-weight:700;">✓ Generated</span>' : ''}
+        </div>
+        ${(a.aiActionPlan) ? `
+          <div style="font-size:12px;color:var(--text1);line-height:1.5;margin-top:6px;background:rgba(var(--accent-rgb),0.06);padding:8px 10px;border-radius:6px;border-left:3px solid var(--accent);">
+            ${escHtml(a.aiActionPlan.verdict || '')}
+          </div>
+          ${a.aiActionPlan.targetPotentialScore ? `
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px;font-size:11.5px;padding:6px 8px;background:rgba(255,255,255,0.02);border-radius:5px;">
+              <span style="color:var(--text2);">Target Ranking Score:</span>
+              <span style="font-weight:800;color:var(--green);">${a.aiActionPlan.targetPotentialScore}/100 Potential</span>
+            </div>` : ''}
+          ${Array.isArray(a.aiActionPlan.quickWins) && a.aiActionPlan.quickWins.length ? `
+            <div style="margin-top:10px;">
+              <div style="font-size:10.5px;font-weight:700;text-transform:uppercase;color:var(--text3);margin-bottom:4px;">⚡ Quick Wins</div>
+              ${a.aiActionPlan.quickWins.map(qw => `
+                <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:6px;font-size:11.5px;padding:4px 0;border-bottom:1px dashed var(--border2);">
+                  <span style="color:var(--text2);line-height:1.4;"><strong style="color:var(--text1);">${escHtml(qw.title)}:</strong> ${escHtml(qw.action)}</span>
+                  <span style="font-size:10px;font-weight:700;color:var(--green);background:rgba(52,211,153,0.12);padding:1px 5px;border-radius:4px;white-space:nowrap;">${escHtml(qw.impact || '+pts')}</span>
+                </div>`).join('')}
+            </div>` : ''}
+          ${Array.isArray(a.aiActionPlan.architecturalFixes) && a.aiActionPlan.architecturalFixes.length ? `
+            <div style="margin-top:10px;">
+              <div style="font-size:10.5px;font-weight:700;text-transform:uppercase;color:var(--text3);margin-bottom:4px;">🏗️ Architecture Roadmap</div>
+              ${a.aiActionPlan.architecturalFixes.map(af => `
+                <div style="font-size:11.5px;margin-bottom:6px;background:rgba(255,255,255,0.02);padding:6px 8px;border-radius:5px;">
+                  <div style="font-weight:700;color:var(--text1);font-size:11.5px;">${escHtml(af.title)}</div>
+                  <div style="color:var(--text2);font-size:11px;margin-top:2px;">${escHtml(af.step)}</div>
+                  <div style="color:var(--text3);font-size:10px;margin-top:2px;">↳ ${escHtml(af.crawlerBenefit)}</div>
+                </div>`).join('')}
+            </div>` : ''}
+        ` : `
+          <div style="font-size:11.5px;color:var(--text3);margin-top:4px;line-height:1.45;">
+            Master Bob se 1-click token-efficient personalized SEO action plan aur ranking potential roadmap generate karwayen.
+          </div>
+          <button class="btn-small" id="seo-generate-ai-plan" style="width:100%;margin-top:8px;padding:6px 0;font-weight:700;background:rgba(var(--accent-rgb),0.15);color:var(--accent);border:1px solid rgba(var(--accent-rgb),0.35);">
+            ✨ Generate AI Action Plan
+          </button>
+        `}
+      </div>
+
       ${a.summary ? `<div class="ws-kb-block"><div class="ws-kb-label">📝 Audit Summary</div><div style="font-size:12px;line-height:1.5;color:var(--text1);">${escHtml(a.summary)}</div></div>` : ''}
       <div class="ws-kb-block"><div class="ws-kb-label">📊 Category Breakdown</div>${breakdownRows}</div>
             <!-- ⚡ Level 3: Google Core Web Vitals Gauge -->
@@ -5107,6 +5151,22 @@ function renderSeoAudit(site) {
   renderSeoStrengths(site);
   renderSeoTopics(site);
   renderSeoPages(site);
+
+    const genPlanBtn = document.getElementById('seo-generate-ai-plan');
+  if (genPlanBtn) {
+    genPlanBtn.addEventListener('click', async () => {
+      genPlanBtn.disabled = true;
+      genPlanBtn.textContent = '⏳ Analyzing & Generating…';
+      try {
+        const { plan } = await apiFetch('/api/seo/' + site.id + '/actionplan', { method: 'POST' });
+        if (site.audit) site.audit.aiActionPlan = plan;
+        renderSeoAudit(site);
+      } catch (err) {
+        alert('Action plan generation failed: ' + err.message);
+        if (genPlanBtn) { genPlanBtn.disabled = false; genPlanBtn.textContent = '✨ Generate AI Action Plan'; }
+      }
+    });
+  }
 
   const ra = document.getElementById('re-audit-seo');
   if (ra) ra.addEventListener('click', async () => {

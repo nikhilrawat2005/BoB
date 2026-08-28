@@ -973,17 +973,103 @@ async function ensureChatSession(userId, site) {
 
 function buildSeoContext(site) {
   const a = site.audit || {};
+  const sig = a.signals || {};
+  const ps = a.pageSpeed || {};
+  const pages = a.crawledPages || [];
+  const orphanCount = pages.filter(p => p.isOrphan).length;
+
   const lines = [
-    `SITE: ${site.domain}`,
-    `URL: ${site.url}`,
-    `SEO SCORE: ${a.score ?? '—'}/100`,
-    `Breakdown: ${JSON.stringify(a.breakdown || {})}`,
-    `Pages audited: ${a.pagesFound ?? 0}`,
-    a.summary ? `Audit summary: ${a.summary}` : '',
-    `Top issues:\n${(a.issues || []).slice(0, 8).map((i) => `- [${i.severity}] ${i.text}`).join('\n') || 'none flagged'}`,
-    `Recommendations:\n${(a.recommendations || []).map((r) => `- [${r.priority}] ${r.issue}: ${r.fix}`).join('\n') || 'none yet'}`,
+    `SITE: ${site.domain} (${site.url})`,
+    `OVERALL HEALTH SCORE: ${a.score ?? '—'}/100`,
+    `SCORE BREAKDOWN: Technical: ${a.breakdown?.technical ?? '—'} | OnPage: ${a.breakdown?.onpage ?? '—'} | Content: ${a.breakdown?.content ?? '—'} | Links: ${a.breakdown?.links ?? '—'}`,
+    `PAGES AUDITED: ${pages.length} crawled internal pages (${orphanCount} orphan pages flagged)`,
+    `CORE WEB VITALS: LCP: ${sig.lcp || ps.lcp || '—'} | FCP: ${sig.fcp || ps.fcp || '—'} | CLS: ${sig.cls || ps.cls || '—'} | TTFB: ${sig.ttfbMs || 0}ms`,
+    `SECURITY & DOM: HSTS: ${sig.hsts ? 'Active' : 'Missing'} | CSP/X-Frame: ${sig.csp || sig.xFrame ? 'Configured' : 'Missing'} | DOM Nodes: ${sig.totalDomNodes || '—'} (Depth: ${sig.maxDomDepth || '—'})`,
+    `CONTENT & READABILITY: Readability: ${sig.readability || '—'} (${sig.avgWordsPerSentence || 0} wds/sentence) | Heading Order: ${sig.headingSkipped ? 'Skipped hierarchy' : 'Sequential'}`,
+    a.summary ? `AUDIT SUMMARY: ${a.summary}` : '',
+    `TOP VULNERABILITIES & ISSUES (${(a.issues || []).length} total):`,
+    ...((a.issues || []).slice(0, 10).map((i) => `- [${i.severity.toUpperCase()}] (${i.category}): ${i.text}`)),
   ].filter(Boolean);
+
   return lines.join('\n');
+}
+
+// ── Level 4: Ultra-Token-Efficient AI Action Plan Generator ──
+async function generateAiActionPlan(userId, siteId) {
+  const site = await getSite(userId, siteId);
+  if (!site) throw new Error('Site not found');
+
+  // Return cached plan if already generated
+  if (site.audit && site.audit.aiActionPlan) {
+    return site.audit.aiActionPlan;
+  }
+
+  const a = site.audit || {};
+  const sig = a.signals || {};
+  const pages = a.crawledPages || [];
+
+  // Hyper-compressed lean payload (~150 tokens)
+  const leanPayload = {
+    domain: site.domain,
+    score: a.score,
+    breakdown: a.breakdown,
+    topIssues: (a.issues || []).slice(0, 8).map(i => `${i.severity}: ${i.text}`),
+    crawledCount: pages.length,
+    orphans: pages.filter(p => p.isOrphan).length,
+    vitals: { lcp: sig.lcp, ttfb: sig.ttfbMs, blocking: sig.blockingScripts },
+    security: { hsts: sig.hsts, csp: Boolean(sig.csp || sig.xFrame) },
+    content: { readability: sig.readability, headingSkipped: sig.headingSkipped }
+  };
+
+  const messages = [
+    {
+      role: 'system',
+      content: `You are Bob the Builder's Enterprise SEO Architect. Analyze the compressed audit summary and output ONLY a strict JSON object with no markdown fences.
+Format:
+{
+  "verdict": "2-line executive assessment in natural Hinglish/English highlighting key bottleneck and potential",
+  "targetPotentialScore": 95,
+  "quickWins": [
+    {"title": "Short title", "action": "Specific 1-sentence fix", "impact": "+4 pts"}
+  ],
+  "architecturalFixes": [
+    {"title": "Architecture fix title", "step": "Concrete developer step", "crawlerBenefit": "Why search engines/crawlers care"}
+  ]
+}
+Max 3 quickWins and max 3 architecturalFixes. Base strictly on provided audit signals.`
+    },
+    { role: 'user', content: JSON.stringify(leanPayload) }
+  ];
+
+  try {
+    const { text } = await callLLM({
+      role: 'builder',
+      persona: 'builder',
+      messages,
+      temperature: 0.2,
+      max_tokens: 800,
+    });
+
+    const cleaned = text.replace(/```json|```/gi, '').trim();
+    const plan = JSON.parse(cleaned);
+
+    // Cache the plan onto the site audit in Firestore
+    const updatedAudit = { ...site.audit, aiActionPlan: plan };
+    await coll(userId).doc(siteId).set({ audit: updatedAudit, updatedAt: Date.now() }, { merge: true });
+
+    return plan;
+  } catch (err) {
+    console.error('[seoService] generateAiActionPlan failed:', err.message);
+    const fallbackPlan = {
+      verdict: `${site.domain} overall ${a.score}/100 score par hai. Core bottlenecks fix karke isko 90+ score tak le jaya ja sakta hai.`,
+      targetPotentialScore: Math.min(100, (a.score || 70) + 15),
+      quickWins: (a.issues || []).slice(0, 3).map(i => ({ title: i.category, action: i.text, impact: '+3 pts' })),
+      architecturalFixes: [
+        { title: 'Server & Security Architecture', step: 'HSTS aur async/defer scripts configure karein', crawlerBenefit: 'Page load speed aur crawler indexing boost' }
+      ]
+    };
+    return fallbackPlan;
+  }
 }
 
 async function chatList(userId, siteId) {
@@ -1292,6 +1378,7 @@ function generateSeoReport(site) {
 }
 
 module.exports = {
+  generateAiActionPlan,
   listSites,
   getSite,
   createSite,
