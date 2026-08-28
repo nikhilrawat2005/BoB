@@ -43,6 +43,12 @@ async function fetchTimed(url, timeoutMs = 12000) {
     throw new Error(`Connect failed: ${err.message}`);
   });
   const ttfb = Date.now() - t0;
+  const rawHeaders = {};
+  if (res.headers && typeof res.headers.forEach === 'function') {
+    res.headers.forEach((v, k) => { rawHeaders[k.toLowerCase()] = v; });
+  } else if (res.headers && typeof res.headers.entries === 'function') {
+    for (const [k, v] of res.headers.entries()) { rawHeaders[k.toLowerCase()] = v; }
+  }
   const chunks = [];
   return new Promise((resolve, reject) => {
     res.body.once('error', (e) => { clearTimeout(timer); reject(new Error(`Body read failed: ${e.message}`)); });
@@ -54,6 +60,7 @@ async function fetchTimed(url, timeoutMs = 12000) {
         ok: res.ok,
         status: res.status,
         statusText: res.statusText,
+        headers: rawHeaders,
         text,
         ttfb,
         loadMs: Date.now() - t0,
@@ -63,8 +70,22 @@ async function fetchTimed(url, timeoutMs = 12000) {
   });
 }
 
+function calculateMaxDepth($root) {
+  let maxDepth = 0;
+  function traverse(node, currentDepth) {
+    if (currentDepth > maxDepth) maxDepth = currentDepth;
+    if (node && node.children && node.children.length) {
+      for (const child of node.children) {
+        if (child.type === 'tag') traverse(child, currentDepth + 1);
+      }
+    }
+  }
+  if ($root && $root[0]) traverse($root[0], 1);
+  return maxDepth;
+}
+
 // Fetch a page and return SEO-relevant fields only (no raw HTML blob stored / sent to LLM).
-function parsePage(html, origin) {
+function parsePage(html, origin, rawHeaders = {}) {
   const $ = cheerio.load(html);
   const title = $('title').first().text().trim();
   const metaDescription = $('meta[name="description"]').attr('content') || '';
@@ -78,6 +99,34 @@ function parsePage(html, origin) {
   const hasFavicon = !!$('link[rel~="icon"]').attr('href');
   const h1s = $('h1').map((_, el) => $(el).text().trim()).get();
   const h2Count = $('h2').length;
+  const h3Count = $('h3').length;
+
+  // ── Heading hierarchy AST analysis ──
+  const headingFlow = [];
+  $('h1, h2, h3, h4, h5, h6').each((_, el) => {
+    const lvl = parseInt(el.tagName.replace(/^h/i, ''), 10);
+    if (!isNaN(lvl)) headingFlow.push(lvl);
+  });
+  let headingSkipped = false;
+  for (let i = 1; i < headingFlow.length; i++) {
+    if (headingFlow[i] - headingFlow[i - 1] > 1) {
+      headingSkipped = true;
+      break;
+    }
+  }
+
+  // ── DOM Complexity tree calculation ──
+  const totalDomNodes = $('*').length;
+  const maxDomDepth = calculateMaxDepth($.root());
+  const domBloated = totalDomNodes > 1500 || maxDomDepth > 32;
+
+  // ── Security & HTTP response headers ──
+  const hsts = Boolean(rawHeaders['strict-transport-security']);
+  const csp = Boolean(rawHeaders['content-security-policy']);
+  const xFrame = rawHeaders['x-frame-options'] || '';
+  const xContentType = rawHeaders['x-content-type-options'] || '';
+  const referrerPolicy = rawHeaders['referrer-policy'] || '';
+
   const images = $('img').map((_, el) => $(el)).get();
   const altCovered = images.filter((im) => (im.attr('alt') || '').trim()).length;
   const lazyCount = $('img[loading="lazy"]').length;
@@ -118,15 +167,15 @@ function parsePage(html, origin) {
   const scriptTags = $('script').get();
   const scriptSrcCount = scriptTags.filter((el) => $(el).attr('src')).length;
   const blockingScriptEls = scriptTags.filter((el) => {
-      const e = $(el);
-      if (!e.attr('src')) return false; // inline scripts don't count as blocking here
-      return !(e.attr('async') !== undefined || e.attr('defer') !== undefined);
-    });
+    const e = $(el);
+    if (!e.attr('src')) return false;
+    return !(e.attr('async') !== undefined || e.attr('defer') !== undefined);
+  });
   const blockingScripts = blockingScriptEls.length;
   const blockingScriptSrcs = blockingScriptEls.map((el) => $(el).attr('src')).filter(Boolean).slice(0, 6);
   const cssLinkCount = $('link[rel="stylesheet"]').length;
 
-  // Mixed content (http:// resources on page) — only a real issue on https origins
+  // Mixed content
   const mixedContent = [];
   const srcRe = /(?:src|href)="(http:\/\/[^"]+)"/g;
   let match;
@@ -134,7 +183,11 @@ function parsePage(html, origin) {
 
   $('script, style, noscript, svg').remove();
   const bodyText = $('body').text().replace(/\s+/g, ' ').trim();
-  const wordCount = bodyText.split(/\s+/).filter(Boolean).length;
+  const words = bodyText.split(/\s+/).filter(Boolean);
+  const wordCount = words.length;
+  const sentenceCount = Math.max(1, bodyText.split(/[.!?]+/).filter(s => s.trim().length > 3).length);
+  const avgWordsPerSentence = Math.round(wordCount / sentenceCount);
+  const readability = avgWordsPerSentence <= 18 ? 'Good' : avgWordsPerSentence <= 25 ? 'Moderate' : 'Complex';
 
   const internalLinks = [];
   const externalLinks = [];
@@ -165,6 +218,16 @@ function parsePage(html, origin) {
     h1Count: h1s.length,
     h1Texts: h1s.slice(0, 3),
     h2Count,
+    h3Count,
+    headingSkipped,
+    totalDomNodes,
+    maxDomDepth,
+    domBloated,
+    hsts,
+    csp,
+    xFrame,
+    xContentType,
+    referrerPolicy,
     imageCount: images.length,
     altCovered,
     altCoverage: images.length ? Math.round((altCovered / images.length) * 100) : 100,
@@ -186,6 +249,9 @@ function parsePage(html, origin) {
     cssLinkCount,
     mixedContent: [...new Set(mixedContent)],
     wordCount,
+    sentenceCount,
+    avgWordsPerSentence,
+    readability,
     internalCount: uniqueInternal.length,
     externalCount: externalLinks.length,
     internalLinks: uniqueInternal.slice(0, 40),
@@ -251,7 +317,7 @@ async function checkBrokenLinks(urls, max = 6) {
 function scoreAudit(home, robots, broken) {
   const issues = [];
 
-  // Technical (100) — Stage 1: clean HTML + speed proxy + mobile basics
+  // Technical (100) — Stage 1: clean HTML + speed proxy + mobile basics + security + DOM complexity
   let tech = 0;
   if (home.https) tech += 8; else issues.push({ severity: 'high', category: 'technical', text: 'Website HTTP pe hai — HTTPS pe shift karo (security + ranking).' });
   if (home.status === 200) tech += 8; else issues.push({ severity: 'high', category: 'technical', text: `Homepage HTTP ${home.status} return kar raha hai.` });
@@ -263,9 +329,15 @@ function scoreAudit(home, robots, broken) {
   else if (home.viewport) tech += 3;
   else issues.push({ severity: 'medium', category: 'technical', text: 'viewport meta missing — mobile SEO hurt.' });
 
-  // Clean HTML structure
-  if (home.semanticCount >= 4) tech += 10;
-  else if (home.semanticCount >= 2) tech += 5;
+  // Security Headers (Deterministic 0-token)
+  if (home.hsts) tech += 4;
+  else if (home.https) issues.push({ severity: 'low', category: 'technical', text: 'HSTS (Strict-Transport-Security) header missing — SSL security best practice.' });
+  if (home.csp || home.xFrame) tech += 4;
+  else issues.push({ severity: 'low', category: 'technical', text: 'Clickjacking / Content-Security headers configure karein (X-Frame-Options / CSP).' });
+
+  // Clean HTML & DOM Complexity
+  if (home.semanticCount >= 4) tech += 8;
+  else if (home.semanticCount >= 2) tech += 4;
   else tech += 0;
   if (home.semanticCount < 4) issues.push({ severity: 'medium', category: 'technical', text: `Weak semantic structure — sirf ${home.semanticCount}/7 layout tags (header/nav/main/article/section/footer).` });
   if (!home.deprecatedTags || home.deprecatedTags.length === 0) tech += 4;
@@ -276,23 +348,27 @@ function scoreAudit(home, robots, broken) {
     tech += 2; issues.push({ severity: 'low', category: 'technical', text: `Duplicate element IDs: ${home.duplicateIds.slice(0, 4).join(', ')}…` });
   } else tech += 4;
 
+  if (home.domBloated) {
+    issues.push({ severity: 'medium', category: 'technical', text: `Excessive DOM complexity — ${home.totalDomNodes || 0} nodes / depth ${home.maxDomDepth || 0} (target <1500 nodes & <32 depth).` });
+  }
+
   // Speed proxy metrics
-  if (home.ttfb < 600) tech += 8;
-  else if (home.ttfb < 1500) tech += 5;
+  if (home.ttfb < 600) tech += 6;
+  else if (home.ttfb < 1500) tech += 4;
   else if (home.ttfb < 3000) tech += 2;
   else tech += 0;
   if (home.ttfb >= 1500) issues.push({ severity: 'medium', category: 'technical', text: `Slow server response — TTFB ${home.ttfb}ms (target < 600ms).` });
-  if (home.htmlBytes < 200 * 1024) tech += 8;
-  else if (home.htmlBytes < 500 * 1024) tech += 4;
+  if (home.htmlBytes < 200 * 1024) tech += 6;
+  else if (home.htmlBytes < 500 * 1024) tech += 3;
   else tech += 0;
   if (home.htmlBytes >= 500 * 1024) issues.push({ severity: 'medium', category: 'technical', text: `Heavy HTML — ${(home.htmlBytes / 1024).toFixed(0)}KB raw page (target < 200KB).` });
-  if (home.blockingScripts === 0) tech += 8;
-  else if (home.blockingScripts <= 3) tech += 5;
-  else if (home.blockingScripts <= 8) tech += 2;
+  if (home.blockingScripts === 0) tech += 6;
+  else if (home.blockingScripts <= 3) tech += 3;
+  else if (home.blockingScripts <= 8) tech += 1;
   else tech += 0;
   if (home.blockingScripts > 3) issues.push({ severity: 'medium', category: 'technical', text: `${home.blockingScripts} render-blocking script(s) — async/defer lagao.` });
 
-  // Hard flags (no points allocated, keeps total = 100)
+  // Hard flags
   if (home.https && home.mixedContent && home.mixedContent.length) {
     issues.push({ severity: 'high', category: 'technical', text: `${home.mixedContent.length} mixed content (http://) resource(s) — page ko downgrade kar sakta hai.` });
   }
@@ -317,15 +393,26 @@ function scoreAudit(home, robots, broken) {
   if (home.ogTitle && home.ogImage) onpage += 10; else issues.push({ severity: 'low', category: 'onpage', text: 'OG social tags incomplete (title/image).' });
   if (home.lang) onpage += 10; else issues.push({ severity: 'low', category: 'onpage', text: '<html lang> attribute missing.' });
 
-  // Content (100)
+  // Content (100) — includes Readability & Heading Hierarchy
   let content = 0;
   const wc = home.wordCount;
-  if (wc >= 300) content += 40;
-  else if (wc >= 150) content += 28;
-  else if (wc >= 50) content += 16;
+  if (wc >= 300) content += 35;
+  else if (wc >= 150) content += 24;
+  else if (wc >= 50) content += 14;
   else content += 4;
   if (wc < 150) issues.push({ severity: 'medium', category: 'content', text: `Thin content — sirf ${wc} words.` });
-  if (home.h2Count > 0) content += 20; else issues.push({ severity: 'low', category: 'content', text: 'Koi H2 heading nahi — structure weak.' });
+  if (home.h2Count > 0) content += 15; else issues.push({ severity: 'low', category: 'content', text: 'Koi H2 heading nahi — structure weak.' });
+
+  if (home.headingSkipped) {
+    issues.push({ severity: 'low', category: 'content', text: 'Heading hierarchy skipped (e.g. H1 directly jumps to H3/H4 without intermediate levels).' });
+  } else if (home.h1Count > 0 && home.h2Count > 0) {
+    content += 10;
+  }
+
+  if (home.readability === 'Good') content += 10;
+  else if (home.readability === 'Moderate') content += 6;
+  else issues.push({ severity: 'low', category: 'content', text: `Content readability complex hai (~ ${home.avgWordsPerSentence || 20} words/sentence) — sentences chote aur clear rakhein.` });
+
   if (home.imageCount === 0) content += 15;
   else if (home.altCoverage >= 80) content += 15;
   else content += 8;
@@ -339,8 +426,8 @@ function scoreAudit(home, robots, broken) {
   if (home.internalCount > 0) links += 25; else issues.push({ severity: 'medium', category: 'links', text: 'Internal links nahi mile.' });
   if (home.externalCount > 0) links += 25;
 
-  const breakdown = { technical: tech, onpage, content, links };
-  const score = Math.round((tech + onpage + content + links) / 4);
+  const breakdown = { technical: Math.min(100, tech), onpage: Math.min(100, onpage), content: Math.min(100, content), links: Math.min(100, links) };
+  const score = Math.round((breakdown.technical + breakdown.onpage + breakdown.content + breakdown.links) / 4);
   return { score, breakdown, issues };
 }
 
@@ -470,6 +557,15 @@ async function runAudit(originUrl, { skipLlm = false, keywords = [] } = {}) {
     hreflangCount: home.hreflangCount || 0,
     schemaTypes: home.schemaTypes || [],
     twitterCard: !!home.twitterCard,
+    totalDomNodes: home.totalDomNodes || 0,
+    maxDomDepth: home.maxDomDepth || 0,
+    domBloated: !!home.domBloated,
+    hsts: !!home.hsts,
+    csp: !!home.csp,
+    xFrame: home.xFrame || '',
+    headingSkipped: !!home.headingSkipped,
+    readability: home.readability || 'Good',
+    avgWordsPerSentence: home.avgWordsPerSentence || 0,
     sitemapUrls: (robots.sitemapUrls || []).length,
     sitemapLastmod: robots.lastmodCount || 0,
     robotsExists: !!robots.robotsExists,
@@ -523,8 +619,11 @@ async function getSite(userId, id) {
 }
 
 function withHistory(prev = [], audit) {
-  const entry = { score: audit.score, at: Date.now() };
-  const next = [...(Array.isArray(prev) ? prev : []), entry].slice(-10);
+  const prevList = Array.isArray(prev) ? prev : [];
+  const lastEntry = prevList[prevList.length - 1];
+  const delta = lastEntry && typeof lastEntry.score === 'number' ? (audit.score - lastEntry.score) : 0;
+  const entry = { score: audit.score, delta, at: Date.now() };
+  const next = [...prevList, entry].slice(-10);
   return next;
 }
 

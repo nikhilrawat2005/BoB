@@ -5003,7 +5003,7 @@ function renderSeoAudit(site) {
       ${opTab('dash', true, '📊 Dashboard')}
       ${opTab('issues', false, '⚠️ Problems (' + ((a.issues || []).length) + ')')}
       ${opTab('strengths', false, '✅ Strengths')}
-      ${opTab('topics', false, '🗺 14-Topics')}
+      ${opTab('topics', false, '🗺 16-Topics')}
     </div>
     <div class="seo-op-pane" data-seopath="dash">
       <div class="ws-kb-block" style="text-align:center;">
@@ -5234,6 +5234,13 @@ function renderSeoStrengths(site) {
   if (broken === 0 && urls.length > 0) strengths.push({ title: 'Zero Broken Internal Links', note: 'Koi 404 ya broken page internal crawl mein nahi mila.' });
   if (sig.ogTitle && sig.ogImage) strengths.push({ title: 'Social Graph Ready', note: 'Open Graph (og:title, og:image) preview social media sharing ke liye configured hai.' });
   if (sig.twitterCard) strengths.push({ title: 'Twitter Card Meta Active', note: 'Twitter share cards summary_large_image properly configured hain.' });
+  // ── Level 1: Security, DOM & Content Quality ──
+  if (sig.hsts) strengths.push({ title: 'HSTS Security Header Active', note: 'Strict-Transport-Security header set hai — browsers aur crawlers ko HTTPS enforce karta hai.' });
+  if (sig.csp || sig.xFrame) strengths.push({ title: 'Clickjacking Protection Configured', note: 'Content-Security-Policy / X-Frame-Options header present — malicious iframe embedding se protected.' });
+  if (typeof sig.totalDomNodes === 'number' && !sig.domBloated) strengths.push({ title: 'Efficient DOM Architecture', note: `DOM sirf ${sig.totalDomNodes} nodes aur ${sig.maxDomDepth} levels deep — rendering fast aur bot-friendly hai.` });
+  if (sig.readability === 'Good') strengths.push({ title: 'Excellent Content Readability', note: `Average sentence length ~${sig.avgWordsPerSentence || 0} words/sentence — clear, scannable aur user-friendly content.` });
+  if (sig.headingSkipped === false && sig.semanticCount >= 2) strengths.push({ title: 'Sequential Heading Hierarchy', note: 'H1 → H2 → H3 proper order mein follow ho raha hai — content structure bot-parseable hai.' });
+
 
   const list = strengths.length ? strengths.map(s => `
     <div class="seo-diag-card is-strength">
@@ -5373,12 +5380,33 @@ function seoTopicsOf(site) {
       guide: 'Relevant anchor text ke sath header menu, footer aur contextual content links connect karein.'
     },
     {
-      title: 'Log-file & Advanced Crawl Monitoring',
-      group: 'Advanced',
-      status: 'Manual',
-      finding: 'Server-side access log inspection required.',
-      problem: 'Googlebot crawl frequency aur 5xx errors monitor na karne se indexing drops identify nahi ho paate.',
-      guide: 'Google Search Console > Settings > Crawl stats aur server logs regularly audit karein.'
+      title: 'Security HTTP Headers',
+      group: 'Technical',
+      status: (s.hsts && (s.csp || s.xFrame)) ? 'Pass' : (s.hsts || s.csp || s.xFrame) ? 'Warn' : 'Fail',
+      finding: [
+        s.hsts ? '✓ HSTS (Strict-Transport-Security) active' : '✗ HSTS missing',
+        (s.csp || s.xFrame) ? `✓ Framing protection (${s.xFrame || 'CSP'}) configured` : '✗ Clickjacking protection missing',
+      ].join(' · '),
+      problem: (!s.hsts || (!s.csp && !s.xFrame)) ? 'Missing security headers from browser aur CDN-level attacks se protect nahi karte. HSTS ensure karta hai ki HTTPS bypass na ho.' : 'None. Security headers correctly configured hain.',
+      guide: 'Server pe ye headers add karein: Strict-Transport-Security: max-age=31536000; includeSubDomains | X-Frame-Options: SAMEORIGIN | Content-Security-Policy: default-src \'self\''
+    },
+    {
+      title: 'DOM Complexity & Performance Depth',
+      group: 'Technical',
+      status: s.domBloated ? 'Warn' : (typeof s.totalDomNodes === 'number' ? 'Pass' : 'Manual'),
+      finding: typeof s.totalDomNodes === 'number'
+        ? `${s.totalDomNodes} total DOM nodes · Max depth: ${s.maxDomDepth} levels${s.domBloated ? ' — exceeds recommended thresholds' : ' — within optimal range'}.`
+        : 'DOM complexity data not yet collected — re-audit karain.',
+      problem: s.domBloated ? `Excessive DOM complexity (>${s.totalDomNodes > 1500 ? '1500 nodes' : ''} ${s.maxDomDepth > 32 ? '/ >32 depth' : ''}) cause karta hai slow rendering, browser memory pressure aur poor Lighthouse scores.` : 'None. DOM architecture clean hai.',
+      guide: 'Unnecessary wrapper divs hataein, virtual scrolling use karein for large lists, aur browser DevTools > Performance > DOM Stats se profile karein.'
+    },
+    {
+      title: 'Content Readability & Heading Flow',
+      group: 'Content',
+      status: (s.readability === 'Good' && !s.headingSkipped) ? 'Pass' : (s.readability === 'Complex' || s.headingSkipped) ? 'Warn' : 'Pass',
+      finding: `Readability: ${s.readability || 'Unknown'} (~${s.avgWordsPerSentence || 0} words/sentence) · Heading hierarchy: ${s.headingSkipped ? '⚠️ Levels skipped' : '✓ Sequential'}.`,
+      problem: (s.readability === 'Complex' || s.headingSkipped) ? `Complex sentences (>${s.avgWordsPerSentence} words avg) Google ke "helpful content" guidelines aur AEO (AI search) ke liye parse karna mushkil bana deti hain. Skipped heading levels (e.g. H1→H4) screen readers aur bots ko confuse karte hain.` : 'None. Content readable aur well-structured hai.',
+      guide: 'Sentences 18-20 words se kam rakhein. Heading order maintain karein: ek H1, phir H2 sections, phir H3 subsections — kabhi skip mat karein.'
     }
   ];
 }
@@ -5418,9 +5446,9 @@ function renderSeoTopics(site) {
 
   el.innerHTML = `
     <div class="ws-kb-block" style="margin-bottom:12px;">
-      <div class="ws-kb-label">🗺 14-Topic SEO Health Map</div>
+      <div class="ws-kb-label">🗺 16-Topic SEO Health Map</div>
       <div style="font-size:11.5px;color:var(--text3);margin-top:2px;">
-        Kisi bhi topic par click karke problem detail aur correction guideline dekhein.
+        Kisi bhi topic par click karke live finding, problem detail aur correction guideline dekhein.
       </div>
     </div>
     <div style="display:flex;flex-direction:column;gap:4px;">
