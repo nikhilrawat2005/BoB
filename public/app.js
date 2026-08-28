@@ -5149,38 +5149,64 @@ function renderSeoIssues(site) {
     (seoIssueCat === 'all' || i.category === seoIssueCat)
   ).sort((x, y) => (sevOrder[y.severity] || 0) - (sevOrder[x.severity] || 0));
 
-  const chip = (kind, val, label, active) =>
-    `<button class="btn-small seo-issue-chip" data-kind="${kind}" data-val="${val}" style="${active ? 'outline:2px solid var(--amber);background:#00000055;' : ''}">${label}</button>`;
-  const sevChips = chip('sev', 'all', 'All', seoIssueSev === 'all') +
-    ['high', 'medium', 'low'].map(s => chip('sev', s, s, seoIssueSev === s)).join('');
-  const catChips = chip('cat', 'all', 'All', seoIssueCat === 'all') +
-    cats.map(c => chip('cat', c, c, seoIssueCat === c)).join('');
-  const counts = { high: issues.filter(i => i.severity === 'high').length, medium: issues.filter(i => i.severity === 'medium').length, low: issues.filter(i => i.severity === 'low').length };
+  const pill = (kind, val, label, active) =>
+    `<button class="seo-pill${active ? ' active' : ''}" data-kind="${kind}" data-val="${val}">${label}</button>`;
+  
+  const sevPills = pill('sev', 'all', 'All', seoIssueSev === 'all') +
+    ['high', 'medium', 'low'].map(s => pill('sev', s, s, seoIssueSev === s)).join('');
+  const catPills = pill('cat', 'all', 'All', seoIssueCat === 'all') +
+    cats.map(c => pill('cat', c, c, seoIssueCat === c)).join('');
 
-  const list = filtered.length ? filtered.map(i => `
-    <div class="ws-kb-block" style="margin-bottom:8px;border-left:3px solid ${i.severity === 'high' ? '#f87171' : i.severity === 'medium' ? '#fbbf24' : 'var(--border2)'};">
-      <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
-        <span style="color:${i.severity === 'high' ? '#f87171' : i.severity === 'medium' ? '#fbbf24' : 'var(--text3)'};font-weight:700;text-transform:capitalize;font-size:11px;">[${i.severity}]</span>
-        <span style="font-size:10px;background:#00000033;padding:2px 6px;border-radius:10px;color:var(--text2);text-transform:uppercase;">${escHtml(i.category || 'misc')}</span>
-      </div>
-      <div style="font-size:12px;margin-top:5px;color:var(--text1);line-height:1.5;">${escHtml(i.text)}</div>
-    </div>`).join('') : `<div style="font-size:12px;color:var(--text3);padding:10px 0;">Is category mein koi issue nahi mila — All clean! 🎉</div>`;
+  const counts = {
+    high: issues.filter(i => i.severity === 'high').length,
+    medium: issues.filter(i => i.severity === 'medium').length,
+    low: issues.filter(i => i.severity === 'low').length
+  };
+
+  const list = filtered.length ? filtered.map(i => {
+    const sevClass = i.severity === 'high' ? 'sev-high' : i.severity === 'medium' ? 'sev-medium' : 'sev-low';
+    return `
+      <div class="seo-diag-card ${sevClass}">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+          <div style="display:flex;gap:6px;align-items:center;">
+            <span class="seo-badge-tag ${i.severity}">● ${i.severity.toUpperCase()}</span>
+            <span class="seo-badge-tag category">${escHtml(i.category || 'general')}</span>
+          </div>
+        </div>
+        <div style="font-size:12.5px;font-weight:600;color:var(--text1);line-height:1.45;">${escHtml(i.text)}</div>
+        <div style="font-size:11px;color:var(--text3);margin-top:8px;padding-top:6px;border-top:1px dashed var(--border2);line-height:1.4;">
+          <span style="color:var(--text2);font-weight:600;">Impact:</span> Crawler indexing, page load performance aur user search ranking affect ho sakti hai.
+        </div>
+      </div>`;
+  }).join('') : `<div style="font-size:12px;color:var(--text3);padding:20px 0;text-align:center;">Is filter mein koi issue nahi mila — All clean! 🎉</div>`;
 
   el.innerHTML = `
-    <div class="ws-kb-block">
+    <div class="ws-kb-block" style="margin-bottom:12px;">
       <div class="ws-kb-label">⚠️ Negative Points & Vulnerabilities</div>
-      <div style="font-size:11px;color:var(--text3);margin-top:2px;">${issues.length} total issues flagged — <span style="color:#f87171;font-weight:700;">${counts.high} high</span> · <span style="color:#fbbf24;font-weight:700;">${counts.medium} med</span> · <span style="color:var(--text3);">${counts.low} low</span></div>
+      <div style="font-size:11.5px;color:var(--text3);margin-top:2px;">
+        ${issues.length} total issues flagged — 
+        <span style="color:#f87171;font-weight:700;">${counts.high} high</span> · 
+        <span style="color:#fbbf24;font-weight:700;">${counts.medium} med</span> · 
+        <span style="color:var(--text3);">${counts.low} low</span>
+      </div>
     </div>
-    <div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:6px;align-items:center;">
-      <span style="font-size:10px;color:var(--text3);">Severity:</span>${sevChips}
+    <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:12px;">
+      <div style="display:flex;align-items:center;gap:8px;">
+        <span style="font-size:11px;color:var(--text3);font-weight:600;min-width:55px;">Severity:</span>
+        <div class="seo-pill-group">${sevPills}</div>
+      </div>
+      ${cats.length > 1 ? `
+      <div style="display:flex;align-items:center;gap:8px;">
+        <span style="font-size:11px;color:var(--text3);font-weight:600;min-width:55px;">Category:</span>
+        <div class="seo-pill-group">${catPills}</div>
+      </div>` : ''}
     </div>
-    <div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:8px;align-items:center;"><span style="font-size:10px;color:var(--text3);">Category:</span>${catChips}</div>
     ${list}
   `;
 
-  el.querySelectorAll('.seo-issue-chip').forEach(ch => ch.addEventListener('click', () => {
-    if (ch.dataset.kind === 'sev') seoIssueSev = ch.dataset.val;
-    else seoIssueCat = ch.dataset.val;
+  el.querySelectorAll('.seo-pill').forEach(btn => btn.addEventListener('click', () => {
+    if (btn.dataset.kind === 'sev') seoIssueSev = btn.dataset.val;
+    else seoIssueCat = btn.dataset.val;
     renderSeoIssues(site);
   }));
 }
@@ -5210,18 +5236,18 @@ function renderSeoStrengths(site) {
   if (sig.twitterCard) strengths.push({ title: 'Twitter Card Meta Active', note: 'Twitter share cards summary_large_image properly configured hain.' });
 
   const list = strengths.length ? strengths.map(s => `
-    <div class="ws-kb-block" style="margin-bottom:8px;border-left:3px solid var(--green);">
+    <div class="seo-diag-card is-strength">
       <div style="display:flex;align-items:center;gap:6px;">
-        <span style="color:var(--green);font-weight:800;font-size:12px;">✓</span>
-        <span style="font-weight:700;font-size:12px;color:var(--text1);">${escHtml(s.title)}</span>
+        <span style="color:var(--green);font-weight:800;font-size:13px;">✓</span>
+        <span style="font-weight:700;font-size:12.5px;color:var(--text1);">${escHtml(s.title)}</span>
       </div>
-      <div style="font-size:11px;color:var(--text2);margin-top:3px;line-height:1.4;">${escHtml(s.note)}</div>
+      <div style="font-size:11.5px;color:var(--text2);margin-top:4px;line-height:1.45;">${escHtml(s.note)}</div>
     </div>`).join('') : `<div style="font-size:12px;color:var(--text3);padding:10px 0;">Strengths calculate ho rahi hain…</div>`;
 
   el.innerHTML = `
-    <div class="ws-kb-block">
+    <div class="ws-kb-block" style="margin-bottom:12px;">
       <div class="ws-kb-label">✅ Positive Points & Highlights</div>
-      <div style="font-size:11px;color:var(--text3);margin-top:2px;">${strengths.length} verified positive signals jo website ki ranking aur user experience ko boost karte hain.</div>
+      <div style="font-size:11.5px;color:var(--text3);margin-top:2px;">${strengths.length} verified positive signals jo website ki ranking aur user experience ko boost karte hain.</div>
     </div>
     ${list}
   `;
@@ -5240,22 +5266,120 @@ function seoTopicsOf(site) {
   const ttfb = s.ttfbMs || 0;
   const load = s.loadMs || 0;
   const queryUrls = urls.filter(u => /[?&=]/.test(u));
-  const H = (title, group, status, why) => ({ title, group, status, why });
+
   return [
-    H('URL Architecture', 'Technical', queryUrls.length ? 'Warn' : 'Pass', queryUrls.length ? queryUrls.length + ' crawl URL(s) mein query params hain — clean, lowercase URLs recommend kiye jaate hain.' : 'Crawled URLs clean aur well-structured hain.'),
-    H('Redirects & Status Codes', 'Technical', broken ? 'Fail' : 'Pass', broken ? broken + ' broken internal link(s) mile (404/error).' : 'Koi broken internal link nahi mila (HTTP 200).'),
-    H('Canonicalization', 'Technical', s.canonical ? 'Pass' : 'Fail', s.canonical ? 'Canonical tag present hai: ' + s.canonical : '<link rel="canonical"> missing — duplicate content risk.'),
-    H('Structured Data', 'Content', schema.length ? 'Pass' : 'Fail', schema.length ? 'JSON-LD schema type(s): ' + schema.join(', ') : 'Koi JSON-LD structured data nahi mila.'),
-    H('Meta Description', 'On-page', !meta ? 'Fail' : (meta.length < 120 || meta.length > 200) ? 'Warn' : 'Pass', !meta ? 'Meta description missing hai.' : meta.length + ' chars — ideal length 120-200 chars.'),
-    H('Open Graph + Twitter', 'On-page', (hasOg && s.twitterCard) ? 'Pass' : (hasOg || s.twitterCard) ? 'Warn' : 'Fail', (hasOg && s.twitterCard) ? 'OG + Twitter card dono present hain.' : (hasOg ? 'OG hai but twitter:card missing hai.' : (s.twitterCard ? 'twitter:card hai but OG tags missing hain.' : 'Social media preview tags missing hain.'))),
-    H('XML Sitemap', 'Technical', s.sitemapFound ? 'Pass' : 'Fail', s.sitemapFound ? 'Sitemap discovered — ' + (typeof s.sitemapUrls === 'number' ? s.sitemapUrls + ' URLs' : '') : 'XML sitemap missing ya undiscoverable.'),
-    H('robots.txt', 'Technical', s.robotsExists ? 'Pass' : 'Fail', s.robotsExists ? 'robots.txt correctly configured.' : 'robots.txt missing — crawl directives pointer chahiye.'),
-    H('hreflang', 'Content', (typeof s.hreflangCount === 'number' && s.hreflangCount > 0) ? 'Pass' : 'Manual', s.hreflangCount ? s.hreflangCount + ' hreflang language mapping(s).' : 'hreflang tags nahi hain (sirf multi-language sites ke liye zaroori).'),
-    H('Crawl Budget / Renderability', 'Technical', blocking === 0 ? 'Pass' : blocking <= 3 ? 'Warn' : 'Fail', blocking + ' render-blocking script(s) mile.'),
-    H('Core Web Vitals', 'Technical', (ttfb < 600 && load < 2500) ? 'Pass' : (ttfb < 1500 && load < 4000) ? 'Warn' : 'Fail', 'TTFB ' + ttfb + 'ms · load ~' + load + 'ms (target: <600ms TTFB).'),
-    H('Indexability', 'Technical', s.noindex ? 'Fail' : 'Pass', s.noindex ? 'Page par noindex laga hai — Google search mein nahi aayega.' : 'Indexable — normal crawling allowed.'),
-    H('Internal Linking', 'Content', internal >= 3 ? 'Pass' : internal > 0 ? 'Warn' : 'Fail', internal + ' internal link(s) mile homepage par.'),
-    H('Log-file Analysis', 'Advanced', 'Manual', 'Server access logs — Search Console ya web server se manually verify karein.'),
+    {
+      title: 'URL Architecture',
+      group: 'Technical',
+      status: queryUrls.length ? 'Warn' : 'Pass',
+      finding: queryUrls.length ? `${queryUrls.length} URL(s) contain query parameters or uppercase segments.` : 'All discovered URLs have clean, lowercase, semantic structure.',
+      problem: queryUrls.length ? 'Query parameters (?id=..) aur special characters search engines ko page intent samajhne mein confuse karte hain.' : 'None. URL architecture clean hai.',
+      guide: 'Clean, descriptive lowercase URLs use karein with hyphens separating words (e.g. /category/product-name).'
+    },
+    {
+      title: 'Redirects & Status Codes',
+      group: 'Technical',
+      status: broken ? 'Fail' : 'Pass',
+      finding: broken ? `${broken} broken internal link(s) returned 404 or connection failure.` : 'All crawled internal links returned valid HTTP 200 OK.',
+      problem: broken ? 'Broken internal links waste crawler budget and lead to poor user experience (404 errors).' : 'None. Saare internal links healthy hain.',
+      guide: 'Dead links ko update karein ya 301 Permanent Redirect lagakar active destination page par point karein.'
+    },
+    {
+      title: 'Canonicalization',
+      group: 'Technical',
+      status: s.canonical ? 'Pass' : 'Fail',
+      finding: s.canonical ? `Canonical tag present: ${s.canonical}` : 'No self-referencing canonical tag found in <head>.',
+      problem: !s.canonical ? 'Without canonical tags, query variations (e.g. ?ref=..) duplicate content issues create kar sakti hain.' : 'None. Canonical tag active hai.',
+      guide: 'Har page ke <head> mein <link rel="canonical" href="https://yourdomain.com/page" /> add karein.'
+    },
+    {
+      title: 'Structured Data (JSON-LD)',
+      group: 'Content',
+      status: schema.length ? 'Pass' : 'Fail',
+      finding: schema.length ? `Detected schemas: ${schema.join(', ')}` : 'No schema.org structured data script found.',
+      problem: !schema.length ? 'Google Rich Snippets (stars, FAQ, organization) display nahi honge search result me.' : 'None. JSON-LD schema detect ho gaya.',
+      guide: 'Schema.org compliant <script type="application/ld+json"> format mein Organization/WebSite/Article schemas embed karein.'
+    },
+    {
+      title: 'Meta Description',
+      group: 'On-page',
+      status: !meta ? 'Fail' : (meta.length < 120 || meta.length > 200) ? 'Warn' : 'Pass',
+      finding: !meta ? 'Meta description tag is missing.' : `${meta.length} characters long (${meta.length < 120 ? 'Too short' : meta.length > 200 ? 'Too long' : 'Optimal'}).`,
+      problem: !meta ? 'Search result snippet me description missing hone se Click-Through Rate (CTR) drop ho sakta hai.' : 'Ideal character count 120-160 characters hota hai.',
+      guide: 'Har page par ek unique 120-160 characters ki compelling meta description with call-to-action provide karein.'
+    },
+    {
+      title: 'Open Graph & Social Cards',
+      group: 'On-page',
+      status: (hasOg && s.twitterCard) ? 'Pass' : (hasOg || s.twitterCard) ? 'Warn' : 'Fail',
+      finding: (hasOg && s.twitterCard) ? 'OG tags and Twitter card are both active.' : hasOg ? 'Open Graph present, but Twitter card missing.' : 'Social sharing meta tags are missing.',
+      problem: (!hasOg || !s.twitterCard) ? 'Social media (WhatsApp, LinkedIn, X) par share karne par preview card blank ya distorted aayega.' : 'None. Social previews configured hain.',
+      guide: 'og:title, og:description, og:image aur twitter:card="summary_large_image" tags <head> mein add karein.'
+    },
+    {
+      title: 'XML Sitemap',
+      group: 'Technical',
+      status: s.sitemapFound ? 'Pass' : 'Fail',
+      finding: s.sitemapFound ? `Sitemap found containing ${typeof s.sitemapUrls === 'number' ? s.sitemapUrls : 0} URLs.` : 'sitemap.xml not discovered at standard paths or robots.txt.',
+      problem: !s.sitemapFound ? 'Google aur Bing search engines deep pages ko discover karne mein time lagayenge.' : 'None. Sitemap discovered.',
+      guide: 'sitemap.xml file generate karke site root par host karein aur robots.txt mein Sitemap: URL declare karein.'
+    },
+    {
+      title: 'robots.txt Configuration',
+      group: 'Technical',
+      status: s.robotsExists ? 'Pass' : 'Fail',
+      finding: s.robotsExists ? 'robots.txt found with crawl guidelines.' : 'robots.txt not found at /robots.txt.',
+      problem: !s.robotsExists ? 'Search crawlers ko crawl paths aur private sections restrict karne ke rules nahi milenge.' : 'None. robots.txt available hai.',
+      guide: 'Root path par robots.txt create karein jisme User-agent: * rules aur Sitemap link ho.'
+    },
+    {
+      title: 'hreflang / International SEO',
+      group: 'Content',
+      status: (typeof s.hreflangCount === 'number' && s.hreflangCount > 0) ? 'Pass' : 'Manual',
+      finding: s.hreflangCount ? `${s.hreflangCount} alternate language mapping(s) found.` : 'No hreflang tags found (Only required if multilingual).',
+      problem: 'Agar website multiple languages target karti hai to bina hreflang ke duplicate content flag ho sakta hai.',
+      guide: 'Multilingual sites par <link rel="alternate" hreflang="lang-code" href="url" /> add karein.'
+    },
+    {
+      title: 'Crawl Budget & Renderability',
+      group: 'Technical',
+      status: blocking === 0 ? 'Pass' : blocking <= 3 ? 'Warn' : 'Fail',
+      finding: `${blocking} render-blocking external script(s) found in document.`,
+      problem: blocking > 0 ? 'Render-blocking JavaScript first paint time aur core web vitals ko delay karta hai.' : 'None. Sabhi scripts non-blocking hain.',
+      guide: '<script src=".."> par async ya defer attribute use karein taaki parsing block na ho.'
+    },
+    {
+      title: 'Core Web Vitals & Speed',
+      group: 'Technical',
+      status: (ttfb < 600 && load < 2500) ? 'Pass' : (ttfb < 1500 && load < 4000) ? 'Warn' : 'Fail',
+      finding: `Server TTFB: ${ttfb}ms · Page load proxy: ~${load}ms.`,
+      problem: ttfb >= 600 ? 'Slow server response time (>600ms) user bounce rate badhata hai aur ranking hurt karta hai.' : 'None. Fast server response.',
+      guide: 'Server caching (Redis/CDN), Gzip/Brotli compression, aur edge caching enable karein.'
+    },
+    {
+      title: 'Indexability & Directives',
+      group: 'Technical',
+      status: s.noindex ? 'Fail' : 'Pass',
+      finding: s.noindex ? 'Page contains <meta name="robots" content="noindex">.' : 'Page is fully indexable with no blocking noindex tag.',
+      problem: s.noindex ? 'noindex tag laga hone se yeh website Google search index se completely gayab ho jayegi.' : 'None. Page is indexable.',
+      guide: 'Robots meta tag se noindex remove karein agar page public search ke liye intended hai.'
+    },
+    {
+      title: 'Internal Linking Architecture',
+      group: 'Content',
+      status: internal >= 3 ? 'Pass' : internal > 0 ? 'Warn' : 'Fail',
+      finding: `${internal} internal navigational link(s) discovered on the homepage.`,
+      problem: internal < 3 ? 'Kam internal links hone se search bots deep pages tak efficiently nahi pahunch paate.' : 'None. Healthy internal linking structure.',
+      guide: 'Relevant anchor text ke sath header menu, footer aur contextual content links connect karein.'
+    },
+    {
+      title: 'Log-file & Advanced Crawl Monitoring',
+      group: 'Advanced',
+      status: 'Manual',
+      finding: 'Server-side access log inspection required.',
+      problem: 'Googlebot crawl frequency aur 5xx errors monitor na karne se indexing drops identify nahi ho paate.',
+      guide: 'Google Search Console > Settings > Crawl stats aur server logs regularly audit karein.'
+    }
   ];
 }
 
@@ -5263,23 +5387,53 @@ function renderSeoTopics(site) {
   const el = document.getElementById('seo-op-topics');
   if (!el) return;
   const tops = seoTopicsOf(site);
-  const color = st => st === 'Pass' ? 'var(--green)' : st === 'Warn' ? 'var(--amber)' : st === 'Fail' ? '#f87171' : 'var(--text3)';
-  const card = (t) => `
-    <div class="ws-kb-block" style="margin-bottom:6px;">
-      <div style="display:flex;justify-content:space-between;align-items:center;gap:6px;">
-        <div style="font-size:12px;font-weight:700;color:var(--text1);">${t.title}</div>
-        <span style="font-size:10px;font-weight:800;color:${color(t.status)};background:#00000022;padding:2px 8px;border-radius:10px;text-transform:uppercase;">${t.status}</span>
-      </div>
-      <div style="font-size:11px;color:var(--text2);margin-top:4px;line-height:1.4;">${escHtml(t.why)}</div>
-    </div>`;
+
+  const card = (t, idx) => {
+    const stLower = (t.status || 'manual').toLowerCase();
+    return `
+      <div class="seo-topic-card" data-topic-idx="${idx}">
+        <div class="seo-topic-header">
+          <div class="seo-topic-title">
+            <span>${escHtml(t.title)}</span>
+            <span class="seo-topic-status-badge ${stLower}">${escHtml(t.status)}</span>
+          </div>
+          <span class="seo-topic-chevron">▼</span>
+        </div>
+        <div class="seo-topic-body">
+          <div style="font-size:11.5px;color:var(--text1);margin-bottom:8px;line-height:1.45;">
+            <strong style="color:var(--text2);display:block;font-size:10.5px;text-transform:uppercase;letter-spacing:0.4px;margin-bottom:2px;">🔍 Live Audit Finding:</strong>
+            ${escHtml(t.finding)}
+          </div>
+          <div style="font-size:11.5px;color:#fbbf24;margin-bottom:8px;line-height:1.45;background:rgba(251,191,36,0.06);padding:6px 8px;border-radius:5px;">
+            <strong style="display:block;font-size:10.5px;text-transform:uppercase;letter-spacing:0.4px;margin-bottom:2px;">⚠️ Problem & Impact:</strong>
+            ${escHtml(t.problem)}
+          </div>
+          <div style="font-size:11.5px;color:var(--text2);line-height:1.45;background:rgba(255,255,255,0.04);padding:6px 8px;border-radius:5px;">
+            <strong style="color:var(--green);display:block;font-size:10.5px;text-transform:uppercase;letter-spacing:0.4px;margin-bottom:2px;">💡 Recommended Correction:</strong>
+            ${escHtml(t.guide)}
+          </div>
+        </div>
+      </div>`;
+  };
+
   el.innerHTML = `
-    <div class="ws-kb-block">
+    <div class="ws-kb-block" style="margin-bottom:12px;">
       <div class="ws-kb-label">🗺 14-Topic SEO Health Map</div>
-      <div style="font-size:11px;color:var(--text3);margin-top:2px;">Complete diagnostic checklist across Technical, On-page, Content, and Architecture parameters.</div>
+      <div style="font-size:11.5px;color:var(--text3);margin-top:2px;">
+        Kisi bhi topic par click karke problem detail aur correction guideline dekhein.
+      </div>
     </div>
-    <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px;">${['Technical', 'On-page', 'Content', 'Advanced'].map(g => `<span style="font-size:10px;color:var(--text2);background:#00000022;padding:2px 8px;border-radius:10px;">${g}</span>`).join('')}</div>
-    ${tops.map((t) => card(t)).join('')}
+    <div style="display:flex;flex-direction:column;gap:4px;">
+      ${tops.map((t, idx) => card(t, idx)).join('')}
+    </div>
   `;
+
+  el.querySelectorAll('.seo-topic-header').forEach(hdr => {
+    hdr.addEventListener('click', () => {
+      const parent = hdr.closest('.seo-topic-card');
+      if (parent) parent.classList.toggle('open');
+    });
+  });
 }
 
 async function loadSeoChat(id) {

@@ -2269,6 +2269,165 @@ body.persona-builder #model-selector { display: none !important; }
   background: var(--bg3); color: var(--text2);
   border: 1px solid var(--border2);
 }
+.ws-panel-toggle:hover { color: var(--text); background: var(--surface); }
+.hack-workspace {
+  flex: 1;
+  display: grid;
+  grid-template-columns: 240px minmax(0, 1fr) 420px;
+  min-height: 0;
+  transition: grid-template-columns 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.hack-workspace.list-collapsed {
+  grid-template-columns: 0 60% 40% !important;
+}
+.hack-workspace.list-collapsed .ws-list-col {
+  overflow: hidden;
+  border-right: none;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s ease;
+}
+.stalk-workspace {
+  flex: 1;
+  display: grid;
+  grid-template-columns: 240px 1fr;
+  min-height: 0;
+}
+.ws-col { min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
+.ws-list-col { border-right: 1px solid var(--border); background: var(--bg2); transition: opacity 0.25s ease; }
+.ws-knowledge-col { border-left: 1px solid var(--border); background: var(--bg2); }
+
+/* ── SEO Diagnostics & Interactive Accordions ──────────────── */
+.seo-pill-group {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: rgba(0, 0, 0, 0.3);
+  padding: 3px;
+  border-radius: 8px;
+  border: 1px solid var(--border2);
+}
+.seo-pill {
+  background: transparent;
+  border: none;
+  color: var(--text3);
+  font-size: 11px;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  text-transform: capitalize;
+}
+.seo-pill:hover {
+  color: var(--text1);
+  background: rgba(255, 255, 255, 0.05);
+}
+.seo-pill.active {
+  background: var(--surface2);
+  color: var(--text1);
+  font-weight: 700;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+}
+
+.seo-diag-card {
+  background: var(--surface);
+  border: 1px solid var(--border2);
+  border-radius: var(--radius-sm);
+  padding: 12px 14px;
+  margin-bottom: 10px;
+  transition: border-color 0.2s ease, transform 0.15s ease;
+}
+.seo-diag-card:hover {
+  border-color: var(--border);
+}
+.seo-diag-card.sev-high { border-left: 3.5px solid #f87171; }
+.seo-diag-card.sev-medium { border-left: 3.5px solid #fbbf24; }
+.seo-diag-card.sev-low { border-left: 3.5px solid #94a3b8; }
+.seo-diag-card.is-strength { border-left: 3.5px solid var(--green); }
+
+.seo-badge-tag {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+.seo-badge-tag.high { background: rgba(248, 113, 113, 0.15); color: #f87171; }
+.seo-badge-tag.medium { background: rgba(251, 191, 36, 0.15); color: #fbbf24; }
+.seo-badge-tag.low { background: rgba(148, 163, 184, 0.15); color: #94a3b8; }
+.seo-badge-tag.category { background: rgba(255, 255, 255, 0.06); color: var(--text2); }
+
+/* Accordion Topics */
+.seo-topic-card {
+  background: var(--surface);
+  border: 1px solid var(--border2);
+  border-radius: var(--radius-sm);
+  margin-bottom: 8px;
+  overflow: hidden;
+  transition: border-color 0.2s ease;
+}
+.seo-topic-card:hover {
+  border-color: var(--border);
+}
+.seo-topic-card.open {
+  border-color: rgba(var(--accent-rgb), 0.4);
+  background: rgba(255, 255, 255, 0.02);
+}
+.seo-topic-header {
+  padding: 10px 12px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  cursor: pointer;
+  user-select: none;
+}
+.seo-topic-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text1);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.seo-topic-status-badge {
+  font-size: 10px;
+  font-weight: 800;
+  padding: 2px 8px;
+  border-radius: 6px;
+  text-transform: uppercase;
+}
+.seo-topic-status-badge.pass { background: rgba(74, 222, 128, 0.15); color: #4ade80; }
+.seo-topic-status-badge.warn { background: rgba(251, 191, 36, 0.15); color: #fbbf24; }
+.seo-topic-status-badge.fail { background: rgba(248, 113, 113, 0.15); color: #f87171; }
+.seo-topic-status-badge.manual { background: rgba(148, 163, 184, 0.15); color: #94a3b8; }
+
+.seo-topic-chevron {
+  transition: transform 0.2s ease;
+  color: var(--text3);
+  font-size: 11px;
+}
+.seo-topic-card.open .seo-topic-chevron {
+  transform: rotate(180deg);
+  color: var(--text1);
+}
+
+.seo-topic-body {
+  display: none;
+  padding: 10px 12px 14px;
+  border-top: 1px dashed var(--border2);
+  background: rgba(0, 0, 0, 0.2);
+  animation: seoSlideDown 0.2s ease;
+}
+.seo-topic-card.open .seo-topic-body {
+  display: block;
+}
+
+@keyframes seoSlideDown {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
 .card-green .card-badge { background: rgba(var(--green-rgb),0.14); color: var(--green); border-color: rgba(var(--green-rgb),0.35); }
 .card-amber .card-badge { background: rgba(var(--amber-rgb),0.14); color: var(--amber); border-color: rgba(var(--amber-rgb),0.35); }
 .card-red .card-badge { background: rgba(var(--red-rgb),0.14); color: var(--red); border-color: rgba(var(--red-rgb),0.35); }
