@@ -2914,14 +2914,16 @@ body.collab-on .collab-state { color: #fff; background: var(--green); }
   .hq-grid-inner { grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); }
   .memory-cards-grid { grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); }
   .files-grid-list { grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); }
-  .hack-workspace { grid-template-columns: 320px 1fr 340px; }
+  .hack-workspace { grid-template-columns: 300px 1fr 360px; }
+  .hack-workspace.list-collapsed { grid-template-columns: 0 60% 40%; }
 }
 
 /* ── Laptops & Standard Desktops (1025px - 1440px) ───── */
 @media (max-width: 1440px) and (min-width: 1025px) {
   .message-row { max-width: 900px; margin: 0 auto; }
   .input-wrapper { max-width: 900px; }
-  .hack-workspace { grid-template-columns: 270px 1fr 290px; }
+  .hack-workspace { grid-template-columns: 260px 1fr 320px; }
+  .hack-workspace.list-collapsed { grid-template-columns: 0 60% 40%; }
 }
 
 /* ── Tablets & Small Laptops (769px - 1024px) ───────── */

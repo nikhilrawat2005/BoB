@@ -4730,7 +4730,6 @@ async function sendHackMessage() {
 
     // ── Knowledge auto-updated from pasted announcement ──────────────
     if (data.knowledgeUpdated) {
-      // Show a flash badge on the last assistant message
       const lastMsg = el.querySelector('.ws-msg.assistant:last-child .ws-msg-text');
       if (lastMsg) {
         const badge = document.createElement('div');
@@ -4738,10 +4737,8 @@ async function sendHackMessage() {
         badge.textContent = '📚 Knowledge panel updated from your paste!';
         lastMsg.appendChild(badge);
       }
-      // Refresh knowledge panel without full list reload
       try {
         const { hackathon } = await apiFetch(`/api/hackathons/${currentHack.id}`);
-        // Update the cache entry
         const idx = hackathonsCache.findIndex(h => String(h.id) === String(currentHack.id));
         if (idx !== -1) hackathonsCache[idx] = hackathon;
         currentHack = hackathon;
@@ -4921,7 +4918,7 @@ async function selectSeo(id) {
   if (header) header.innerHTML = `<span>🔍 ${escHtml(site.domain || site.url)}</span>${typeof score === 'number' ? `<span class="ws-chat-header-status ${seoScoreClass(score)}">${score}/100</span>` : ''}`;
 
   const input = document.getElementById('seo-chat-input');
-  if (input) { input.disabled = false; input.placeholder = 'SEO fixes ke baare me poochho…'; }
+  if (input) { input.disabled = false; input.placeholder = 'Website ke SEO issues aur problems ke baare me poochho…'; }
   const sendBtn = document.getElementById('seo-send-btn');
   if (sendBtn) sendBtn.disabled = false;
 
@@ -4929,8 +4926,6 @@ async function selectSeo(id) {
   await loadSeoChat(id);
   if (input) input.focus();
 }
-
-let lastSeoPlan = null;
 
 function seoSparkline(history) {
   const pts = (Array.isArray(history) ? history : []).map(h => h.score).filter(n => typeof n === 'number');
@@ -4977,54 +4972,6 @@ function seoExportSite(site, fmt) {
   }
 }
 
-async function openSeoFixPlan(siteId) {
-  const btn = document.getElementById('seo-fp-gen');
-  if (btn) { btn.disabled = true; btn.textContent = '⏳ Generating…'; }
-  try {
-    const { plan } = await apiFetch('/api/seo/' + siteId + '/fixplan');
-    lastSeoPlan = plan;
-    renderSeoFixPlan(plan);
-  } catch (err) {
-    alert('Fix plan failed: ' + err.message);
-  } finally {
-    if (btn) { btn.disabled = false; btn.textContent = '🛠 Generate Fix Plan'; }
-  }
-}
-
-function renderSeoFixPlan(plan) {
-  const meta = document.getElementById('seo-fp-meta');
-  const art = document.getElementById('seo-fp-artifacts');
-  const gEl = document.getElementById('seo-fp-guidelines');
-  const artObj = plan.artifacts || {};
-  const items = [
-    { key: 'robotsTxt', title: '🤖 robots.txt', file: 'robots.txt', code: artObj.robotsTxt || '' },
-    { key: 'sitemap', title: '🗺 sitemap.xml', file: 'sitemap.xml', code: artObj.sitemap || '' },
-    { key: 'canonical', title: '🔗 Canonical tag', file: 'canonical-fragment.html', code: artObj.canonical || '' },
-    { key: 'ogBlock', title: '📱 OG + Twitter tags', file: 'og-tags.html', code: artObj.ogBlock || '' },
-    { key: 'jsonld', title: '🧩 Structured data (JSON-LD)', file: 'schema.jsonld', code: artObj.jsonld || '' },
-  ];
-  const blocks = items.map((it, idx) => `
-    <div class="ws-kb-block">
-      <div class="ws-kb-label" style="display:flex;justify-content:space-between;align-items:center;">
-        <span>${it.title}</span>
-        <span>
-          <button class="btn-small" data-seo-copy="${idx}">Copy</button>
-          <button class="btn-small" data-seo-dl="${idx}">Download</button>
-        </span>
-      </div>
-      <pre style="font-size:10.5px;background:#00000022;padding:8px;border-radius:6px;overflow:auto;max-height:200px;white-space:pre-wrap;word-break:break-word;color:var(--text1);">${escHtml(it.code)}</pre>
-    </div>`).join('');
-  if (meta) meta.innerHTML = `<div class="ws-kb-block"><div class="ws-kb-label">🛠 Fix Plan — ${escHtml(plan.domain)}</div>
-    <div style="font-size:11px;color:var(--text3);">Generated ${new Date(plan.generatedAt).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })} · score ${typeof plan.score === 'number' ? plan.score + '/100' : '—'}. Ready-to-deploy files — copy/download karke site root pe upload karo, phir Re-Audit chalao.</div></div>`;
-  if (art) art.innerHTML = blocks;
-  if (gEl) gEl.innerHTML = `
-    <div class="ws-kb-block"><div class="ws-kb-label">📌 Guidelines</div>${(plan.guidelines || []).map(g => `<div style="font-size:12px;margin-bottom:6px;color:var(--text2);line-height:1.5;">• ${escHtml(g)}</div>`).join('')}</div>
-    <div class="ws-kb-block"><div class="ws-kb-label">✅ Deploy checklist</div>
-      ${['1️⃣ robots.txt + sitemap.xml ko site ke root pe upload karo (existing files overwrite karo).', '2️⃣ canonical + OG + JSON-LD fragments ko apne page ke <head> mein merge karo.', '3️⃣ Google Search Console mein property verify karke sitemap submit karo.', '4️⃣ Tab Re-Audit chalao — score fix hua ya nahi verify karo.', '5️⃣ Har page ka title/meta description unique rakho (duplicate titles fix karo).'].map(x => `<div style="font-size:12px;color:var(--text2);margin-bottom:4px;line-height:1.4;">${x}</div>`).join('')}
-    </div>`;
-  switchSeoOpTab('fixplan');
-}
-
 function renderSeoAudit(site) {
   const el = document.getElementById('seo-audit');
   const a = site.audit || {};
@@ -5045,28 +4992,18 @@ function renderSeoAudit(site) {
     return `<div style="font-size:12px;margin-top:8px;"><div style="display:flex;justify-content:space-between;color:var(--text2);"><span>${k.charAt(0).toUpperCase() + k.slice(1)}</span><span>${val}/100</span></div>${bar(val)}</div>`;
   }).join('');
 
-  const issues = (a.issues || []).slice(0, 8).map(i =>
-    `<div style="font-size:12px;margin-bottom:8px;line-height:1.5;"><span style="color:${i.severity === 'high' ? '#f87171' : i.severity === 'medium' ? '#fbbf24' : 'var(--text3)'};font-weight:700;text-transform:capitalize;">[${i.severity}]</span> <span style="color:var(--text1);">${escHtml(i.text)}</span></div>`
-  ).join('') || '<div style="font-size:12px;color:var(--text3);">No issues flagged — clean setup!</div>';
-
-  const recs = (a.recommendations || []).slice(0, 6).map(r =>
-    `<div style="font-size:12px;margin-bottom:8px;line-height:1.5;"><span style="font-weight:700;color:${r.priority === 'high' ? '#f87171' : r.priority === 'medium' ? '#fbbf24' : 'var(--text2)'};text-transform:uppercase;">${escHtml(r.priority)}</span> <span style="color:var(--text1);">${escHtml(r.issue)}</span><div style="color:var(--text2);">→ ${escHtml(r.fix)}</div></div>`
-  ).join('') || '<div style="font-size:12px;color:var(--text3);">No recommendations yet.</div>';
-
   const signalRow = (label, value) =>
     `<div style="display:flex;justify-content:space-between;font-size:12px;padding:3px 0;color:var(--text2);"><span>${label}</span><span style="font-weight:600;color:var(--text1);">${value}</span></div>`;
 
   const opTab = (id, active, label) =>
-    `<button class="seo-op-tab${active ? ' seo-op-tab-on' : ''}" data-seop="${id}" style="padding:5px 10px;border-radius:8px;background:#00000033;color:var(--text2);font-size:11px;font-weight:700;border:1px solid #ffffff18;${active ? 'background:#00000055;color:var(--text1);box-shadow:inset 0 0 0 1px #ffffff33;' : ''}">${label}</button>`;
+    `<button class="seo-op-tab${active ? ' seo-op-tab-on' : ''}" data-seop="${id}" style="padding:6px 12px;border-radius:8px;background:#00000033;color:var(--text2);font-size:11px;font-weight:700;border:1px solid #ffffff18;${active ? 'background:#00000055;color:var(--text1);box-shadow:inset 0 0 0 1px #ffffff33;' : ''}">${label}</button>`;
 
   el.innerHTML = `
     <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px;">
       ${opTab('dash', true, '📊 Dashboard')}
-      ${opTab('issues', false, '⚠️ Issues (' + ((a.issues || []).length) + ')')}
+      ${opTab('issues', false, '⚠️ Problems (' + ((a.issues || []).length) + ')')}
+      ${opTab('strengths', false, '✅ Strengths')}
       ${opTab('topics', false, '🗺 14-Topics')}
-      ${opTab('fixplan', false, '🛠 Fix Plan')}
-      ${opTab('compare', false, '⚔️ Compare')}
-      ${opTab('kw', false, '🎯 Keywords')}
     </div>
     <div class="seo-op-pane" data-seopath="dash">
       <div class="ws-kb-block" style="text-align:center;">
@@ -5074,81 +5011,43 @@ function renderSeoAudit(site) {
         ${seoSparkline(site.history)}
         <div style="font-size:11px;color:var(--text3);">${typeof a.pagesFound === 'number' ? a.pagesFound + ' pages audited · ' : ''}${a.auditedAt ? new Date(a.auditedAt).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }) : ''}</div>
       </div>
-      ${a.summary ? `<div class="ws-kb-block"><div class="ws-kb-label">📝 Summary</div><div style="font-size:12px;line-height:1.5;">${escHtml(a.summary)}</div></div>` : ''}
-      <div class="ws-kb-block"><div class="ws-kb-label">📊 Breakdown</div>${breakdownRows}</div>
-      <div class="ws-kb-block"><div class="ws-kb-label">🌐 Technical signals</div>
+      ${a.summary ? `<div class="ws-kb-block"><div class="ws-kb-label">📝 Audit Summary</div><div style="font-size:12px;line-height:1.5;color:var(--text1);">${escHtml(a.summary)}</div></div>` : ''}
+      <div class="ws-kb-block"><div class="ws-kb-label">📊 Category Breakdown</div>${breakdownRows}</div>
+      <div class="ws-kb-block"><div class="ws-kb-label">🌐 Technical Signals</div>
         ${signalRow('⚡ TTFB', typeof signals.ttfbMs === 'number' ? signals.ttfbMs + 'ms' : '—')}
         ${signalRow('📦 Page size', typeof signals.htmlBytes === 'number' ? (signals.htmlBytes / 1024).toFixed(0) + ' KB' : '—')}
-        ${signalRow('🧩 Scripts', typeof signals.scriptSrcCount === 'number' ? signals.scriptSrcCount + ' (⚠️ ' + signals.blockingScripts + ' blocking)' : '—')}
+        ${signalRow('🧩 Scripts', typeof signals.scriptSrcCount === 'number' ? signals.scriptSrcCount + ' (' + (signals.blockingScripts ? '⚠️ ' + signals.blockingScripts + ' blocking' : '0 blocking') + ')' : '—')}
         ${signalRow('🎨 CSS files', typeof signals.cssLinkCount === 'number' ? signals.cssLinkCount : '—')}
-        ${signalRow('🖼 Images', typeof signals.imgCount === 'number' ? signals.imgCount + ' (⌛ ' + signals.lazyImages + ' lazy)' : '—')}
+        ${signalRow('🖼 Images', typeof signals.imgCount === 'number' ? signals.imgCount + ' (' + (signals.lazyImages || 0) + ' lazy)' : '—')}
         ${signalRow('🧱 Semantic tags', typeof signals.semanticCount === 'number' ? signals.semanticCount + '/7' : '—')}
-        ${signalRow('🗺 Sitemap', typeof sitemapCount === 'number' ? sitemapCount + ' URLs' + (sitemapLastmod ? ' (📅 ' + sitemapLastmod + ' lastmod)' : '') : '-')}
+        ${signalRow('🗺 Sitemap', typeof sitemapCount === 'number' ? sitemapCount + ' URLs' + (sitemapLastmod ? ' (📅 ' + sitemapLastmod + ' lastmod)' : '') : '—')}
         ${signalRow('🤖 robots.txt', robotsExists ? 'found' : 'missing')}
         ${typeof signals.hreflangCount === 'number' ? signalRow('🌍 hreflang', signals.hreflangCount + (signals.hreflangCount === 1 ? ' lang' : ' langs')) : ''}
         ${Array.isArray(signals.schemaTypes) && signals.schemaTypes.length ? signalRow('🧩 Schema', signals.schemaTypes.join(', ')) : ''}
       </div>
       <div class="ws-kb-block"><div class="ws-kb-label">⚙️ Site Management</div>
-        <select id="seo-reaudit-freq" style="width:100%;padding:4px;border-radius:6px;background:#00000033;color:var(--text1);border:1px solid #ffffff22;">
+        <select id="seo-reaudit-freq" style="width:100%;padding:6px;border-radius:6px;background:#00000033;color:var(--text1);border:1px solid #ffffff22;font-size:12px;">
           <option value="0">Off — sirf manual re-audit</option>
           <option value="24">Daily (har 24h)</option>
           <option value="168">Weekly (har 168h)</option>
         </select>
-        <div style="font-size:10px;color:var(--text3);margin-top:4px;">GitHub Actions ke background pump se auto re-audit chalega — score trend history me jude rahega.</div>
+        <div style="font-size:10px;color:var(--text3);margin-top:4px;">GitHub Actions background pump auto re-audit karega aur score history maintain rakhega.</div>
         <div style="display:flex;gap:6px;margin-top:8px;">
           <button class="btn-small" id="seo-export-json" title="Download JSON" style="flex:1;">⤓ JSON</button>
           <button class="btn-small" id="seo-export-csv" title="Download CSV" style="flex:1;">⤓ CSV</button>
           <button class="btn-small" id="seo-report-btn" title="Download full HTML report" style="flex:1;">📄 Report</button>
         </div>
-        <button class="btn-small" id="re-audit-seo" style="width:100%;margin-top:8px;">↻ Re-Audit Website</button>
+        <button class="btn-small" id="re-audit-seo" style="width:100%;margin-top:8px;padding:6px 0;font-weight:700;">↻ Re-Audit Website</button>
       </div>
     </div>
     <div class="seo-op-pane" data-seopath="issues" hidden id="seo-op-issues"></div>
+    <div class="seo-op-pane" data-seopath="strengths" hidden id="seo-op-strengths"></div>
     <div class="seo-op-pane" data-seopath="topics" hidden id="seo-op-topics"></div>
-    <div class="seo-op-pane" data-seopath="fixplan" hidden>
-      <div id="seo-fp-meta"></div>
-      <button class="btn-small" id="seo-fp-gen" style="width:100%;margin:8px 0;">🛠 Generate Fix Plan</button>
-      <div id="seo-fp-artifacts"></div>
-      <div id="seo-fp-guidelines"></div>
-    </div>
-    <div class="seo-op-pane" data-seopath="compare" hidden>
-      <div class="ws-add-row" style="margin:6px 0;">
-        <input id="seo-op-compare-input" type="text" placeholder="Compare: url1, url2, ... (max 4)" />
-        <button class="btn-small" id="seo-op-compare-btn">⚔️</button>
-      </div>
-      <div id="seo-op-compare-results"><div class="empty-msg" style="font-size:11px;">Rival sites ke URLs daalo (comma-separated, max 4) — live quick audit + score comparison.</div></div>
-    </div>
-    <div class="seo-op-pane" data-seopath="kw" hidden>
-      <div class="ws-kb-label">🎯 Target Keywords</div>
-      <div style="display:flex;gap:6px;">
-        <input id="seo-kw-input" type="text" placeholder="e.g. wedding planner" style="flex:1;padding:4px;border-radius:6px;background:#00000033;color:var(--text1);border:1px solid #ffffff22;" />
-        <button class="btn-small" id="seo-kw-add">＋</button>
-      </div>
-      <div id="seo-op-kw-list" style="margin-top:6px;"></div>
-      <div style="font-size:10px;color:var(--text3);margin-top:4px;">Har re-audit par har keyword homepage (title/meta/body) mein search hoga — ✓ found / ✗ missing.</div>
-    </div>
   `;
 
-  renderSeoKeyList(site);
   renderSeoIssues(site);
+  renderSeoStrengths(site);
   renderSeoTopics(site);
-
-  const kwInput = document.getElementById('seo-kw-input');
-  const kwAdd = document.getElementById('seo-kw-add');
-  const addKeyword = async () => {
-    const kw = (kwInput ? kwInput.value : '').trim();
-    if (!kw || !site.id) return;
-    if (kwAdd) { kwAdd.disabled = true; }
-    try {
-      const { keywords } = await apiFetch('/api/seo/' + site.id + '/keywords', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ keyword: kw }) });
-      site.keywords = keywords;
-      renderSeoKeyList(site);
-      if (kwInput) kwInput.value = '';
-    } catch (err) { alert('Add failed: ' + err.message); }
-    finally { if (kwAdd) kwAdd.disabled = false; }
-  };
-  if (kwAdd) kwAdd.addEventListener('click', addKeyword);
-  if (kwInput) kwInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') addKeyword(); });
 
   const ra = document.getElementById('re-audit-seo');
   if (ra) ra.addEventListener('click', async () => {
@@ -5174,14 +5073,6 @@ function renderSeoAudit(site) {
   });
 
   el.querySelectorAll('.seo-op-tab').forEach(b => b.addEventListener('click', () => switchSeoOpTab(b.dataset.seop)));
-
-  const fpGen = document.getElementById('seo-fp-gen');
-  if (fpGen) fpGen.addEventListener('click', () => openSeoFixPlan(site.id));
-
-  const cInp = document.getElementById('seo-op-compare-input');
-  const cBtn = document.getElementById('seo-op-compare-btn');
-  if (cBtn) cBtn.addEventListener('click', compareSitesFrontend);
-  if (cInp) cInp.addEventListener('keydown', (e) => { if (e.key === 'Enter') compareSitesFrontend(); });
 
   const expJson = document.getElementById('seo-export-json');
   if (expJson) expJson.addEventListener('click', () => seoExportSite(site, 'json'));
@@ -5211,44 +5102,13 @@ function renderSeoAudit(site) {
         const idx = seoSitesCache.findIndex(x => String(x.id) === String(site.id));
         if (idx !== -1) seoSitesCache[idx] = updated;
         currentSeoSite = updated;
-        alert(enabled ? '✅ Auto re-audit ON — har ' + val + 'h mein background mein chalega (score history update hogi).' : 'Auto re-audit OFF.');
+        alert(enabled ? '✅ Auto re-audit ON — har ' + val + 'h mein background mein chalega.' : 'Auto re-audit OFF.');
       } catch (err) {
         freq.value = String(site.reAuditEnabled ? (Number(site.reAuditIntervalHours) || 24) : 0);
         alert('Settings update failed: ' + err.message);
       }
     });
   }
-
-  const fp = document.getElementById('seo-op-fixplan');
-  if (fp) fp.addEventListener('click', async (ev) => {
-    const copyBtn = ev.target.closest('[data-seo-copy]');
-    let idx;
-    if (copyBtn && (idx = Number(copyBtn.dataset.seoCopy)) >= 0 && lastSeoPlan && lastSeoPlan.artifacts) {
-      const keys = ['robotsTxt', 'sitemap', 'canonical', 'ogBlock', 'jsonld'];
-      const code = lastSeoPlan.artifacts[keys[idx]] || '';
-      try {
-        await navigator.clipboard.writeText(code);
-        const old = copyBtn.textContent;
-        copyBtn.textContent = '✓ Copied';
-        setTimeout(() => { copyBtn.textContent = old; }, 1200);
-      } catch {
-        copyBtn.textContent = 'Copy failed';
-        setTimeout(() => { copyBtn.textContent = 'Copy'; }, 1200);
-      }
-    }
-    const dlBtn = ev.target.closest('[data-seo-dl]');
-    if (dlBtn && lastSeoPlan && lastSeoPlan.artifacts) {
-      const meta = [
-        ['robotsTxt', 'robots.txt', 'text/plain'],
-        ['sitemap', 'sitemap.xml', 'application/xml'],
-        ['canonical', 'canonical-fragment.html', 'text/html'],
-        ['ogBlock', 'og-tags.html', 'text/html'],
-        ['jsonld', 'schema.jsonld', 'application/ld+json'],
-      ];
-      const it = meta[Number(dlBtn.dataset.seoDl)];
-      if (it) seoDownloadBlob(`${(lastSeoPlan.domain || 'site')}-${it[1]}`, lastSeoPlan.artifacts[it[0]] || '', it[2]);
-    }
-  });
 }
 
 let seoIssueSev = 'all';
@@ -5261,8 +5121,9 @@ function switchSeoOpTab(name) {
     setWorkspaceTab('seo', 'knowledge');
   }
   document.querySelectorAll('#seo-audit .seo-op-tab').forEach(b => {
-    b.classList.toggle('seo-op-tab-on', b.dataset.seop === name);
-    if (b.dataset.seop === name) {
+    const isTarget = b.dataset.seop === name;
+    b.classList.toggle('seo-op-tab-on', isTarget);
+    if (isTarget) {
       b.style.background = '#00000055';
       b.style.color = 'var(--text1)';
       b.style.boxShadow = 'inset 0 0 0 1px #ffffff33';
@@ -5277,67 +5138,93 @@ function switchSeoOpTab(name) {
   });
 }
 
-function seoAskBuilder(prompt) {
-  const input = document.getElementById('seo-chat-input');
-  if (!input || !currentSeoSite) { alert('Pehle koi website select karo.'); return; }
-  if (window.innerWidth <= 1024) setWorkspaceTab('seo', 'chat');
-  input.value = prompt;
-  input.style.height = 'auto';
-  sendSeoMessage();
-}
-
 function renderSeoIssues(site) {
   const el = document.getElementById('seo-op-issues');
   if (!el) return;
   const issues = (site.audit && site.audit.issues) || [];
-  const recs = (site.audit && site.audit.recommendations) || [];
-  const recsHtml = recs.length ? `
-    <div class="ws-kb-block" style="margin-bottom:8px;">
-      <div class="ws-kb-label">🛠 Recommendations</div>
-      ${recs.slice(0, 8).map(r => `<div style="font-size:12px;margin-bottom:6px;color:var(--text2);line-height:1.5;">• ${escHtml(r)}</div>`).join('')}
-    </div>` : '';
   const cats = [...new Set(issues.map(i => i.category || 'misc'))];
   const sevOrder = { high: 3, medium: 2, low: 1 };
   const filtered = issues.filter(i =>
     (seoIssueSev === 'all' || i.severity === seoIssueSev) &&
     (seoIssueCat === 'all' || i.category === seoIssueCat)
   ).sort((x, y) => (sevOrder[y.severity] || 0) - (sevOrder[x.severity] || 0));
+
   const chip = (kind, val, label, active) =>
-    `<button class="btn-small seo-issue-chip" data-kind="${kind}" data-val="${val}" style="${active ? 'outline:2px solid var(--amber);' : ''}">${label}</button>`;
+    `<button class="btn-small seo-issue-chip" data-kind="${kind}" data-val="${val}" style="${active ? 'outline:2px solid var(--amber);background:#00000055;' : ''}">${label}</button>`;
   const sevChips = chip('sev', 'all', 'All', seoIssueSev === 'all') +
     ['high', 'medium', 'low'].map(s => chip('sev', s, s, seoIssueSev === s)).join('');
   const catChips = chip('cat', 'all', 'All', seoIssueCat === 'all') +
     cats.map(c => chip('cat', c, c, seoIssueCat === c)).join('');
   const counts = { high: issues.filter(i => i.severity === 'high').length, medium: issues.filter(i => i.severity === 'medium').length, low: issues.filter(i => i.severity === 'low').length };
+
   const list = filtered.length ? filtered.map(i => `
-    <div class="ws-kb-block" style="margin-bottom:6px;">
+    <div class="ws-kb-block" style="margin-bottom:8px;border-left:3px solid ${i.severity === 'high' ? '#f87171' : i.severity === 'medium' ? '#fbbf24' : 'var(--border2)'};">
       <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
-        <span style="color:${i.severity === 'high' ? '#f87171' : i.severity === 'medium' ? '#fbbf24' : 'var(--text3)'};font-weight:700;text-transform:capitalize;">[${i.severity}]</span>
-        <span style="font-size:10px;background:#00000033;padding:2px 6px;border-radius:10px;color:var(--text2);">${escHtml(i.category || 'misc')}</span>
+        <span style="color:${i.severity === 'high' ? '#f87171' : i.severity === 'medium' ? '#fbbf24' : 'var(--text3)'};font-weight:700;text-transform:capitalize;font-size:11px;">[${i.severity}]</span>
+        <span style="font-size:10px;background:#00000033;padding:2px 6px;border-radius:10px;color:var(--text2);text-transform:uppercase;">${escHtml(i.category || 'misc')}</span>
       </div>
-      <div style="font-size:12px;margin-top:4px;color:var(--text1);line-height:1.5;">${escHtml(i.text)}</div>
-      <button class="btn-small seo-issue-fix" data-fix="${escHtml(i.text)}" style="margin-top:6px;width:100%;">🤖 Fix with Builder</button>
-    </div>`).join('') : `<div style="font-size:12px;color:var(--text3);">Is filter mein koi issue nahi — 🎉</div>`;
+      <div style="font-size:12px;margin-top:5px;color:var(--text1);line-height:1.5;">${escHtml(i.text)}</div>
+    </div>`).join('') : `<div style="font-size:12px;color:var(--text3);padding:10px 0;">Is category mein koi issue nahi mila — All clean! 🎉</div>`;
+
   el.innerHTML = `
-    ${recsHtml}
-    <div style="font-size:11px;color:var(--text3);margin-bottom:6px;">${issues.length} issues total — <span style="color:#f87171;">${counts.high} high</span> · <span style="color:#fbbf24;">${counts.medium} med</span> · <span style="color:var(--text3);">${counts.low} low</span></div>
+    <div class="ws-kb-block">
+      <div class="ws-kb-label">⚠️ Negative Points & Vulnerabilities</div>
+      <div style="font-size:11px;color:var(--text3);margin-top:2px;">${issues.length} total issues flagged — <span style="color:#f87171;font-weight:700;">${counts.high} high</span> · <span style="color:#fbbf24;font-weight:700;">${counts.medium} med</span> · <span style="color:var(--text3);">${counts.low} low</span></div>
+    </div>
     <div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:6px;align-items:center;">
       <span style="font-size:10px;color:var(--text3);">Severity:</span>${sevChips}
     </div>
-    ${cats.length ? `<div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:8px;align-items:center;"><span style="font-size:10px;color:var(--text3);">Category:</span>${catChips}</div>` : ''}
+    <div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:8px;align-items:center;"><span style="font-size:10px;color:var(--text3);">Category:</span>${catChips}</div>
     ${list}
-    <div style="font-size:10px;color:var(--text3);margin-top:8px;">💡 "Fix with Builder" dabao — Builder AI usi issue ka root cause + step-by-step fix + ready-use code chat mein dega.</div>
   `;
+
   el.querySelectorAll('.seo-issue-chip').forEach(ch => ch.addEventListener('click', () => {
     if (ch.dataset.kind === 'sev') seoIssueSev = ch.dataset.val;
     else seoIssueCat = ch.dataset.val;
     renderSeoIssues(site);
   }));
-  el.querySelectorAll('.seo-issue-fix').forEach(b => b.addEventListener('click', () => {
-    const s = site.audit || {};
-    const d = site.domain || site.url;
-    seoAskBuilder(`Meri site "${d}" (SEO score ${typeof s.score === 'number' ? s.score + '/100' : '—'}) mein ye SEO issue hai: "${b.dataset.fix}". Root cause samjhao, step-by-step fix do, aur ready-to-use code/tags bhi de. Practical, Hinglish.`);
-  }));
+}
+
+function renderSeoStrengths(site) {
+  const el = document.getElementById('seo-op-strengths');
+  if (!el) return;
+  const a = site.audit || {};
+  const sig = a.signals || {};
+  const urls = Array.isArray(a.crawledUrls) ? a.crawledUrls : [];
+  const broken = (Array.isArray(a.broken) ? a.broken : []).filter(b => b && !b.ok).length;
+
+  const strengths = [];
+
+  if (site.url && site.url.startsWith('https://')) strengths.push({ title: 'HTTPS Enabled', note: 'Website SSL secured connection par hai — ranking & security advantage.' });
+  if (sig.noindex === false) strengths.push({ title: 'Search Engine Indexable', note: 'noindex directive nahi hai — search engines easily crawl aur index kar sakte hain.' });
+  if (sig.canonical) strengths.push({ title: 'Canonical Tag Active', note: 'Self-referencing canonical tag maujood hai — duplicate content issues se protection.' });
+  if (sig.semanticCount >= 2) strengths.push({ title: 'HTML5 Semantic Layout', note: `${sig.semanticCount}/7 semantic structure tags (header/nav/main/section/footer) use ho rahe hain.` });
+  if (sig.robotsExists) strengths.push({ title: 'robots.txt Configured', note: 'Search engine crawler rules robots.txt mein accurately defined hain.' });
+  if (sig.sitemapFound) strengths.push({ title: 'XML Sitemap Discovered', note: `${sig.sitemapUrls || 0} URLs sitemap structure mein available hain.` });
+  if (sig.ttfbMs && sig.ttfbMs < 1000) strengths.push({ title: 'Fast Server TTFB', note: `Server first byte response time healthy hai (${sig.ttfbMs}ms).` });
+  if (sig.htmlBytes && sig.htmlBytes < 300 * 1024) strengths.push({ title: 'Lightweight HTML Payload', note: `HTML page weight sirf ${(sig.htmlBytes / 1024).toFixed(0)} KB hai.` });
+  if (sig.blockingScripts === 0) strengths.push({ title: 'Zero Render-Blocking Scripts', note: 'Sabhi scripts async/defer ya non-blocking mode mein load ho rahe hain.' });
+  if (Array.isArray(sig.schemaTypes) && sig.schemaTypes.length > 0) strengths.push({ title: 'JSON-LD Structured Data', note: `Rich snippet schemas: ${sig.schemaTypes.join(', ')}.` });
+  if (broken === 0 && urls.length > 0) strengths.push({ title: 'Zero Broken Internal Links', note: 'Koi 404 ya broken page internal crawl mein nahi mila.' });
+  if (sig.ogTitle && sig.ogImage) strengths.push({ title: 'Social Graph Ready', note: 'Open Graph (og:title, og:image) preview social media sharing ke liye configured hai.' });
+  if (sig.twitterCard) strengths.push({ title: 'Twitter Card Meta Active', note: 'Twitter share cards summary_large_image properly configured hain.' });
+
+  const list = strengths.length ? strengths.map(s => `
+    <div class="ws-kb-block" style="margin-bottom:8px;border-left:3px solid var(--green);">
+      <div style="display:flex;align-items:center;gap:6px;">
+        <span style="color:var(--green);font-weight:800;font-size:12px;">✓</span>
+        <span style="font-weight:700;font-size:12px;color:var(--text1);">${escHtml(s.title)}</span>
+      </div>
+      <div style="font-size:11px;color:var(--text2);margin-top:3px;line-height:1.4;">${escHtml(s.note)}</div>
+    </div>`).join('') : `<div style="font-size:12px;color:var(--text3);padding:10px 0;">Strengths calculate ho rahi hain…</div>`;
+
+  el.innerHTML = `
+    <div class="ws-kb-block">
+      <div class="ws-kb-label">✅ Positive Points & Highlights</div>
+      <div style="font-size:11px;color:var(--text3);margin-top:2px;">${strengths.length} verified positive signals jo website ki ranking aur user experience ko boost karte hain.</div>
+    </div>
+    ${list}
+  `;
 }
 
 function seoTopicsOf(site) {
@@ -5355,20 +5242,20 @@ function seoTopicsOf(site) {
   const queryUrls = urls.filter(u => /[?&=]/.test(u));
   const H = (title, group, status, why) => ({ title, group, status, why });
   return [
-    H('URL Architecture', 'Technical', queryUrls.length ? 'Warn' : 'Pass', queryUrls.length ? queryUrls.length + ' crawl URL(s) mein query params/messy URLs — clean, lowercase, keyword-rich URLs use karo.' : 'Crawled URLs clean hain (no query junk).'),
-    H('Redirects & Status Codes', 'Technical', broken ? 'Fail' : 'Pass', broken ? broken + ' broken internal link(s) mile (404/error).' : 'Koi broken internal link nahi mila.'),
-    H('Canonicalization', 'Technical', s.canonical ? 'Pass' : 'Fail', s.canonical ? 'Canonical tag present: ' + s.canonical : 'Har page par <link rel="canonical"> missing — duplicate content risk.'),
-    H('Structured Data', 'Content', schema.length ? 'Pass' : 'Fail', schema.length ? 'JSON-LD type(s): ' + schema.join(', ') : 'Koi JSON-LD structured data nahi mila.'),
-    H('Meta Description', 'On-page', !meta ? 'Fail' : (meta.length < 120 || meta.length > 200) ? 'Warn' : 'Pass', !meta ? 'Meta description missing.' : meta.length + ' chars (' + (meta.length < 120 ? 'kam' : 'zyada') + ') — ideal 120-200.'),
-    H('Open Graph + Twitter', 'On-page', (hasOg && s.twitterCard) ? 'Pass' : (hasOg || s.twitterCard) ? 'Warn' : 'Fail', (hasOg && s.twitterCard) ? 'OG + twitter:card present.' : (hasOg ? 'OG hai but twitter:card missing.' : (s.twitterCard ? 'twitter:card hai but OG tags missing.' : 'OG + Twitter meta missing — shared links bland.'))),
-    H('XML Sitemap', 'Technical', s.sitemapFound ? 'Pass' : 'Fail', s.sitemapFound ? 'sitemap mile — ' + (typeof s.sitemapUrls === 'number' ? s.sitemapUrls + ' URLs' : '') : 'XML sitemap missing/undiscoverable — GSC submit hoga nahi.'),
-    H('robots.txt', 'Technical', s.robotsExists ? 'Pass' : 'Fail', s.robotsExists ? 'robots.txt present.' : 'robots.txt missing — crawl directives + sitemap pointer chahiye.'),
-    H('hreflang', 'Content', (typeof s.hreflangCount === 'number' && s.hreflangCount > 0) ? 'Pass' : 'Manual', s.hreflangCount ? s.hreflangCount + ' hreflang link(s) — multi-language URLs map ho rahe.' : 'hreflang nahi mila — sirf tab zaroori hai agar site multi-language hai.'),
-    H('Crawl Budget / Renderability', 'Technical', blocking === 0 ? 'Pass' : blocking <= 3 ? 'Warn' : 'Fail', blocking + ' render-blocking script(s) — async/defer lagao ya critical CSS inline karo.'),
-    H('Core Web Vitals', 'Technical', (ttfb < 600 && load < 2500) ? 'Pass' : (ttfb < 1500 && load < 4000) ? 'Warn' : 'Fail', 'TTFB ' + ttfb + 'ms · load ~' + load + 'ms (ideal: <600ms / <2.5s).'),
-    H('Indexability', 'Technical', s.noindex ? 'Fail' : 'Pass', s.noindex ? 'Page par noindex — Google index nahi karega.' : 'No noindex — page indexable.'),
-    H('Internal Linking', 'Content', internal >= 3 ? 'Pass' : internal > 0 ? 'Warn' : 'Fail', internal + ' internal link(s) mile — pages ko aapas mein link karke link equity distribute karo.'),
-    H('Log-file Analysis', 'Advanced', 'Manual', 'Server access logs required — search queries, crawl frequency. Deploy ke baad GSC + logs se manually analyse karo.'),
+    H('URL Architecture', 'Technical', queryUrls.length ? 'Warn' : 'Pass', queryUrls.length ? queryUrls.length + ' crawl URL(s) mein query params hain — clean, lowercase URLs recommend kiye jaate hain.' : 'Crawled URLs clean aur well-structured hain.'),
+    H('Redirects & Status Codes', 'Technical', broken ? 'Fail' : 'Pass', broken ? broken + ' broken internal link(s) mile (404/error).' : 'Koi broken internal link nahi mila (HTTP 200).'),
+    H('Canonicalization', 'Technical', s.canonical ? 'Pass' : 'Fail', s.canonical ? 'Canonical tag present hai: ' + s.canonical : '<link rel="canonical"> missing — duplicate content risk.'),
+    H('Structured Data', 'Content', schema.length ? 'Pass' : 'Fail', schema.length ? 'JSON-LD schema type(s): ' + schema.join(', ') : 'Koi JSON-LD structured data nahi mila.'),
+    H('Meta Description', 'On-page', !meta ? 'Fail' : (meta.length < 120 || meta.length > 200) ? 'Warn' : 'Pass', !meta ? 'Meta description missing hai.' : meta.length + ' chars — ideal length 120-200 chars.'),
+    H('Open Graph + Twitter', 'On-page', (hasOg && s.twitterCard) ? 'Pass' : (hasOg || s.twitterCard) ? 'Warn' : 'Fail', (hasOg && s.twitterCard) ? 'OG + Twitter card dono present hain.' : (hasOg ? 'OG hai but twitter:card missing hai.' : (s.twitterCard ? 'twitter:card hai but OG tags missing hain.' : 'Social media preview tags missing hain.'))),
+    H('XML Sitemap', 'Technical', s.sitemapFound ? 'Pass' : 'Fail', s.sitemapFound ? 'Sitemap discovered — ' + (typeof s.sitemapUrls === 'number' ? s.sitemapUrls + ' URLs' : '') : 'XML sitemap missing ya undiscoverable.'),
+    H('robots.txt', 'Technical', s.robotsExists ? 'Pass' : 'Fail', s.robotsExists ? 'robots.txt correctly configured.' : 'robots.txt missing — crawl directives pointer chahiye.'),
+    H('hreflang', 'Content', (typeof s.hreflangCount === 'number' && s.hreflangCount > 0) ? 'Pass' : 'Manual', s.hreflangCount ? s.hreflangCount + ' hreflang language mapping(s).' : 'hreflang tags nahi hain (sirf multi-language sites ke liye zaroori).'),
+    H('Crawl Budget / Renderability', 'Technical', blocking === 0 ? 'Pass' : blocking <= 3 ? 'Warn' : 'Fail', blocking + ' render-blocking script(s) mile.'),
+    H('Core Web Vitals', 'Technical', (ttfb < 600 && load < 2500) ? 'Pass' : (ttfb < 1500 && load < 4000) ? 'Warn' : 'Fail', 'TTFB ' + ttfb + 'ms · load ~' + load + 'ms (target: <600ms TTFB).'),
+    H('Indexability', 'Technical', s.noindex ? 'Fail' : 'Pass', s.noindex ? 'Page par noindex laga hai — Google search mein nahi aayega.' : 'Indexable — normal crawling allowed.'),
+    H('Internal Linking', 'Content', internal >= 3 ? 'Pass' : internal > 0 ? 'Warn' : 'Fail', internal + ' internal link(s) mile homepage par.'),
+    H('Log-file Analysis', 'Advanced', 'Manual', 'Server access logs — Search Console ya web server se manually verify karein.'),
   ];
 }
 
@@ -5377,54 +5264,22 @@ function renderSeoTopics(site) {
   if (!el) return;
   const tops = seoTopicsOf(site);
   const color = st => st === 'Pass' ? 'var(--green)' : st === 'Warn' ? 'var(--amber)' : st === 'Fail' ? '#f87171' : 'var(--text3)';
-  const card = (t, i) => `
+  const card = (t) => `
     <div class="ws-kb-block" style="margin-bottom:6px;">
       <div style="display:flex;justify-content:space-between;align-items:center;gap:6px;">
         <div style="font-size:12px;font-weight:700;color:var(--text1);">${t.title}</div>
         <span style="font-size:10px;font-weight:800;color:${color(t.status)};background:#00000022;padding:2px 8px;border-radius:10px;text-transform:uppercase;">${t.status}</span>
       </div>
-      <div style="font-size:11px;color:var(--text2);margin:4px 0 6px;line-height:1.4;">${escHtml(t.why)}</div>
-      <button class="btn-small seo-topic-discuss" data-ti="${i}" style="width:100%;">🤖 Deep-dive in Builder — ${t.group}</button>
+      <div style="font-size:11px;color:var(--text2);margin-top:4px;line-height:1.4;">${escHtml(t.why)}</div>
     </div>`;
   el.innerHTML = `
-    <div style="font-size:11px;color:var(--text3);margin-bottom:8px;line-height:1.5;">14-topic SEO engineering framework ka live map — har topic ka status tumhare audit se. Kisi bhi topic par "Deep-dive" dabao — Builder AI us topic ka complete best-practices + fix plan chat mein dega.</div>
+    <div class="ws-kb-block">
+      <div class="ws-kb-label">🗺 14-Topic SEO Health Map</div>
+      <div style="font-size:11px;color:var(--text3);margin-top:2px;">Complete diagnostic checklist across Technical, On-page, Content, and Architecture parameters.</div>
+    </div>
     <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px;">${['Technical', 'On-page', 'Content', 'Advanced'].map(g => `<span style="font-size:10px;color:var(--text2);background:#00000022;padding:2px 8px;border-radius:10px;">${g}</span>`).join('')}</div>
-    ${tops.map((t, i) => card(t, i)).join('')}
+    ${tops.map((t) => card(t)).join('')}
   `;
-  el.querySelectorAll('.seo-topic-discuss').forEach(b => b.addEventListener('click', () => {
-    const t = tops[Number(b.dataset.ti)];
-    if (!t) return;
-    const s = site.audit || {};
-    seoAskBuilder(`SEO topic "${t.title}" (${t.group}) — main site "${site.domain || site.url}" ka 14-topic SEO map dekh raha hoon. Is topic par current status **${t.status}**: ${t.why}. Deep dive karo: is topic ke complete best practices (SEO engineering knowledge ke hisab se), mere data ke hisab se kya fix karna hai, aur step-by-step actionable plan — code/tags ke saath. Hinglish, practical.`);
-  }));
-}
-
-function renderSeoKeyList(site) {
-  const el = document.getElementById('seo-op-kw-list');
-  if (!el) return;
-  const kws = site.keywords || [];
-  const checks = (site.audit && site.audit.keywordChecks) || [];
-  if (!kws.length) {
-    el.innerHTML = `<div style="font-size:11px;color:var(--text3);">Abhi koi keyword track nahi ho raha.</div>`;
-    return;
-  }
-  el.innerHTML = kws.map((kw) => {
-    const c = checks.find((x) => x.keyword.toLowerCase() === String(kw).toLowerCase());
-    const badge = c ? (c.found ? '<span style="color:var(--green);font-weight:700;">✓</span>' : '<span style="color:#f87171;font-weight:700;">✗</span>') : '<span style="color:var(--text3);">·</span>';
-    return `<div style="display:flex;justify-content:space-between;align-items:center;font-size:12px;padding:3px 0;border-bottom:1px dashed #ffffff14;">
-      <span style="color:var(--text1);">${badge} ${escHtml(kw)}</span>
-      <button class="ws-del" data-kw="${escHtml(kw)}" title="Remove keyword">✕</button>
-    </div>`;
-  }).join('');
-  el.querySelectorAll('.ws-del[data-kw]').forEach((btn) => {
-    btn.addEventListener('click', async () => {
-      try {
-        const { keywords } = await apiFetch('/api/seo/' + site.id + '/keywords/' + encodeURIComponent(btn.dataset.kw), { method: 'DELETE' });
-        site.keywords = keywords;
-        renderSeoKeyList(site);
-      } catch (err) { alert('Remove failed: ' + err.message); }
-    });
-  });
 }
 
 async function loadSeoChat(id) {
