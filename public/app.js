@@ -5013,105 +5013,19 @@ function renderSeoAudit(site) {
         <div style="font-size:11px;color:var(--text3);">${typeof a.pagesFound === 'number' ? a.pagesFound + ' pages audited · ' : ''}${a.auditedAt ? new Date(a.auditedAt).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }) : ''}</div>
       </div>
       <!-- ✨ Level 4: Token-Optimized AI Action Plan -->
-      <div class="ws-kb-block" id="seo-ai-plan-block">
-        <div class="ws-kb-label" style="display:flex;justify-content:space-between;align-items:center;">
-          <span>✨ AI Action Plan & Strategy</span>
-          ${(a.aiActionPlan) ? '<span style="font-size:10px;color:var(--green);font-weight:700;">✓ Generated</span>' : ''}
+      <div class="ws-kb-block" style="background: linear-gradient(135deg, rgba(var(--accent-rgb),0.1), rgba(0,0,0,0.3)); border: 1px solid rgba(var(--accent-rgb),0.25); border-radius: 8px; padding: 12px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;">
+          <span style="font-weight:700;font-size:12px;color:var(--text1);">✨ Bob AI Master Plan</span>
+          ${(a.aiActionPlan) ? '<span style="font-size:10px;color:var(--green);font-weight:700;padding:2px 6px;border-radius:4px;background:rgba(52,211,153,0.12);">✓ Ready in Chat</span>' : ''}
         </div>
-        ${(a.aiActionPlan) ? `
-          <div style="font-size:12px;color:var(--text1);line-height:1.5;margin-top:6px;background:rgba(var(--accent-rgb),0.06);padding:8px 10px;border-radius:6px;border-left:3px solid var(--accent);">
-            ${escHtml(a.aiActionPlan.verdict || '')}
-          </div>
-          ${a.aiActionPlan.targetPotentialScore ? `
-            <div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px;font-size:11.5px;padding:6px 8px;background:rgba(255,255,255,0.02);border-radius:5px;">
-              <span style="color:var(--text2);">Target Ranking Score:</span>
-              <span style="font-weight:800;color:var(--green);">${a.aiActionPlan.targetPotentialScore}/100 Potential</span>
-            </div>` : ''}
-          ${Array.isArray(a.aiActionPlan.quickWins) && a.aiActionPlan.quickWins.length ? `
-            <div style="margin-top:10px;">
-              <div style="font-size:10.5px;font-weight:700;text-transform:uppercase;color:var(--text3);margin-bottom:4px;">⚡ Quick Wins</div>
-              ${a.aiActionPlan.quickWins.map(qw => `
-                <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:6px;font-size:11.5px;padding:4px 0;border-bottom:1px dashed var(--border2);">
-                  <span style="color:var(--text2);line-height:1.4;"><strong style="color:var(--text1);">${escHtml(qw.title)}:</strong> ${escHtml(qw.action)}</span>
-                  <span style="font-size:10px;font-weight:700;color:var(--green);background:rgba(52,211,153,0.12);padding:1px 5px;border-radius:4px;white-space:nowrap;">${escHtml(qw.impact || '+pts')}</span>
-                </div>`).join('')}
-            </div>` : ''}
-          ${Array.isArray(a.aiActionPlan.architecturalFixes) && a.aiActionPlan.architecturalFixes.length ? `
-            <div style="margin-top:10px;">
-              <div style="font-size:10.5px;font-weight:700;text-transform:uppercase;color:var(--text3);margin-bottom:4px;">🏗️ Architecture Roadmap</div>
-              ${a.aiActionPlan.architecturalFixes.map(af => `
-                <div style="font-size:11.5px;margin-bottom:6px;background:rgba(255,255,255,0.02);padding:6px 8px;border-radius:5px;">
-                  <div style="font-weight:700;color:var(--text1);font-size:11.5px;">${escHtml(af.title)}</div>
-                  <div style="color:var(--text2);font-size:11px;margin-top:2px;">${escHtml(af.step)}</div>
-                  <div style="color:var(--text3);font-size:10px;margin-top:2px;">↳ ${escHtml(af.crawlerBenefit)}</div>
-                </div>`).join('')}
-            </div>` : ''}
-        ` : `
-          <div style="font-size:11.5px;color:var(--text3);margin-top:4px;line-height:1.45;">
-            Master Bob se 1-click token-efficient personalized SEO action plan aur ranking potential roadmap generate karwayen.
-          </div>
-          <button class="btn-small" id="seo-generate-ai-plan" style="width:100%;margin-top:8px;padding:6px 0;font-weight:700;background:rgba(var(--accent-rgb),0.15);color:var(--accent);border:1px solid rgba(var(--accent-rgb),0.35);">
-            ✨ Generate AI Action Plan
-          </button>
-        `}
-      </div>
-
-      ${a.summary ? `<div class="ws-kb-block"><div class="ws-kb-label">📝 Audit Summary</div><div style="font-size:12px;line-height:1.5;color:var(--text1);">${escHtml(a.summary)}</div></div>` : ''}
-      <div class="ws-kb-block"><div class="ws-kb-label">📊 Category Breakdown</div>${breakdownRows}</div>
-            <!-- ⚡ Level 3: Google Core Web Vitals Gauge -->
-      <div class="ws-kb-block">
-        <div class="ws-kb-label" style="display:flex;justify-content:space-between;align-items:center;">
-          <span>⚡ Core Web Vitals (Google CrUX)</span>
-          <span style="font-size:10px;font-weight:700;padding:2px 6px;border-radius:4px;background:rgba(var(--accent-rgb),0.15);color:var(--accent);">
-            ${(site.audit && site.audit.pageSpeed && site.audit.pageSpeed.fetched) ? 'Google API Live' : 'Lighthouse Proxy'}
-          </span>
+        <div style="font-size:11px;color:var(--text2);margin:6px 0 10px;line-height:1.45;">
+          ${(a.aiActionPlan) 
+            ? 'Action plan generated! Chat section me detailed roadmap aur developer steps available hain.' 
+            : 'Master Bob website ke 50+ pages, Core Web Vitals aur vulnerabilities ko analyze karke Chat me action plan dega.'}
         </div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:8px;">
-          <div style="background:rgba(255,255,255,0.03);padding:8px;border-radius:6px;border:1px solid var(--border2);">
-            <div style="font-size:10px;color:var(--text3);font-weight:600;">LCP (Largest Paint)</div>
-            <div style="font-size:14px;font-weight:800;color:${(parseFloat(signals.lcp) <= 2.5 || !signals.lcp) ? 'var(--green)' : 'var(--amber)'};margin-top:2px;">
-              ${signals.lcp || '—'}
-            </div>
-            <div style="font-size:9.5px;color:var(--text3);margin-top:2px;">Target < 2.5s</div>
-          </div>
-          <div style="background:rgba(255,255,255,0.03);padding:8px;border-radius:6px;border:1px solid var(--border2);">
-            <div style="font-size:10px;color:var(--text3);font-weight:600;">FCP (First Paint)</div>
-            <div style="font-size:14px;font-weight:800;color:${(parseFloat(signals.fcp) <= 1.8 || !signals.fcp) ? 'var(--green)' : 'var(--amber)'};margin-top:2px;">
-              ${signals.fcp || '—'}
-            </div>
-            <div style="font-size:9.5px;color:var(--text3);margin-top:2px;">Target < 1.8s</div>
-          </div>
-          <div style="background:rgba(255,255,255,0.03);padding:8px;border-radius:6px;border:1px solid var(--border2);">
-            <div style="font-size:10px;color:var(--text3);font-weight:600;">CLS (Layout Shift)</div>
-            <div style="font-size:14px;font-weight:800;color:${(parseFloat(signals.cls) <= 0.1 || !signals.cls) ? 'var(--green)' : '#f87171'};margin-top:2px;">
-              ${signals.cls || '0.00'}
-            </div>
-            <div style="font-size:9.5px;color:var(--text3);margin-top:2px;">Target < 0.1</div>
-          </div>
-          <div style="background:rgba(255,255,255,0.03);padding:8px;border-radius:6px;border:1px solid var(--border2);">
-            <div style="font-size:10px;color:var(--text3);font-weight:600;">TBT (Blocking Time)</div>
-            <div style="font-size:14px;font-weight:800;color:${(parseInt(signals.tbt) <= 200 || !signals.tbt) ? 'var(--green)' : '#f87171'};margin-top:2px;">
-              ${signals.tbt || '0 ms'}
-            </div>
-            <div style="font-size:9.5px;color:var(--text3);margin-top:2px;">Target < 200ms</div>
-          </div>
-        </div>
-      </div>
-
-      <!-- 🔍 Level 3: Google SERP Snippet Preview -->
-      <div class="ws-kb-block">
-        <div class="ws-kb-label">🔍 Google SERP Snippet Preview</div>
-        <div class="seo-serp-preview">
-          <div class="seo-serp-top">
-            <div class="seo-serp-favicon">🌐</div>
-            <div class="seo-serp-site-info">
-              <div class="seo-serp-domain">${escHtml(site.domain || 'example.com')}</div>
-              <div class="seo-serp-url">${escHtml(site.url || 'https://example.com')}</div>
-            </div>
-          </div>
-          <div class="seo-serp-title">${escHtml(site.title || site.domain || 'Page Title')}</div>
-          <div class="seo-serp-snippet">${escHtml(signals.metaDescription || (site.audit && site.audit.summary) || 'No meta description provided. Search engines will auto-generate snippet text from page body.')}</div>
-        </div>
+        <button class="btn-small" id="seo-generate-ai-plan" style="width:100%;padding:7px 0;font-weight:700;background:var(--accent);color:#fff;border:none;border-radius:6px;cursor:pointer;">
+          ${(a.aiActionPlan) ? '💬 View / Re-Generate in Chat' : '✨ Generate AI Action Plan in Chat'}
+        </button>
       </div>
 
       <div class="ws-kb-block"><div class="ws-kb-label">🌐 Technical Signals</div>
@@ -5156,14 +5070,20 @@ function renderSeoAudit(site) {
   if (genPlanBtn) {
     genPlanBtn.addEventListener('click', async () => {
       genPlanBtn.disabled = true;
-      genPlanBtn.textContent = '⏳ Analyzing & Generating…';
+      genPlanBtn.textContent = '⏳ Master Bob Analyzing & Formulating Plan…';
       try {
-        const { plan } = await apiFetch('/api/seo/' + site.id + '/actionplan', { method: 'POST' });
-        if (site.audit) site.audit.aiActionPlan = plan;
+        const res = await apiFetch('/api/seo/' + site.id + '/actionplan', { method: 'POST' });
+        if (site.audit) site.audit.aiActionPlan = res.plan;
         renderSeoAudit(site);
+        // Switch mobile tab to chat if mobile
+        setWorkspaceTab('seo', 'chat');
+        // Reload chat to display the new action plan
+        await loadSeoChat(site.id);
+        const chatFeed = document.getElementById('seo-chat-messages');
+        if (chatFeed) chatFeed.scrollTop = chatFeed.scrollHeight;
       } catch (err) {
         alert('Action plan generation failed: ' + err.message);
-        if (genPlanBtn) { genPlanBtn.disabled = false; genPlanBtn.textContent = '✨ Generate AI Action Plan'; }
+        if (genPlanBtn) { genPlanBtn.disabled = false; genPlanBtn.textContent = '✨ Generate AI Action Plan in Chat'; }
       }
     });
   }
@@ -5584,6 +5504,8 @@ function renderSeoTopics(site) {
 }
 
 
+let seoPageFilterMode = 'issues'; // 'issues' or 'all'
+
 function renderSeoPages(site) {
   const el = document.getElementById('seo-op-pages');
   if (!el) return;
@@ -5600,18 +5522,22 @@ function renderSeoPages(site) {
     return;
   }
 
+  const isPageIssue = (p) => p.isOrphan || (p.wordCount > 0 && p.wordCount < 120) || !p.h1 || !p.metaDesc || p.status !== 200 || p.blockingScripts > 0;
+  const issuePages = pages.filter(isPageIssue);
+  const healthyCount = pages.length - issuePages.length;
   const orphans = pages.filter(p => p.isOrphan).length;
-  const thinCount = pages.filter(p => p.wordCount > 0 && p.wordCount < 120).length;
-  const noH1Count = pages.filter(p => !p.h1).length;
+
+  const displayList = seoPageFilterMode === 'issues' ? issuePages : pages;
 
   const statusDot = (p) => {
     if (p.isOrphan) return '<span style="color:#f87171;font-size:10px;font-weight:700;" title="Orphan page">⛓</span>';
+    if (p.status !== 200) return '<span style="color:#f87171;font-size:10px;font-weight:700;">✗</span>';
     if (p.wordCount > 0 && p.wordCount < 120) return '<span style="color:#fbbf24;font-size:10px;" title="Thin content">📄</span>';
     if (!p.h1) return '<span style="color:#fbbf24;font-size:10px;" title="No H1">H</span>';
     return '<span style="color:var(--green);font-size:10px;">✓</span>';
   };
 
-  const rows = pages.map((p, i) => `
+  const rows = displayList.map((p, i) => `
     <div class="seo-page-row" data-page-idx="${i}">
       <div class="seo-page-row-header">
         <div style="display:flex;align-items:center;gap:6px;flex:1;min-width:0;">
@@ -5638,17 +5564,30 @@ function renderSeoPages(site) {
 
   el.innerHTML = `
     <div class="ws-kb-block" style="margin-bottom:12px;">
-      <div class="ws-kb-label">🗂️ Page Architecture Explorer</div>
-      <div style="font-size:11.5px;color:var(--text3);margin-top:2px;">${pages.length} internal pages crawled — Click any row to inspect health details.</div>
+      <div class="ws-kb-label">🗂️ Page Architecture Explorer (${pages.length} Pages)</div>
+      <div style="font-size:11.5px;color:var(--text3);margin-top:2px;">
+        ${issuePages.length ? `<strong style="color:#fbbf24;">${issuePages.length} pages</strong> me problems mili hain.` : 'All crawled pages healthy!'}
+      </div>
     </div>
-    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;">
-      <span style="font-size:11px;padding:3px 8px;border-radius:99px;background:rgba(52,211,153,0.1);color:var(--green);">✓ ${pages.length - orphans - thinCount} Healthy</span>
-      ${orphans ? `<span style="font-size:11px;padding:3px 8px;border-radius:99px;background:rgba(248,113,113,0.1);color:#f87171;">⛓ ${orphans} Orphan</span>` : ''}
-      ${thinCount ? `<span style="font-size:11px;padding:3px 8px;border-radius:99px;background:rgba(251,191,36,0.1);color:#fbbf24;">📄 ${thinCount} Thin</span>` : ''}
-      ${noH1Count ? `<span style="font-size:11px;padding:3px 8px;border-radius:99px;background:rgba(251,191,36,0.1);color:#fbbf24;">H ${noH1Count} No H1</span>` : ''}
+    <div style="display:flex;gap:6px;align-items:center;margin-bottom:10px;">
+      <button class="seo-page-filter-btn${seoPageFilterMode === 'issues' ? ' active' : ''}" data-filter="issues">
+        ⚠️ Issues Only (${issuePages.length})
+      </button>
+      <button class="seo-page-filter-btn${seoPageFilterMode === 'all' ? ' active' : ''}" data-filter="all">
+        All Pages (${pages.length})
+      </button>
     </div>
-    <div style="display:flex;flex-direction:column;gap:3px;">${rows}</div>
+    <div style="display:flex;flex-direction:column;gap:3px;">
+      ${rows.length ? rows : `<div style="font-size:12px;color:var(--text3);text-align:center;padding:16px 0;">Is filter me koi page nahi mila — All clean! 🎉</div>`}
+    </div>
   `;
+
+  el.querySelectorAll('.seo-page-filter-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      seoPageFilterMode = btn.dataset.filter;
+      renderSeoPages(site);
+    });
+  });
 
   el.querySelectorAll('.seo-page-row-header').forEach(hdr => {
     hdr.addEventListener('click', () => {
@@ -5657,6 +5596,7 @@ function renderSeoPages(site) {
     });
   });
 }
+
 
 async function loadSeoChat(id) {
   const el = document.getElementById('seo-chat-messages');

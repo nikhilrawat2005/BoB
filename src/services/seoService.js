@@ -550,8 +550,8 @@ async function runAudit(originUrl, { skipLlm = false, keywords = [] } = {}) {
   const audit = scoreAudit(home, robots, broken);
 
   // ── Level 2: 20-page BFS Site Architecture Crawler ─────────────────────
-  const MAX_PAGES = 20;
-  const CONCURRENCY = 4;
+  const MAX_PAGES = 50;
+  const CONCURRENCY = 6;
 
   // BFS queue — start with homepage's internal links then expand
   const crawlQueue = [...new Set(home.internalLinks)].slice(0, 40);
@@ -730,7 +730,7 @@ async function runAudit(originUrl, { skipLlm = false, keywords = [] } = {}) {
     broken,
     crawledUrls: home.internalLinks || [],
     crawledPages: (typeof pagesWithMeta !== 'undefined' ? pagesWithMeta : pages)
-      .filter((p) => p.status === 200 && p.url)
+      .filter((p) => p && p.url)
       .map((p) => ({
         url: p.url,
         path: (() => { try { return new URL(p.url).pathname; } catch { return p.url; } })(),
@@ -744,7 +744,7 @@ async function runAudit(originUrl, { skipLlm = false, keywords = [] } = {}) {
         hasCanonical: !!p.canonical,
         blockingScripts: p.blockingScripts || 0,
         semanticCount: p.semanticCount || 0,
-      })).slice(0, 20),
+      })).slice(0, 50),
   };
 }
 
@@ -999,24 +999,20 @@ async function generateAiActionPlan(userId, siteId) {
   const site = await getSite(userId, siteId);
   if (!site) throw new Error('Site not found');
 
-  // Return cached plan if already generated
-  if (site.audit && site.audit.aiActionPlan) {
-    return site.audit.aiActionPlan;
-  }
-
   const a = site.audit || {};
   const sig = a.signals || {};
   const pages = a.crawledPages || [];
+  const orphanCount = pages.filter(p => p.isOrphan).length;
 
   // Hyper-compressed lean payload (~150 tokens)
   const leanPayload = {
     domain: site.domain,
     score: a.score,
     breakdown: a.breakdown,
-    topIssues: (a.issues || []).slice(0, 8).map(i => `${i.severity}: ${i.text}`),
+    topIssues: (a.issues || []).slice(0, 10).map(i => `${i.severity}: ${i.text}`),
     crawledCount: pages.length,
-    orphans: pages.filter(p => p.isOrphan).length,
-    vitals: { lcp: sig.lcp, ttfb: sig.ttfbMs, blocking: sig.blockingScripts },
+    orphans: orphanCount,
+    vitals: { lcp: sig.lcp, fcp: sig.fcp, cls: sig.cls, ttfb: sig.ttfbMs, blocking: sig.blockingScripts },
     security: { hsts: sig.hsts, csp: Boolean(sig.csp || sig.xFrame) },
     content: { readability: sig.readability, headingSkipped: sig.headingSkipped }
   };
@@ -1024,19 +1020,16 @@ async function generateAiActionPlan(userId, siteId) {
   const messages = [
     {
       role: 'system',
-      content: `You are Bob the Builder's Enterprise SEO Architect. Analyze the compressed audit summary and output ONLY a strict JSON object with no markdown fences.
-Format:
-{
-  "verdict": "2-line executive assessment in natural Hinglish/English highlighting key bottleneck and potential",
-  "targetPotentialScore": 95,
-  "quickWins": [
-    {"title": "Short title", "action": "Specific 1-sentence fix", "impact": "+4 pts"}
-  ],
-  "architecturalFixes": [
-    {"title": "Architecture fix title", "step": "Concrete developer step", "crawlerBenefit": "Why search engines/crawlers care"}
-  ]
-}
-Max 3 quickWins and max 3 architecturalFixes. Base strictly on provided audit signals.`
+      content: `You are Bob the Builder's Enterprise SEO Master AI.
+Generate a structured, high-impact action plan in natural, engaging Hinglish + English formatting.
+Format your response with rich Markdown:
+1. 🎯 **Executive Verdict**: Summary of site's current standing & highest-leverage opportunities.
+2. 📈 **Score Potential**: State current score (${a.score}/100) vs realistic target score (e.g. 95+/100).
+3. ⚡ **Top 3-4 Quick Wins**: Bullet points with specific actionable fixes and expected score boost (e.g. [HIGH IMPACT] +4 pts).
+4. 🏗️ **Core Architecture Roadmap**: Clear guidance covering Web Vitals, Security Headers (HSTS/CSP), Internal Link structure & DOM optimization.
+5. 💡 **Next Step Advice**: Specific next step for the developer.
+
+Be crisp, technical, highly actionable, and avoid fluff. Do not wrap in JSON, return clean markdown.`
     },
     { role: 'user', content: JSON.stringify(leanPayload) }
   ];
@@ -1046,29 +1039,34 @@ Max 3 quickWins and max 3 architecturalFixes. Base strictly on provided audit si
       role: 'builder',
       persona: 'builder',
       messages,
-      temperature: 0.2,
-      max_tokens: 800,
+      temperature: 0.3,
+      max_tokens: 1200,
     });
 
-    const cleaned = text.replace(/```json|```/gi, '').trim();
-    const plan = JSON.parse(cleaned);
+    const sid = await ensureChatSession(userId, site);
+    await memory.addMessage(userId, sid, 'assistant', text);
 
-    // Cache the plan onto the site audit in Firestore
-    const updatedAudit = { ...site.audit, aiActionPlan: plan };
+    const updatedAudit = { ...site.audit, aiActionPlan: { generatedAt: Date.now(), text } };
     await coll(userId).doc(siteId).set({ audit: updatedAudit, updatedAt: Date.now() }, { merge: true });
 
-    return plan;
+    return { plan: updatedAudit.aiActionPlan, sessionId: sid };
   } catch (err) {
     console.error('[seoService] generateAiActionPlan failed:', err.message);
-    const fallbackPlan = {
-      verdict: `${site.domain} overall ${a.score}/100 score par hai. Core bottlenecks fix karke isko 90+ score tak le jaya ja sakta hai.`,
-      targetPotentialScore: Math.min(100, (a.score || 70) + 15),
-      quickWins: (a.issues || []).slice(0, 3).map(i => ({ title: i.category, action: i.text, impact: '+3 pts' })),
-      architecturalFixes: [
-        { title: 'Server & Security Architecture', step: 'HSTS aur async/defer scripts configure karein', crawlerBenefit: 'Page load speed aur crawler indexing boost' }
-      ]
-    };
-    return fallbackPlan;
+    const fallbackText = `### 🎯 SEO Action Plan for ${site.domain}
+
+**Current Score**: ${a.score}/100 ➔ **Target Potential**: 95/100
+
+#### ⚡ Quick Wins:
+${(a.issues || []).slice(0, 3).map(i => `- **[${i.severity.toUpperCase()}]** ${i.text} *(Impact: +3 pts)*`).join('\n')}
+
+#### 🏗️ Architecture Focus:
+- Configure **HSTS & Security Headers** to enforce secure crawling.
+- Resolve **render-blocking JavaScript** to improve Core Web Vitals (LCP < 2.5s).
+- Fix **orphan pages** by linking them from homepage & category menus.`;
+
+    const sid = await ensureChatSession(userId, site);
+    await memory.addMessage(userId, sid, 'assistant', fallbackText);
+    return { plan: { generatedAt: Date.now(), text: fallbackText }, sessionId: sid };
   }
 }
 

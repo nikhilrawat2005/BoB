@@ -3745,3 +3745,50 @@ body.collab-on .collab-state { color: #fff; background: var(--green); }
     gap: 8px;
   }
 }
+
+/* Custom SEO Reaudit Select (Fixes native white popup issue) */
+#seo-reaudit-freq {
+  width: 100%;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: #141721 !important;
+  color: #f8fafc !important;
+  border: 1px solid rgba(255, 255, 255, 0.18) !important;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  outline: none;
+  transition: all 0.2s ease;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);
+}
+#seo-reaudit-freq:focus, #seo-reaudit-freq:hover {
+  border-color: var(--accent) !important;
+  background: #181d2a !important;
+}
+#seo-reaudit-freq option {
+  background: #10131d !important;
+  color: #f1f5f9 !important;
+  padding: 10px;
+}
+
+/* SEO Page Filter Pills */
+.seo-page-filter-btn {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 4px 10px;
+  border-radius: 99px;
+  border: 1px solid var(--border2);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text2);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+.seo-page-filter-btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text1);
+}
+.seo-page-filter-btn.active {
+  background: rgba(var(--accent-rgb), 0.15);
+  color: var(--accent);
+  border-color: rgba(var(--accent-rgb), 0.4);
+}
