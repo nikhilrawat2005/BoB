@@ -3535,35 +3535,7 @@ body.collab-on .collab-state { color: #fff; background: var(--green); }
 
 /* ── Tablets & Small Laptops (769px - 1024px) ───────── */
 @media (max-width: 1024px) {
-  .ws-mobile-tabs { display: flex; }
-  .ws-panel-toggle { display: none; }
-  
-  .hack-workspace {
-    display: flex !important;
-    flex-direction: column;
-    flex: 1;
-    min-height: 0;
-    height: 100%;
-    position: relative;
-    overflow: hidden;
-  }
-  .hack-workspace .ws-col {
-    display: none !important;
-    width: 100%;
-    height: 100%;
-    flex: 1;
-    min-height: 0;
-    overflow-y: auto;
-  }
-  .hack-workspace[data-active-tab="list"] .ws-list-col {
-    display: flex !important;
-  }
-  .hack-workspace[data-active-tab="chat"] .ws-chat-col {
-    display: flex !important;
-  }
-  .hack-workspace[data-active-tab="knowledge"] .ws-knowledge-col {
-    display: flex !important;
-  }
+  .ws-mobile-tabs { display: none !important; }
 
   .message-bubble-wrapper { max-width: 86%; }
   .hq-grid-inner { grid-template-columns: repeat(2, 1fr); }
@@ -3714,21 +3686,16 @@ body.collab-on .collab-state { color: #fff; background: var(--green); }
     gap: 6px;
     flex-wrap: wrap;
   }
-  /* Workspace Split-Screens (Hackathon & Stalking) */
+/* Workspace stays grid (laptop-first: no flex stacking below this size) */
   .hack-workspace {
-    display: flex !important;
-    flex-direction: column;
-    height: 100%;
-    min-height: 0;
-    flex: 1;
+    display: grid !important;
+    flex-direction: row;
   }
   .ws-list-col, .ws-chat-col, .ws-knowledge-col {
     max-height: none;
     border-right: none;
     border-left: none;
     border-bottom: none;
-    flex: 1;
-    min-height: 0;
   }
   .ws-chat-header {
     padding: 10px 14px;
@@ -4142,4 +4109,46 @@ body.collab-on .collab-state { color: #fff; background: var(--green); }
   background: rgba(var(--accent-rgb), 0.15);
   color: var(--accent);
   border-color: rgba(var(--accent-rgb), 0.4);
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   LAPTOP-FIRST GUARANTEE — workspaces are full 3-column grids at every
+   laptop size; the 3-lines toggle hides list AND knowledge (chat only).
+   Declared last so it wins over any earlier responsive overrides.
+   ══════════════════════════════════════════════════════════════════ */
+.hack-workspace {
+  display: grid !important;
+  grid-template-columns: 240px minmax(0, 1fr) minmax(300px, 42%) !important;
+}
+.hack-workspace .ws-col {
+  display: flex !important;
+  width: 100%;
+  flex: 1;
+  min-height: 0;
+}
+.hack-workspace.list-collapsed {
+  grid-template-columns: 0 minmax(0, 100%) 0 !important;
+}
+.hack-workspace.list-collapsed .ws-list-col,
+.hack-workspace.list-collapsed .ws-knowledge-col {
+  display: none !important;
+  width: 0 !important;
+  min-width: 0 !important;
+  max-width: 0 !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  overflow: hidden !important;
+  pointer-events: none !important;
+}
+.hack-workspace.list-collapsed .ws-chat-col {
+  width: 100% !important;
+}
+.hack-workspace.list-collapsed .ws-mobile-tabs {
+  display: none !important;
+}
+.ws-panel-toggle {
+  display: inline-flex !important;
+}
+.ws-mobile-tabs {
+  display: none !important;
 }
