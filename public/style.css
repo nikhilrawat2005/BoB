@@ -2467,6 +2467,11 @@ body.persona-builder #model-selector { display: none !important; }
 .seo-page-row.open .seo-page-body {
   display: block;
 }
+/* Issue page row modifier */
+.seo-page-row--issue { border-color: rgba(248,113,113,0.25); }
+.seo-page-row--issue:hover { border-color: rgba(248,113,113,0.5); }
+.seo-page-row--issue.open { border-color: rgba(248,113,113,0.6); }
+
 
 /* Level 3: Google SERP Preview */
 .seo-serp-preview {
@@ -2797,6 +2802,11 @@ body.persona-builder #model-selector { display: none !important; }
 .seo-page-row.open .seo-page-body {
   display: block;
 }
+/* Issue page row modifier */
+.seo-page-row--issue { border-color: rgba(248,113,113,0.25); }
+.seo-page-row--issue:hover { border-color: rgba(248,113,113,0.5); }
+.seo-page-row--issue.open { border-color: rgba(248,113,113,0.6); }
+
 
 /* Level 3: Google SERP Preview */
 .seo-serp-preview {

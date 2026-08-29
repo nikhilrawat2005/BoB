@@ -5522,51 +5522,81 @@ function renderSeoPages(site) {
     return;
   }
 
-  const isPageIssue = (p) => p.isOrphan || (p.wordCount > 0 && p.wordCount < 120) || !p.h1 || !p.metaDesc || p.status !== 200;
-  const issuePages = pages.filter(isPageIssue);
-  const healthyCount = pages.length - issuePages.length;
-  const orphans = pages.filter(p => p.isOrphan).length;
-
-  const displayList = seoPageFilterMode === 'issues' ? issuePages : pages;
-
-  const statusDot = (p) => {
-    if (p.isOrphan) return '<span style="color:#f87171;font-size:10px;font-weight:700;" title="Orphan page">⛓</span>';
-    if (p.status !== 200) return '<span style="color:#f87171;font-size:10px;font-weight:700;">✗</span>';
-    if (p.wordCount > 0 && p.wordCount < 120) return '<span style="color:#fbbf24;font-size:10px;" title="Thin content">📄</span>';
-    if (!p.h1) return '<span style="color:#fbbf24;font-size:10px;" title="No H1">H</span>';
-    return '<span style="color:var(--green);font-size:10px;">✓</span>';
+  // --- Strict issue detection: only real structural problems count ---
+  const getPageIssues = (p) => {
+    const tags = [];
+    if (p.status !== 200) tags.push({ label: p.status + ' Error', color: '#f87171' });
+    if (p.isOrphan) tags.push({ label: 'Orphan Page', color: '#f87171' });
+    if (!p.h1) tags.push({ label: 'No H1', color: '#fbbf24' });
+    if (!p.metaDesc) tags.push({ label: 'No Meta', color: '#fbbf24' });
+    if (p.wordCount > 0 && p.wordCount < 120) tags.push({ label: 'Thin Content', color: '#fbbf24' });
+    return tags;
   };
 
-  const rows = displayList.map((p, i) => `
-    <div class="seo-page-row" data-page-idx="${i}">
+  const isPageIssue = (p) => getPageIssues(p).length > 0;
+  const issuePages = pages.filter(isPageIssue);
+  const orphans = pages.filter(p => p.isOrphan).length;
+
+  // "All Pages" mode: issue pages first (sorted by severity), then healthy pages
+  const sortedAllPages = seoPageFilterMode === 'all'
+    ? [...issuePages, ...pages.filter(p => !isPageIssue(p))]
+    : issuePages;
+
+  const statusDot = (p) => {
+    const issues = getPageIssues(p);
+    if (issues.length === 0) return '<span style="color:var(--green);font-size:10px;">✓</span>';
+    if (p.status !== 200) return '<span style="color:#f87171;font-size:10px;font-weight:700;">✗</span>';
+    if (p.isOrphan) return '<span style="color:#f87171;font-size:10px;font-weight:700;" title="Orphan page">⛓</span>';
+    return '<span style="color:#fbbf24;font-size:10px;">⚠</span>';
+  };
+
+  const issueBadges = (p) => {
+    const tags = getPageIssues(p);
+    if (!tags.length) return '';
+    return tags.map(t =>
+      `<span style="font-size:9px;padding:1px 5px;border-radius:3px;background:${t.color}22;color:${t.color};border:1px solid ${t.color}44;white-space:nowrap;">${t.label}</span>`
+    ).join('');
+  };
+
+  const rows = sortedAllPages.map((p, i) => {
+    const hasIssues = isPageIssue(p);
+    return `
+    <div class="seo-page-row${hasIssues ? ' seo-page-row--issue' : ''}" data-page-idx="${i}">
       <div class="seo-page-row-header">
         <div style="display:flex;align-items:center;gap:6px;flex:1;min-width:0;">
           ${statusDot(p)}
           <span style="font-size:11.5px;font-weight:600;color:var(--text1);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${escHtml(p.url)}">${escHtml(p.path || p.url)}</span>
+          ${issueBadges(p)}
         </div>
         <div style="display:flex;gap:4px;align-items:center;flex-shrink:0;">
-          <span style="font-size:10px;padding:1px 5px;border-radius:4px;background:${p.status === 200 ? 'rgba(52,211,153,0.12)' : 'rgba(248,113,113,0.12)'};color:${p.status === 200 ? 'var(--green)' : 'var(--red)'};">${p.status}</span>
+          <span style="font-size:10px;padding:1px 5px;border-radius:4px;background:${p.status === 200 ? 'rgba(52,211,153,0.12)' : 'rgba(248,113,113,0.12)'};color:${p.status === 200 ? 'var(--green)' : '#f87171'};">${p.status}</span>
           <span style="font-size:10px;color:var(--text3);">${p.wordCount} wds</span>
           <span class="seo-page-chevron" style="font-size:9px;color:var(--text3);transition:transform 0.2s;">▼</span>
         </div>
       </div>
       <div class="seo-page-body">
         <div style="display:grid;grid-template-columns:auto 1fr;gap:3px 10px;font-size:11px;color:var(--text2);line-height:1.6;">
-          <span style="color:var(--text3);">Title</span><span>${escHtml(p.title || '(missing)')}</span>
-          <span style="color:var(--text3);">H1</span><span>${escHtml(p.h1 || '(missing)')}</span>
+          <span style="color:var(--text3);">Title</span><span style="color:${p.title ? 'var(--text2)' : '#f87171'}">${escHtml(p.title || '(missing)')}</span>
+          <span style="color:var(--text3);">H1</span><span style="color:${p.h1 ? 'var(--text2)' : '#fbbf24'}">${escHtml(p.h1 || '(missing)')}</span>
           <span style="color:var(--text3);">Meta</span><span style="color:${p.metaDesc ? 'var(--text2)' : '#f87171'}">${p.metaDesc ? escHtml(p.metaDesc.slice(0, 80)) + (p.metaDesc.length > 80 ? '…' : '') : '(missing)'}</span>
           <span style="color:var(--text3);">Incoming</span><span style="color:${p.incomingLinks > 0 ? 'var(--green)' : '#f87171'}">${p.incomingLinks} internal link${p.incomingLinks !== 1 ? 's' : ''}${p.isOrphan ? ' ⚠️ orphan' : ''}</span>
           <span style="color:var(--text3);">Canonical</span><span style="color:${p.hasCanonical ? 'var(--green)' : '#fbbf24'}">${p.hasCanonical ? '✓ set' : '✗ missing'}</span>
           <span style="color:var(--text3);">Scripts</span><span style="color:${p.blockingScripts > 0 ? '#fbbf24' : 'var(--text2)'}">${p.blockingScripts > 0 ? p.blockingScripts + ' blocking' : 'clean'}</span>
         </div>
       </div>
-    </div>`).join('');
+    </div>`;
+  }).join('');
 
+  const healthyCount = pages.length - issuePages.length;
   el.innerHTML = `
     <div class="ws-kb-block" style="margin-bottom:12px;">
-      <div class="ws-kb-label">🗂️ Page Architecture Explorer (${pages.length} Pages)</div>
-      <div style="font-size:11.5px;color:var(--text3);margin-top:2px;">
-        ${issuePages.length ? `<strong style="color:#fbbf24;">${issuePages.length} pages</strong> me problems mili hain.` : 'All crawled pages healthy!'}
+      <div class="ws-kb-label">🗂️ PAGE ARCHITECTURE EXPLORER (${pages.length} PAGES)</div>
+      <div style="font-size:11.5px;color:var(--text3);margin-top:4px;display:flex;gap:12px;flex-wrap:wrap;">
+        ${issuePages.length
+          ? `<span>🔴 <strong style="color:#f87171;">${issuePages.length} pages</strong> me issues hain</span>`
+          : ''}
+        <span>🟢 <strong style="color:var(--green);">${healthyCount} pages</strong> healthy hain</span>
+        ${orphans ? `<span>⛓ <strong style="color:#f87171;">${orphans} orphan</strong> pages</span>` : ''}
       </div>
     </div>
     <div style="display:flex;gap:6px;align-items:center;margin-bottom:10px;">
@@ -5578,7 +5608,7 @@ function renderSeoPages(site) {
       </button>
     </div>
     <div style="display:flex;flex-direction:column;gap:3px;">
-      ${rows.length ? rows : `<div style="font-size:12px;color:var(--text3);text-align:center;padding:16px 0;">Is filter me koi page nahi mila — All clean! 🎉</div>`}
+      ${rows.length ? rows : `<div style="font-size:12px;color:var(--green);text-align:center;padding:16px 0;">✅ Saare crawled pages healthy hain — koi structural issue nahi mila! 🎉</div>`}
     </div>
   `;
 
