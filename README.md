@@ -1,6 +1,6 @@
 # 🤖 Bob — Autonomous AI Companion & Engineering System
 
-Bob is an autonomous AI assistant, vibecoding builder, and personal intelligence engine built for master developer Nikhil. The system connects an intelligent Node.js backend with Firestore memory, Cloudinary storage, OpenRouter LLMs, real-time web crawlers, and a responsive web client.
+Bob is a personal, autonomous AI backend built for Nikhil: one Node.js/Express server that ties together LLM chat (with tool-use), long-term structured memory, a file vault, a "vibecoding" builder workspace, hackathon + social-profile crawlers, live data feeds, autonomous routines/scheduling, self-editing, and an SEO auditor — all behind Firebase auth, with a vanilla-JS single-page frontend served from `public/`.
 
 ---
 
@@ -9,172 +9,216 @@ Bob is an autonomous AI assistant, vibecoding builder, and personal intelligence
 ```
 bob-backend/
 ├── src/
-│   ├── server.js              # Express app & middleware entrypoint
+│   ├── server.js                      # Express entrypoint, security headers, route mounting
 │   ├── config/
-│   │   ├── firebase.js        # Firebase Admin initialization (Auth & Firestore)
-│   │   └── cloudinary.js      # Cloudinary storage configuration
+│   │   ├── firebase.js                # Firebase Admin init (Auth + Firestore)
+│   │   └── cloudinary.js              # Cloudinary storage config
 │   ├── middleware/
-│   │   └── auth.js            # Firebase ID Token verification & multi-auth handling
-│   ├── routes/
-│   │   ├── chat.js            # POST /api/chat (LLM streaming, tools, proactive insights)
-│   │   ├── files.js           # Upload, view, stream, download, and delete files
-│   │   ├── memory.js          # CRUD operations for structured facts & memory
-│   │   ├── sessions.js        # Session & conversation message history
-│   │   ├── builder.js         # Builder & vibecoding workspace endpoints
-│   │   ├── hackathons.js      # Hackathon tracking & crawling
-│   │   ├── stalking.js        # Deep social web profile intelligence & crawler
-│   │   ├── secretVault.js     # Passcode-protected secure vault
-│   │   ├── scheduler.js       # Autonomous task scheduler & reminders
-│   │   └── routines.js        # Daily autonomous routines & habits
-│   └── services/
-│       ├── llmService.js      # OpenRouter LLM orchestration & model fallbacks
-│       ├── memoryService.js   # 6-category structured memory & vector retrieval
-│       ├── fileService.js     # Cloudinary upload/delete + Firestore synchronization
-│       ├── documentReaderService.js # In-memory PDF, DOCX, XLSX text extractor
-│       ├── crawlerService.js  # Deep web page scraper & JSON-LD link extractor
-│       ├── hackathonService.js # Devpost / Unstop competition scraping
-│       ├── stalkingService.js # Multi-network profile discovery & entity resolution
-│       ├── youtubeService.js  # YouTube transcripts & media detection
-│       ├── instagramService.js# Instagram profile & post scraping
-│       ├── weatherService.js  # Real-time weather data
-│       └── stocksService.js   # Market & financial tracking
-├── public/                    # Frontend client (HTML5, Vanilla JS, CSS3)
-│   ├── index.html             # Single Page Application UI
-│   ├── app.js                 # Frontend orchestration, chat, audio, & workspaces
-│   └── style.css              # Cyber-minimal dark theme design system
-├── .env.example               # Environment variables template
-├── vercel.json                # Vercel Serverless deployment config
+│   │   └── auth.js                    # Firebase ID token verification (requireAuth)
+│   ├── routes/                        # 17 route groups — see API table below
+│   └── services/                      # 28 service modules — business logic layer
+├── public/                            # Frontend SPA (HTML5 + vanilla JS + CSS3)
+│   ├── index.html
+│   ├── app.js
+│   └── style.css
+├── AI-Website-Engineering-System/     # Reference playbooks Bob the Builder draws on
+│   ├── 00-Core-System/                # Workflow, architecture, governance, quality rules
+│   ├── 01-Engineering-System/         # Design, frontend, backend, SEO, business, deploy guides
+│   ├── 02_Industry_Systems/           # Per-industry site blueprints (SaaS, commerce, etc.)
+│   ├── 03_Resource_Libraries/         # Color palettes, font pairings, field taxonomy, stack guide
+│   └── 04_Templates/                  # Prompt/brief/progress-report templates
+├── AGENTS.md                          # Working rules Bob/agents must follow (git workflow, etc.)
+├── .env.example                       # Full environment variable reference
+├── vercel.json                        # Vercel serverless deployment config
 └── package.json
 ```
 
 ---
 
-## ⚡ Key Workspaces & Capabilities
+## ⚡ Core Capabilities
 
-### 1. 📁 File Vault & Storage
-- **Native PDF & Document Streaming**: Open PDFs, Word docs, and spreadsheets directly in browser tabs via native streaming (`GET /api/files/:id/view`) with zero external viewer issues.
-- **Direct Download & Cloudinary Sync**: 1-click downloads and permanent storage cleanup from Cloudinary upon file deletion.
-- **AI-Readable Recognition**: Automatic text extraction from PDFs, DOCX, and code files so Bob can reference their actual text content in chats.
-- **Sticky Filtering & Status Stats**: Search and filter by file types (`Documents`, `Sheets`, `Code`, `Media`) with persistent sticky tabs.
+### 1. 💬 Chat & LLM Orchestration
+- Multi-key OpenRouter rotation pool (up to 11 keys) with automatic failover when a key exhausts credits.
+- Role-pinned keys (`BOB_API_KEY`, `CENTER_API_KEY`, `BUILDER_API_KEY`) that survive restarts, plus generic replacement keys.
+- Per-task model routing (`WRITER_MODEL`, `REVIEW_MODEL`, `AUDITOR_MODEL`, `VISION_MODEL`, `CHEAP_MODEL`) with automatic capability-based fallback (e.g. shifting off a text-only model when an image is attached, or off a small-context model when the prompt is too big).
+- Tool-use / proactive insights layered into `/api/chat`.
 
 ### 2. 🧠 Structured Memory Bank
-Categorized long-term memory across 6 dedicated pillars:
-- 🎯 **Habits & Preferences**: Personal workflow, coding styles, daily routines.
-- 🧠 **Main Memory**: General facts, career goals, personal knowledge.
-- 🏆 **Hackathons**: Competition problem statements, team members, deadlines, pitches.
-- 🕵️ **Stalker Intelligence**: Target profiles, social accounts (IG, LinkedIn, GitHub, X), crawled data.
-- 🔒 **Secret Vault**: Passcode-secured confidential keys, notes, and credentials.
-- 🛠️ **Builder & Codebase**: Architecture plans, tech stacks, DSA progress, vibecoding notes.
+Six long-term memory pillars, all Firestore-backed:
+- 🎯 Habits & Preferences — workflow, coding style, routines
+- 🧠 Main Memory — general facts, goals, knowledge
+- 🏆 Hackathons — problem statements, teammates, deadlines
+- 🕵️ Stalker Intelligence — target profiles across social platforms
+- 🔒 Secret Vault — PIN-protected credentials/notes
+- 🛠️ Builder & Codebase — architecture notes, tech stack, dev progress
 
-### 3. 🛠️ Builder Workspace
-- Vibecoding companion for architecting systems, creating PRDs, and tracking development milestones.
-- Instant access to Bob's knowledge base and shared codebase memory.
+### 3. 📁 File Vault
+- Cloudinary-backed upload/view/download/delete with Firestore metadata sync.
+- Automatic text extraction (PDF/DOCX/XLSX/code) so Bob can reference file contents in chat.
+- Real binary office file *generation* (`.xlsx`, `.docx`, `.pdf`, `.pptx`) via `documentGenerator`.
 
-### 4. 🕵️ Stalker Intelligence & Deep Crawler
-- Automated network crawling across LinkedIn, GitHub, X, Instagram, and web portfolios.
-- Extracts JSON-LD schema metadata, tech stacks, outgoing profile links, and bio details.
+### 4. 🛠️ Builder Workspace ("Bob the Builder")
+- Dedicated persona with its own key pool and model, isolated from the main chat pool.
+- Reads GitHub repos (public, or private with a fine-grained PAT) for self-aware project context.
+- Backed by `builderService`, `builderKnowledgeService`, `builderTaskService`, and the `AI-Website-Engineering-System` knowledge base for planning/PRDs/prompt packs.
 
-### 5. 🏆 Hackathon Tracker
-- Real-time crawler for Devpost and Unstop.
-- Tracks problem statements, submission requirements, team members, and winning strategies.
+### 5. 🕵️ Stalker Intelligence & Deep Crawler
+- Crawls LinkedIn, GitHub, X, Instagram, and portfolio sites; extracts JSON-LD, tech stack signals, and bios.
+
+### 6. 🏆 Hackathon Tracker
+- Scrapes Devpost/Unstop listings for problem statements, requirements, and deadlines.
+
+### 7. ⏰ Autonomous Routines & Scheduler
+- Cron-driven (`GET/POST /api/scheduler/tick`, triggered hourly by GitHub Actions) reminders and daily routines, secured via `CRON_SECRET`.
+- `proactiveAdvisor` generates notifications on its own from vault/fact changes.
+
+### 8. 🔧 Self-Edit Engine
+- Bob can propose and log diffs to its own codebase (`selfEditService`), capped by `SELF_EDIT_MAX_DIFF_CHARS`.
+
+### 9. 📈 SEO Auditor
+- Tracks and audits sites on a schedule, with the same cron-or-Firebase-auth pattern as the scheduler.
+
+### 10. 📊 HQ Dashboard
+- `/api/hq/summary` aggregates hackathons, profiles, routines, notifications, facts, monthly memory, files, and self-edits into one dashboard payload.
+
+---
+
+## 🔧 Services Reference (`src/services/`)
+
+| Service | Responsibility |
+|---|---|
+| `llmService.js` | OpenRouter orchestration, key rotation, model routing/fallback |
+| `memoryService.js` / `memoryManager.js` | Structured facts, monthly memory, notifications |
+| `behaviorEngine.js` | Trait/behavior detection from conversation |
+| `proactiveAdvisor.js` | Auto-generates proactive notifications |
+| `fileService.js` | Cloudinary upload/delete + Firestore sync |
+| `documentReaderService.js` | Extracts text from PDF/DOCX/XLSX/code |
+| `documentGenerator.js` | Generates real `.xlsx/.docx/.pdf/.pptx` files |
+| `crawlerService.js` | Generic web page scraping + JSON-LD extraction |
+| `repoService.js` | GitHub repo reading for Builder self-awareness |
+| `builderService.js` / `builderKnowledgeService.js` / `builderTaskService.js` | Bob the Builder persona logic |
+| `selfEditService.js` | Self-edit proposal/diff/history tracking |
+| `hackathonService.js` | Devpost/Unstop scraping |
+| `stalkingService.js` | Multi-network profile discovery |
+| `instagramService.js` / `youtubeService.js` | Platform-specific scraping / transcripts |
+| `mediaDetector.js` | Detects media type/links in content |
+| `weatherService.js` / `newsService.js` / `stocksService.js` | Live data (Open-Meteo, RSS, Yahoo Finance) |
+| `webSearchService.js` | General web search for research |
+| `seoService.js` | Site SEO auditing |
+| `routineService.js` / `schedulerService.js` | Daily routines and cron-driven tasks |
+| `statsService.js` | Usage/stat aggregation |
+| `developerPlatformsService.js` | Developer-platform integrations |
 
 ---
 
 ## 🚀 Getting Started
 
 ### Prerequisites
-- Node.js 18+ (Node 20+ recommended)
-- Firebase Project with Firestore & Authentication enabled
-- Cloudinary Account
-- OpenRouter API Key
+- Node.js 18+ (20+ recommended)
+- Firebase project (Auth + Firestore enabled)
+- Cloudinary account
+- At least one OpenRouter API key
 
 ### Installation
-
 ```bash
-# Clone repository
 git clone https://github.com/nikhilrawat2005/BoB.git
 cd bob-backend
-
-# Install dependencies
 npm install
-
-# Setup environment variables
 cp .env.example .env
 ```
 
-### Environment Configuration (`.env`)
+### Environment Configuration
+Fill in `.env` — key sections (see `.env.example` for full inline docs):
 
-Configure the following keys in `.env`:
 ```env
-PORT=3000
-NODE_ENV=development
-ALLOWED_EMAILS=your_email@gmail.com
-SHARED_ADMIN_ID=nikhil_master_workspace
+# OpenRouter — up to 11 rotating keys, optional role pinning
+OPENROUTER_API_KEY1=sk-or-v1-...
+BOB_API_KEY=
+CENTER_API_KEY=
+BUILDER_API_KEY1=
+BUILDER_MODEL=deepseek/deepseek-chat-v3
 
-# OpenRouter
-OPENROUTER_API_KEY=sk-or-v1-...
-OPENROUTER_MODEL=anthropic/claude-3.5-sonnet
+# Model routing
+WRITER_MODEL=google/gemini-2.5-flash-lite
+REVIEW_MODEL=google/gemini-2.5-flash
+VISION_MODEL=google/gemini-2.5-flash-lite
+CHEAP_MODEL=google/gemini-2.5-flash-lite
 
-# Firebase Admin SDK
-FIREBASE_PROJECT_ID=bob-...
-FIREBASE_CLIENT_EMAIL=firebase-adminsdk-...
-FIREBASE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\n..."
+# Firebase Admin
+FIREBASE_PROJECT_ID=
+FIREBASE_CLIENT_EMAIL=
+FIREBASE_PRIVATE_KEY=
+
+# Firebase Client (served via /api/config)
+FIREBASE_CLIENT_API_KEY=
+FIREBASE_AUTH_DOMAIN=
+FIREBASE_STORAGE_BUCKET=
+FIREBASE_MESSAGING_SENDER_ID=
+FIREBASE_APP_ID=
 
 # Cloudinary
-CLOUDINARY_CLOUD_NAME=your_cloud_name
-CLOUDINARY_API_KEY=your_api_key
-CLOUDINARY_API_SECRET=your_api_secret
+CLOUDINARY_CLOUD_NAME=
+CLOUDINARY_API_KEY=
+CLOUDINARY_API_SECRET=
+
+# Access control
+ALLOWED_EMAILS=you@example.com
+SHARED_ADMIN_ID=nikhil_master_workspace
+SECRET_VAULT_PIN=2005
+
+# Cron (GitHub Actions -> scheduler/seo tick)
+CRON_SECRET=
+
+# Live data
+DEFAULT_CITY=New Delhi
 ```
 
 ### Running Locally
-
 ```bash
-# Start development server
-npm run dev
-
-# Or start standard server
-npm start
+npm run dev     # nodemon, auto-restart
+npm start       # plain node
 ```
-
-Access the application in your browser at `http://localhost:3000`.
+Visit `http://localhost:3000`.
 
 ---
 
 ## 📡 API Endpoints Reference
 
-All `/api/*` endpoints (except `/api/health`) require authentication:
-- Header: `Authorization: Bearer <firebase-id-token>`
-- Or query parameter (for direct browser view): `?token=<firebase-id-token>`
+All `/api/*` routes (except `/api/health` and `/api/config`) require:
+`Authorization: Bearer <firebase-id-token>` (or `?token=` query param for direct browser viewing).
 
-| Method | Endpoint | Description |
+| Route prefix | File | Purpose |
 |---|---|---|
-| `GET` | `/api/health` | Service health check |
-| `POST` | `/api/chat` | Send message and receive LLM response |
-| `GET` | `/api/sessions` | List chat sessions for authenticated user |
-| `POST` | `/api/sessions` | Create a new chat session |
-| `GET` | `/api/sessions/:id/messages` | Retrieve conversation history |
-| `GET` | `/api/files` | List all uploaded files with AI metadata |
-| `POST` | `/api/files/upload` | Upload document or media (`multipart/form-data`) |
-| `GET` | `/api/files/:id/view` | Stream file with `inline` disposition (native browser view) |
-| `GET` | `/api/files/:id/download` | Stream file with `attachment` disposition (force download) |
-| `DELETE` | `/api/files/:id` | Delete file from Cloudinary and Firestore |
-| `POST` | `/api/files/generate` | Generate real binary office files (.xlsx, .docx, .pdf, .pptx) |
-| `GET` | `/api/memory/facts` | Retrieve categorized facts |
-| `POST` | `/api/memory/facts` | Save a new structured fact |
-| `DELETE` | `/api/memory/facts/:id` | Remove a fact from memory |
-| `GET` | `/api/hackathons` | List tracked hackathons and scraped data |
-| `POST` | `/api/hackathons/scrape` | Scrape a hackathon URL (Devpost / Unstop) |
-| `GET` | `/api/stalking/profiles` | List tracked social/professional profiles |
-| `POST` | `/api/stalking/crawl` | Deep-crawl a target profile or website |
+| `POST /api/auth/set-password` | `server.js` | Set/reset password for an allow-listed email, returns custom token |
+| `/api/chat` | `chat.js` | LLM chat, tool-use, streaming |
+| `/api/sessions` | `sessions.js` | Chat sessions + message history |
+| `/api/memory` | `memory.js` | CRUD for structured facts/memory |
+| `/api/files` | `files.js` | Upload / view / download / delete / generate office files |
+| `/api/research` | `research.js` | Crawl & LLM-analyze any URL |
+| `/api/secret` | `secretVault.js` | PIN-protected vault |
+| `/api/notifications` | `notifications.js` | List/mark-read proactive notifications |
+| `/api/scheduler` | `scheduler.js` | Cron tick, reminders |
+| `/api/live` | `live.js` | Weather / news / stocks |
+| `/api/builder` | `builder.js` | Bob the Builder workspace |
+| `/api/hackathons` | `hackathons.js` | Hackathon list + scrape |
+| `/api/stalking` | `stalking.js` | Profile list + deep crawl |
+| `/api/routines` | `routines.js` | Daily autonomous routines |
+| `/api/hq` | `hq.js` | Aggregated dashboard summary |
+| `/api/self-edit` | `selfEdit.js` | Self-edit history/diffs |
+| `/api/keys` | `keys.js` | Anonymized OpenRouter key health (no raw keys ever sent) |
+| `/api/seo` | `seo.js` | SEO site tracking + audits (cron or user auth) |
 
 ---
 
 ## 🚢 Deployment (Vercel)
 
-1. Push your changes to GitHub:
-   ```bash
-   git push origin main
-   ```
-2. Connect your repository to **Vercel**.
-3. In Vercel Project Settings, add all variables from `.env`.
-4. Deploy — your backend and frontend will be live on your custom Vercel domain!
+1. `git push origin main`
+2. Import the repo into **Vercel**.
+3. Copy every variable from `.env` into Vercel Project Settings → Environment Variables.
+4. Deploy.
+5. For hourly scheduler/SEO ticks, set the same `CRON_SECRET` in Vercel **and** in the GitHub repo's Actions secrets (used by `.github/workflows/tick.yml`, if present, to call `POST /api/scheduler/tick`).
+
+---
+
+## 📜 Project Rules
+See `AGENTS.md` for the working agreement (e.g. commit after every change set, auto-push to `main`, never commit `.env`).
