@@ -4128,6 +4128,12 @@ body.collab-on .collab-state { color: #fff; background: var(--green); }
 }
 .hack-workspace.list-collapsed {
   grid-template-columns: 0 minmax(0, 100%) 0 !important;
+  transition: none !important;
+}
+.hack-workspace.list-collapsed .ws-chat-col {
+  grid-column: 1 / -1 !important;
+  grid-row: 1 !important;
+  width: 100% !important;
 }
 .hack-workspace.list-collapsed .ws-list-col,
 .hack-workspace.list-collapsed .ws-knowledge-col {
@@ -4139,9 +4145,6 @@ body.collab-on .collab-state { color: #fff; background: var(--green); }
   margin: 0 !important;
   overflow: hidden !important;
   pointer-events: none !important;
-}
-.hack-workspace.list-collapsed .ws-chat-col {
-  width: 100% !important;
 }
 .hack-workspace.list-collapsed .ws-mobile-tabs {
   display: none !important;
