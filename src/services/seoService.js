@@ -260,28 +260,45 @@ function parsePage(html, origin, rawHeaders = {}) {
 
 async function fetchRobotsAndSitemap(origin) {
   const result = { robotsExists: false, robotsContent: '', rulesPresent: false, sitemapFound: false, sitemapUrls: [], lastmodCount: 0, isSitemapIndex: false };
+  let sitemapTargetUrls = [];
+
   try {
     const robots = await fetchText(new URL('/robots.txt', origin).href, 8000);
     result.robotsExists = robots.ok;
-    if (result.robotsExists) {
+    if (result.robotsExists && robots.text) {
       result.robotsContent = robots.text.slice(0, 4000);
       result.rulesPresent = /user-agent/i.test(robots.text);
-      const sm = robots.text.match(/^sitemap:\s*(\S+)$/im);
-      if (sm) result.sitemapFound = true;
+      const matches = [...robots.text.matchAll(/^sitemap:\s*(\S+)$/gim)];
+      if (matches.length) {
+        result.sitemapFound = true;
+        sitemapTargetUrls = matches.map(m => m[1].trim());
+      }
     }
   } catch { result.robotsExists = false; }
-  if (!result.sitemapFound) {
+
+  if (!sitemapTargetUrls.length) {
+    sitemapTargetUrls = [
+      new URL('/sitemap.xml', origin).href,
+      new URL('/sitemap_index.xml', origin).href,
+    ];
+  }
+
+  for (const smUrl of sitemapTargetUrls) {
     try {
-      const sm = await fetchText(new URL('/sitemap.xml', origin).href, 8000);
-      if (sm.ok) {
+      const sm = await fetchText(smUrl, 9000);
+      if (sm.ok && sm.text) {
         result.sitemapFound = true;
         const locs = [...sm.text.matchAll(/<loc>(.*?)<\/loc>/gi)].map((m) => m[1].trim());
-        result.sitemapUrls = locs;
-        result.lastmodCount = (sm.text.match(/<lastmod>/gi) || []).length;
-        result.isSitemapIndex = /<sitemap>/i.test(sm.text);
+        if (locs.length) {
+          result.sitemapUrls = [...new Set([...result.sitemapUrls, ...locs])];
+        }
+        const lastmods = (sm.text.match(/<lastmod>/gi) || []).length;
+        if (lastmods > result.lastmodCount) result.lastmodCount = lastmods;
+        if (/<sitemap>/i.test(sm.text)) result.isSitemapIndex = true;
       }
-    } catch { /* no sitemap */ }
+    } catch { /* continue */ }
   }
+
   return result;
 }
 
@@ -527,7 +544,7 @@ async function runAudit(originUrl, { skipLlm = false, keywords = [] } = {}) {
     ttfb: homepage.ttfb ?? 0,
     loadMs: homepage.loadMs ?? 0,
     htmlBytes: homepage.htmlBytes ?? Buffer.byteLength(homepage.text),
-    ...parsePage(homepage.text, origin),
+    ...parsePage(homepage.text, origin, homepage.headers || {}),
   };
 
   const [robots, broken, pageSpeedRes] = await Promise.all([
@@ -1376,6 +1393,7 @@ function generateSeoReport(site) {
 }
 
 module.exports = {
+  runAudit,
   generateAiActionPlan,
   listSites,
   getSite,

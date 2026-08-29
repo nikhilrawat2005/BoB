@@ -5265,7 +5265,7 @@ function renderSeoStrengths(site) {
   if (sig.canonical) strengths.push({ title: 'Canonical Tag Active', note: 'Self-referencing canonical tag maujood hai — duplicate content issues se protection.' });
   if (sig.semanticCount >= 2) strengths.push({ title: 'HTML5 Semantic Layout', note: `${sig.semanticCount}/7 semantic structure tags (header/nav/main/section/footer) use ho rahe hain.` });
   if (sig.robotsExists) strengths.push({ title: 'robots.txt Configured', note: 'Search engine crawler rules robots.txt mein accurately defined hain.' });
-  if (sig.sitemapFound) strengths.push({ title: 'XML Sitemap Discovered', note: `${sig.sitemapUrls || 0} URLs sitemap structure mein available hain.` });
+  if (sig.sitemapFound && (sig.sitemapUrls > 0)) strengths.push({ title: 'XML Sitemap Discovered', note: `${sig.sitemapUrls} URLs sitemap structure mein available hain — search engines easily crawl kar sakte hain.` });
   if (sig.ttfbMs && sig.ttfbMs < 1000) strengths.push({ title: 'Fast Server TTFB', note: `Server first byte response time healthy hai (${sig.ttfbMs}ms).` });
   if (sig.htmlBytes && sig.htmlBytes < 300 * 1024) strengths.push({ title: 'Lightweight HTML Payload', note: `HTML page weight sirf ${(sig.htmlBytes / 1024).toFixed(0)} KB hai.` });
   if (sig.blockingScripts === 0) strengths.push({ title: 'Zero Render-Blocking Scripts', note: 'Sabhi scripts async/defer ya non-blocking mode mein load ho rahe hain.' });
@@ -5522,7 +5522,7 @@ function renderSeoPages(site) {
     return;
   }
 
-  const isPageIssue = (p) => p.isOrphan || (p.wordCount > 0 && p.wordCount < 120) || !p.h1 || !p.metaDesc || p.status !== 200 || p.blockingScripts > 0;
+  const isPageIssue = (p) => p.isOrphan || (p.wordCount > 0 && p.wordCount < 120) || !p.h1 || !p.metaDesc || p.status !== 200;
   const issuePages = pages.filter(isPageIssue);
   const healthyCount = pages.length - issuePages.length;
   const orphans = pages.filter(p => p.isOrphan).length;

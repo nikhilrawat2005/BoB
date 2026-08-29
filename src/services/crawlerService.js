@@ -65,7 +65,11 @@ function fetchWithTimeout(url, options = {}, timeoutMs = 8000) {
       );
       const text = await Promise.race([bodyPromise, bodyTimer]);
       clearTimeout(timer);
-      return { ok: res.ok, status: res.status, statusText: res.statusText, text };
+      const rawHeaders = {};
+      if (res.headers && typeof res.headers.entries === 'function') {
+        for (const [k, v] of res.headers.entries()) rawHeaders[k.toLowerCase()] = v;
+      }
+      return { ok: res.ok, status: res.status, statusText: res.statusText, text, headers: rawHeaders };
     })
     .catch((err) => {
       clearTimeout(timer);
