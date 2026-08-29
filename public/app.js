@@ -4995,6 +4995,23 @@ function renderSeoAudit(site) {
   const signalRow = (label, value) =>
     `<div style="display:flex;justify-content:space-between;font-size:12px;padding:3px 0;color:var(--text2);"><span>${label}</span><span style="font-weight:600;color:var(--text1);">${value}</span></div>`;
 
+  const ps = a.pageSpeed || {};
+  const psLive = ps.fetched === true || signals.pageSpeedFetched === true;
+  const cwvRow = (label, val, good, warn) => {
+    if (val == null || val === '') return '';
+    const n = parseFloat(String(val));
+    const color = !isNaN(n) ? (n <= good ? 'var(--green)' : n <= warn ? 'var(--amber)' : '#f87171') : 'var(--text1)';
+    return signalRow(label, '<span style="color:' + color + ';">' + escHtml(String(val)) + '</span>');
+  };
+  const psPerf = (typeof ps.perfScore === 'number') ? ps.perfScore : (typeof signals.perfScore === 'number') ? signals.perfScore : null;
+  const serpUrl = String(a.homeUrl || site.url || '');
+  const serpDomain = String(site.domain || serpUrl.replace(/^https?:\/\//, '').split('/')[0] || '');
+  let serpPath = '';
+  try { serpPath = new URL(serpUrl).pathname.replace(/\/$/, ''); } catch (e) { }
+  const serpCrumb = serpDomain + (serpPath ? ' › ' + serpPath.replace(/\//g, ' › ') : '');
+  const serpTitle = String(site.title || site.domain || '');
+  const serpSnippet = String(signals.metaDescription || a.summary || 'No meta description — Google koi bhi random snippet utha lega.').slice(0, 160);
+
   const opTab = (id, active, label) =>
     `<button class="seo-op-tab${active ? ' seo-op-tab-on' : ''}" data-seop="${id}" style="padding:6px 12px;border-radius:8px;background:#00000033;color:var(--text2);font-size:11px;font-weight:700;border:1px solid #ffffff18;${active ? 'background:#00000055;color:var(--text1);box-shadow:inset 0 0 0 1px #ffffff33;' : ''}">${label}</button>`;
 
@@ -5026,6 +5043,25 @@ function renderSeoAudit(site) {
         <button class="btn-small" id="seo-generate-ai-plan" style="width:100%;padding:7px 0;font-weight:700;background:var(--accent);color:#fff;border:none;border-radius:6px;cursor:pointer;">
           ${(a.aiActionPlan) ? '💬 View / Re-Generate in Chat' : '✨ Generate AI Action Plan in Chat'}
         </button>
+</div>
+
+      <!-- Level 3: Google SERP emulator + Core Web Vitals -->
+      <div class="ws-kb-block"><div class="ws-kb-label">🔍 Google Search Preview</div>
+        <div style="background:#ffffff;color:#202124;border-radius:6px;padding:10px 12px;margin-top:4px;font-family:'Segoe UI',Arial,sans-serif;">
+          <div style="display:flex;gap:6px;align-items:center;font-size:10px;color:#5f6368;"><span>🌐</span><span>${escHtml(serpCrumb)}</span></div>
+          <div style="font-size:15px;line-height:1.25;color:#1a0dab;margin:2px 0;">${escHtml(serpTitle)}</div>
+          <div style="font-size:11px;line-height:1.45;">${escHtml(serpSnippet)}</div>
+        </div>
+        <div style="font-size:10px;color:var(--text3);margin-top:6px;">Google index par aapka site aise dikhega (title • meta description • URL).</div>
+      </div>
+
+      <div class="ws-kb-block"><div class="ws-kb-label">⚡ Core Web Vitals ${psLive ? '<span style="font-size:9px;color:var(--green);font-weight:700;padding:2px 6px;border-radius:4px;background:rgba(52,211,153,0.12);">Google PSI • Mobile</span>' : '<span style="font-size:9px;color:var(--amber);font-weight:700;padding:2px 6px;border-radius:4px;background:rgba(251,191,36,0.12);">Estimate</span>'}</div>
+        ${psPerf != null ? signalRow('🏆 Performance', psPerf + '/100') : ''}
+        ${cwvRow('🎨 LCP', (ps.lcp != null) ? ps.lcp : signals.lcp, 2.5, 4)}
+        ${cwvRow('⚡ FCP', (ps.fcp != null) ? ps.fcp : signals.fcp, 1.8, 3)}
+        ${cwvRow('📐 CLS', (ps.cls != null) ? ps.cls : signals.cls, 0.1, 0.25)}
+        ${cwvRow('🔨 TBT', (ps.tbt != null) ? ps.tbt : signals.tbt, 200, 600)}
+        ${signalRow('📡 Strategy', (ps.strategy != null) ? escHtml(ps.strategy) : 'mobile')}
       </div>
 
       <div class="ws-kb-block"><div class="ws-kb-label">🌐 Technical Signals</div>
@@ -5072,7 +5108,7 @@ function renderSeoAudit(site) {
       genPlanBtn.disabled = true;
       genPlanBtn.textContent = '⏳ Formulating Plan…';
       try {
-        const res = await apiFetch('/api/seo/' + site.id + '/actionplan', { method: 'POST' });
+        const res = await apiFetch('/api/seo/' + site.id + '/actionplan', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ force: !!(site.audit && site.audit.aiActionPlan) }) });
         if (site.audit) site.audit.aiActionPlan = res.plan;
         renderSeoAudit(site);
         // Switch mobile tab to chat if mobile
@@ -5697,61 +5733,7 @@ async function addSeoSiteFromInput() {
   }
 }
 
-async function compareSitesFrontend() {
-  const oc = document.getElementById('seo-op-compare-input');
-  const sc = document.getElementById('seo-compare-input');
-  const urls = ((oc && oc.value.trim()) || (sc && sc.value.trim()) || '');
-  if (!urls) { alert('URLs daalo — comma-separated, max 4.'); return; }
-  const setBusy = (on) => {
-    if (oc) oc.disabled = on;
-    if (sc) sc.disabled = on;
-    const b1 = document.getElementById('seo-op-compare-btn');
-    const b2 = document.getElementById('seo-compare-btn');
-    if (b1) { b1.disabled = on; b1.textContent = on ? '⏳' : '⚔️'; }
-    if (b2) { b2.disabled = on; b2.textContent = on ? '⏳' : '⚔️'; }
-  };
-  setBusy(true);
-  try {
-    const { results } = await apiFetch('/api/seo/compare', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ urls }) });
-    renderSeoCompare(results);
-  } catch (err) {
-    alert('Compare failed: ' + err.message);
-  } finally {
-    setBusy(false);
-  }
-}
-
-function renderSeoCompare(results) {
-  const el = document.getElementById('seo-op-compare-results');
-  if (!el) return;
-  const backBtn = `<button class="btn-small" id="seo-compare-back" style="width:100%;margin-bottom:8px;">← Dashboard</button>`;
-  const cards = (results || []).map(r => {
-    if (r.error) {
-      return `<div class="ws-kb-block"><div class="ws-kb-label">⚔️ ${escHtml(r.domain || r.url)}</div><div style="font-size:12px;color:var(--red);">⚠️ ${escHtml(r.error)}</div></div>`;
-    }
-    const cols = ['technical', 'onpage', 'content', 'links'].map(k =>
-      `<div style="display:flex;justify-content:space-between;font-size:12px;padding:2px 0;color:var(--text2);"><span>${k[0].toUpperCase() + k.slice(1)}</span><span style="font-weight:700;color:${seoScoreColor(r.breakdown[k] || 0)};">${r.breakdown[k] || 0}</span></div>`
-    ).join('');
-    const issues = (r.topIssues || []).map(i => `<div style="font-size:11px;color:var(--text2);line-height:1.4;">• ${escHtml(i)}</div>`).join('');
-    return `<div class="ws-kb-block">
-      <div class="ws-kb-label">⚔️ ${escHtml(r.domain || r.url)}</div>
-      <div style="text-align:center;font-size:32px;font-weight:800;color:${seoScoreColor(r.score)};">${typeof r.score === 'number' ? r.score : '—'}/100</div>
-      <div style="font-size:11px;color:var(--text2);margin-top:6px;">${cols}</div>
-      ${issues ? `<div style="margin-top:6px;">${issues}</div>` : ''}
-    </div>`;
-  }).join('');
-  el.innerHTML = `<div class="ws-kb-block"><div class="ws-kb-label">⚔️ Competitor Comparison</div>
-    <div style="font-size:11px;color:var(--text3);">Deterministic on-page score — har site par live quick audit. Detailed audit ke liye site ko add karke dekh sakte ho.</div>
-    ${backBtn}</div>${cards}`;
-  const back = document.getElementById('seo-compare-back');
-  if (back) back.addEventListener('click', () => switchSeoOpTab('dash'));
-  switchSeoOpTab('compare');
-}
-
 document.getElementById('seo-send-btn')?.addEventListener('click', sendSeoMessage);
-attachAutoResizeTextarea('seo-chat-input', sendSeoMessage);
-document.getElementById('seo-compare-btn')?.addEventListener('click', compareSitesFrontend);
-document.getElementById('seo-compare-input')?.addEventListener('keydown', (e) => { if (e.key === 'Enter') compareSitesFrontend(); });
 document.getElementById('seo-add-btn')?.addEventListener('click', addSeoSiteFromInput);
 document.getElementById('add-seo-btn-sidebar')?.addEventListener('click', () => document.getElementById('seo-url-input')?.focus());
 document.getElementById('seo-url-input')?.addEventListener('keydown', (e) => { if (e.key === 'Enter') addSeoSiteFromInput(); });

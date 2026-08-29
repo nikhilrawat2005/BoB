@@ -9,3 +9,7 @@ node_modules/
 # Firebase service account keys — NEVER commit these
 *firebase-adminsdk*.json
 *service-account*.json
+
+# Plaintext API key dumps — NEVER commit these
+geminikeys.txt
+*keys*.txt

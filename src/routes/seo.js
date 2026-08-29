@@ -68,17 +68,6 @@ router.get('/:id', requireAuth, async (req, res) => {
   }
 });
 
-// POST /api/seo/compare  { urls: "https://a.com, https://b.com" } — competitor comparison
-router.post('/compare', requireAuth, async (req, res) => {
-  const urls = (req.body && req.body.urls) || '';
-  try {
-    const results = await seo.compareSites(urls);
-    res.json({ results });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
 // POST /api/seo/pump — background re-audit worker (GitHub Actions, every 5 min)
 router.post('/pump', cronAuth, async (req, res) => {
   try {
@@ -100,9 +89,11 @@ router.delete('/:id', requireAuth, async (req, res) => {
 });
 
 // POST /api/seo/:id/actionplan — Level 4 Token-Optimized AI Action Plan
+// body: { force: true } → re-generate even if a cached plan exists
 router.post('/:id/actionplan', requireAuth, async (req, res) => {
   try {
-    const plan = await seo.generateAiActionPlan(req.userId, req.params.id);
+    const force = Boolean((req.body || {}).force);
+    const plan = await seo.generateAiActionPlan(req.userId, req.params.id, { force });
     res.json({ plan });
   } catch (err) {
     res.status(500).json({ error: err.message });

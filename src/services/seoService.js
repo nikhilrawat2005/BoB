@@ -30,45 +30,7 @@ async function fetchText(url, timeoutMs = 10000) {
   return res;
 }
 
-// Same idea as fetchText but with TTFB + total load timing (speed proxy metrics).
-async function fetchTimed(url, timeoutMs = 12000) {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  const t0 = Date.now();
-  const res = await fetch(url, {
-    headers: { 'User-Agent': UA, Accept: 'text/html,application/xhtml+xml,text/xml,application/xml,*/*' },
-    signal: controller.signal,
-  }).catch((err) => {
-    clearTimeout(timer);
-    throw new Error(`Connect failed: ${err.message}`);
-  });
-  const ttfb = Date.now() - t0;
-  const rawHeaders = {};
-  if (res.headers && typeof res.headers.forEach === 'function') {
-    res.headers.forEach((v, k) => { rawHeaders[k.toLowerCase()] = v; });
-  } else if (res.headers && typeof res.headers.entries === 'function') {
-    for (const [k, v] of res.headers.entries()) { rawHeaders[k.toLowerCase()] = v; }
-  }
-  const chunks = [];
-  return new Promise((resolve, reject) => {
-    res.body.once('error', (e) => { clearTimeout(timer); reject(new Error(`Body read failed: ${e.message}`)); });
-    res.body.on('data', (c) => chunks.push(c));
-    res.body.on('end', () => {
-      clearTimeout(timer);
-      const text = Buffer.concat(chunks).toString('utf8');
-      resolve({
-        ok: res.ok,
-        status: res.status,
-        statusText: res.statusText,
-        headers: rawHeaders,
-        text,
-        ttfb,
-        loadMs: Date.now() - t0,
-        htmlBytes: Buffer.byteLength(text),
-      });
-    });
-  });
-}
+
 
 function calculateMaxDepth($root) {
   let maxDepth = 0;
@@ -323,9 +285,10 @@ async function checkBrokenLinks(urls, max = 6) {
       return { url: u, ok: false, status: 0 };
     }
   }));
-  for (const r of results) {
+  for (let i = 0; i < results.length; i++) {
+    const r = results[i];
     if (r.status === 'fulfilled' && !r.value.ok) broken.push(r.value);
-    else if (r.status === 'rejected') broken.push({ url: r.reason?.url || u, ok: false, status: 0 });
+    else if (r.status === 'rejected') broken.push({ url: r.reason?.url || list[i] || 'unknown', ok: false, status: 0 });
   }
   return broken;
 }
@@ -592,9 +555,12 @@ async function runAudit(originUrl, { skipLlm = false, keywords = [] } = {}) {
     return results.filter(r => r.status === 'fulfilled' && r.value).map(r => r.value);
   }
 
-  // BFS in batches
+  // BFS in batches — hard deadline so a slow site never blows the serverless
+  // request budget (50 pages can otherwise approach ~80s worst-case).
+  const crawlDeadlineMs = 25000;
+  const crawlStart = Date.now();
   let cursor = 0;
-  while (pages.length < MAX_PAGES && cursor < crawlQueue.length) {
+  while (pages.length < MAX_PAGES && cursor < crawlQueue.length && Date.now() - crawlStart < crawlDeadlineMs) {
     const batch = crawlQueue.slice(cursor, cursor + CONCURRENCY);
     cursor += CONCURRENCY;
     const batchResults = await crawlBatch(batch);
@@ -840,6 +806,7 @@ async function createSite(userId, urlInput) {
       crawledUrls: res.crawledUrls,
       crawledPages: res.crawledPages,
       signals: res.audit.signals,
+      pageSpeed: res.audit.pageSpeed,
       keywordChecks: achievedAudit.keywordChecks,
       auditedAt: res.audit.auditedAt,
     },
@@ -871,6 +838,7 @@ async function reAudit(userId, id) {
       crawledUrls: res.crawledUrls,
       crawledPages: res.crawledPages,
       signals: res.audit.signals,
+      pageSpeed: res.audit.pageSpeed,
       keywordChecks: res.audit.keywordChecks,
       auditedAt: res.audit.auditedAt,
     },
@@ -1028,11 +996,17 @@ function buildSeoContext(site) {
 }
 
 // ── Level 4: Ultra-Token-Efficient AI Action Plan Generator ──
-async function generateAiActionPlan(userId, siteId) {
+async function generateAiActionPlan(userId, siteId, { force = false } = {}) {
   const site = await getSite(userId, siteId);
   if (!site) throw new Error('Site not found');
 
   const a = site.audit || {};
+
+  // Cache: already-generated plan is served without burning another LLM call.
+  if (!force && a.aiActionPlan && a.aiActionPlan.text) {
+    return { plan: a.aiActionPlan, sessionId: site.chatSessionId || null };
+  }
+
   const sig = a.signals || {};
   const pages = a.crawledPages || [];
   const orphanCount = pages.filter(p => p.isOrphan).length;
@@ -1231,31 +1205,6 @@ function generateFixPlan(site) {
 }
 
 // ── Competitor comparison (deterministic, no LLM) ─────
-async function compareSites(urlInputs) {
-  const raw = Array.isArray(urlInputs) ? urlInputs : String(urlInputs || '').split(',');
-  const list = raw.map((s) => String(s).trim()).filter(Boolean);
-  const unique = [];
-  for (const input of list.slice(0, 4)) {
-    let norm;
-    try { norm = normalizeUrl(input).href; } catch { continue; }
-    if (norm && !unique.some((u) => u.url === norm)) unique.push({ input, url: norm });
-  }
-  if (!unique.length) throw new Error('Koi valid URL nahi mila — comma-separated URLs do.');
-
-  const results = await Promise.allSettled(unique.map(async ({ url }) => {
-    const r = await runAudit(url, { skipLlm: true });
-    return {
-      domain: r.domain,
-      url: r.url,
-      score: r.audit.score,
-      breakdown: r.audit.breakdown,
-      topIssues: r.audit.issues.slice(0, 3).map((i) => i.text),
-    };
-  }));
-
-  return results.map((r, i) => r.status === 'fulfilled' ? r.value : { domain: unique[i].input, url: unique[i].url, score: null, error: r.reason && r.reason.message || 'Audit failed' });
-}
-
 // ── Full SEO report (HTML) — combines audit + fix plan + topic coverage ──
 function generateSeoReport(site) {
   const a = site.audit || {};
@@ -1418,7 +1367,6 @@ module.exports = {
   deleteSite,
   updateSiteSettings,
   processDueReAudits,
-  compareSites,
   generateFixPlan,
   generateSeoReport,
   getKeywords,
