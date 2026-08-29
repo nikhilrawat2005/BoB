@@ -207,6 +207,7 @@ async function initApp() {
   await loadNotifications();
   fetchProactiveGreeting();
   startBackgroundPolling();
+  restoreWorkspaceState();
 }
 
 function friendlyAuthError(code) {
@@ -411,6 +412,7 @@ async function selectSession(session) {
   closeViews();
   if (typeof closeMobileSidebar === 'function') closeMobileSidebar();
   currentSession = session;
+  localStorage.setItem(currentPersona === 'builder' ? 'bob_builder_session' : 'bob_chat_session', session.id);
   document.getElementById('chat-session-title').textContent = session.title;
   const topbarRenameBtn = document.getElementById('btn-rename-current-session');
   if (topbarRenameBtn) topbarRenameBtn.style.display = 'inline-flex';
@@ -1829,6 +1831,7 @@ function showWelcome() {
 function setPersona(p) {
   if (!p || currentPersona === p) return;
   currentPersona = p;
+  localStorage.setItem('bob_persona', p);
   document.body.classList.toggle('persona-builder', p === 'builder');
   document.querySelectorAll('.persona-btn').forEach(b => b.classList.toggle('active', b.dataset.persona === p));
   closeViews();
@@ -2337,7 +2340,33 @@ function showView(name) {
   const next = (name && name === activeId) ? '' : (name || '');
   document.querySelectorAll('.view').forEach(v => v.classList.toggle('active', v.id === 'view-' + next));
   document.querySelectorAll('.nav-btn').forEach(b => b.classList.toggle('active', b.dataset.view === next));
+  // Remember where the user left off so we can reopen it after reload.
+  localStorage.setItem('bob_last_view', next);
   return next;
+}
+
+// Reopen wherever the user was before closing/reloading the page.
+// Safe views only (no PIN / interactive flows); chat personas + last
+// conversation resume automatically.
+async function restoreWorkspaceState() {
+  const view = localStorage.getItem('bob_last_view') || '';
+  const p = localStorage.getItem('bob_persona') || '';
+  const sidKey = p === 'builder' ? 'bob_builder_session' : 'bob_chat_session';
+  const sid = localStorage.getItem(sidKey) || '';
+  if (p && p !== 'bob') setPersona('builder');
+  if (['hackathons', 'stalking', 'seo', 'routines', 'live', 'memory', 'files', 'keys', 'hq'].includes(view)) {
+    openHqCard(view);
+    return;
+  }
+  if (!sid) return;
+  try {
+    await loadSessions();
+    const row = document.querySelector(`.session-item[data-id="${sid}"]`);
+    if (!row) { localStorage.removeItem(sidKey); return; }
+    await selectSession({ id: sid, title: row.dataset.title });
+  } catch (err) {
+    localStorage.removeItem(sidKey);
+  }
 }
 function closeViews() { showView(''); if (keysRefreshTimer) { clearInterval(keysRefreshTimer); keysRefreshTimer = null; } }
 
