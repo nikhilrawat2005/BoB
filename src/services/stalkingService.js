@@ -344,7 +344,7 @@ async function researchProfile(userId, profId) {
 
     await memory.addNotification(
       userId,
-      `🕵️ Stalking complete: ${resolvedName}`,
+      `🔎 Deep Research complete: ${resolvedName}`,
       `Deep-dive done — ${profileData.summary.length ? profileData.summary[0].slice(0, 120) : 'Profile card ready.'}`
     );
 
@@ -352,7 +352,7 @@ async function researchProfile(userId, profId) {
     if (Array.isArray(profileData.summary) && profileData.summary.length > 0) {
       for (const pt of profileData.summary.slice(0, 4)) {
         if (pt && pt.length > 5) {
-          await memory.addFactUnique(userId, `[Stalker: ${resolvedName}] ${pt}`, 'stalker', {
+          await memory.addFactUnique(userId, `[Research: ${resolvedName}] ${pt}`, 'stalker', {
             sourceTitle: resolvedName,
             sourceType: 'stalker',
             sessionId: prof.chatSessionId || null,
@@ -371,7 +371,7 @@ async function researchProfile(userId, profId) {
 // ── Per-profile chat (context-isolated) ───────────────────
 async function ensureChatSession(userId, prof) {
   if (prof.chatSessionId) return prof.chatSessionId;
-  const s = await memory.createSession(userId, `🕵️ ${prof.name}`, 'stalker');
+  const s = await memory.createSession(userId, `🔎 ${prof.name}`, 'stalker');
   await coll(userId).doc(prof.id).set({ chatSessionId: s.id }, { merge: true });
   return s.id;
 }

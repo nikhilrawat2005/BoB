@@ -180,7 +180,7 @@ async function addFact(userId, text, category = null, options = {}) {
   const ref = db.collection('users').doc(userId).collection('facts').doc();
   const now = Date.now();
   const cat = detectCategory(text, category);
-  const defaultTitle = cat === 'stalker' ? 'Stalker Intelligence' : cat === 'hackathons' ? 'Hackathons' : cat === 'habits' ? 'Habits & Preferences' : 'Main Memory';
+  const defaultTitle = cat === 'stalker' ? 'Deep Research' : cat === 'hackathons' ? 'Hackathons' : cat === 'habits' ? 'Habits & Preferences' : 'Main Memory';
   const sourceTitle = options.sourceTitle || defaultTitle;
   const sourceType = options.sourceType || (cat === 'stalker' ? 'stalker' : cat === 'hackathons' ? 'hackathon' : 'chat');
   const sessionId = options.sessionId || null;
@@ -259,7 +259,7 @@ async function listFacts(userId) {
     const data = d.data() || {};
     const text = data.text || '';
     const category = detectCategory(text, data.category);
-    const defaultTitle = category === 'stalker' ? 'Stalker Intelligence' : category === 'hackathons' ? 'Hackathons' : category === 'habits' ? 'Habits & Preferences' : 'Main Memory';
+    const defaultTitle = category === 'stalker' ? 'Deep Research' : category === 'hackathons' ? 'Hackathons' : category === 'habits' ? 'Habits & Preferences' : 'Main Memory';
     return {
       id: d.id,
       text,
@@ -331,7 +331,7 @@ async function saveCategoryFacts(userId, category, points) {
 
   // Insert new points
   const now = Date.now();
-  const defaultTitle = category === 'stalker' ? 'Stalker Intelligence' : category === 'hackathons' ? 'Hackathons' : category === 'habits' ? 'Habits & Preferences' : 'Main Memory';
+  const defaultTitle = category === 'stalker' ? 'Deep Research' : category === 'hackathons' ? 'Hackathons' : category === 'habits' ? 'Habits & Preferences' : 'Main Memory';
   const added = [];
   for (let i = 0; i < cleanPoints.length; i += batchSize) {
     const chunk = cleanPoints.slice(i, i + batchSize);
@@ -371,7 +371,7 @@ async function saveCategoryFacts(userId, category, points) {
  */
 async function savePageFacts(userId, { category = 'main', sourceTitle, sourceType = 'chat', sessionId = null, points }) {
   const cat = detectCategory('', category);
-  const title = String(sourceTitle || '').trim() || (cat === 'stalker' ? 'Stalker Intelligence' : cat === 'hackathons' ? 'Hackathons' : 'Main Memory');
+  const title = String(sourceTitle || '').trim() || (cat === 'stalker' ? 'Deep Research' : cat === 'hackathons' ? 'Hackathons' : 'Main Memory');
   
   const cleanPoints = (Array.isArray(points) ? points : String(points || '').split(/\r?\n/))
     .map(p => p.replace(/^[-*•\d.)\s]+/, '').trim())

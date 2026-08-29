@@ -588,7 +588,7 @@ router.post('/', requireAuth, async (req, res) => {
     if (mentionsStalker) {
       const stalkers = await require('../services/stalkingService').listProfiles(req.userId).catch(() => []);
       if (stalkers && stalkers.length) {
-        contextBlocks.push(`🕵️ STALKING WORKSPACE (Researched target profiles):\n${stalkers.map(s => `- ${s.name} [${s.status}]${s.link ? ` ${s.link}` : ''}`).join('\n')}`);
+        contextBlocks.push(`🔎 DEEP RESEARCH WORKSPACE (Researched target profiles):\n${stalkers.map(s => `- ${s.name} [${s.status}]${s.link ? ` ${s.link}` : ''}`).join('\n')}`);
       }
     }
 

@@ -310,7 +310,7 @@ function renderSessions(sessions) {
   const normalSessions = (sessions || []).filter(s => {
     if (s.type === 'hackathon' || s.type === 'stalker' || s.type === 'seo') return false;
     const title = s.title || '';
-    if (title.startsWith('🏆') || title.startsWith('🕵️') || title.startsWith('🔍')) return false;
+    if (title.startsWith('🏆') || title.startsWith('🕵️') || title.startsWith('🔎') || title.startsWith('🔍')) return false;
     return true;
   });
 
@@ -2492,11 +2492,11 @@ const MEMORY_CATEGORIES = {
   },
   stalker: {
     key: 'stalker',
-    title: 'Stalker Intelligence',
-    tag: '[Stalker]',
-    icon: '🕵️',
-    desc: 'Target profiles, social handles (IG, LinkedIn, GitHub), and crawled research',
-    emptyMsg: 'No stalker profiles or research data recorded yet.',
+    title: 'Deep Research',
+    tag: '[Research]',
+    icon: '🔎',
+    desc: 'Target research — social handles (IG, LinkedIn, GitHub) aur crawled profiles',
+    emptyMsg: 'Koi researched profile abhi save nahi hua.',
   },
   vault: {
     key: 'vault',
@@ -2594,7 +2594,7 @@ async function loadFacts() {
     }
 
     const sessRes = await apiFetch('/api/sessions').catch(() => ({ sessions: [] }));
-    cachedSessions = (sessRes.sessions || []).filter(s => !s.title?.startsWith('🏆') && !s.title?.startsWith('🕵️') && !s.title?.startsWith('🔍'));
+    cachedSessions = (sessRes.sessions || []).filter(s => !s.title?.startsWith('🏆') && !s.title?.startsWith('🕵️') && !s.title?.startsWith('🔎') && !s.title?.startsWith('🔍'));
 
     let totalPoints = allMemoryFacts.length;
     cachedStalkerProfiles.forEach(p => {
@@ -2745,7 +2745,7 @@ function openCategoryView(catKey) {
 let activeDocEditPage = null;
 
 function getPageIcon(type, category) {
-  if (type === 'stalker' || category === 'stalker') return '🕵️';
+  if (type === 'stalker' || category === 'stalker') return '🔎';
   if (type === 'hackathon' || category === 'hackathons') return '🏆';
   if (type === 'chat') return '💬';
   if (category === 'habits') return '🎯';
@@ -2780,7 +2780,7 @@ function renderCategoryFactsList() {
     if (filterCountEl) filterCountEl.textContent = query ? `(${profiles.length} matching)` : '';
 
     if (!profiles.length && !allMemoryFacts.filter(f => f.category === 'stalker').length) {
-      list.innerHTML = `<div class="empty-msg">No stalker profiles researched yet. Create a target in Stalker Workspace or add a memory point above!</div>`;
+      list.innerHTML = `<div class="empty-msg">No profiles researched yet. Deep Research workspace me add karo ya upar memory point add karo!</div>`;
       return;
     }
 
@@ -2799,7 +2799,7 @@ function renderCategoryFactsList() {
             <div class="memory-entity-card" id="stalker-mem-card-${p.id}">
               <div class="memory-entity-header">
                 <div class="memory-entity-identity">
-                  <div class="memory-entity-avatar">🕵️</div>
+                  <div class="memory-entity-avatar">🔎</div>
                   <div>
                     <div class="memory-entity-title">
                       ${escHtml(p.name)}
@@ -2813,7 +2813,7 @@ function renderCategoryFactsList() {
                   </div>
                 </div>
                 <div class="memory-page-actions">
-                  <button class="btn-small btn-open-stalker-ws" data-prof-id="${p.id}" style="background:rgba(var(--cyan-rgb),0.15); border:1px solid rgba(var(--cyan-rgb),0.3); color:var(--cyan);">💬 Stalker Workspace</button>
+                  <button class="btn-small btn-open-stalker-ws" data-prof-id="${p.id}" style="background:rgba(var(--cyan-rgb),0.15); border:1px solid rgba(var(--cyan-rgb),0.3); color:var(--cyan);">💬 Deep Research</button>
                   <button class="btn-small btn-add-target-fact" data-prof-id="${p.id}" data-target-name="${escHtml(p.name)}" style="background:var(--surface2); border:1px solid var(--border2); color:var(--text);">＋ Add Insight</button>
                 </div>
               </div>
@@ -2849,7 +2849,7 @@ function renderCategoryFactsList() {
                   <div class="memory-page-facts-list">
                     ${targetFacts.map(f => `
                       <div class="fact-item" id="fact-item-${f.id}">
-                        <span class="fact-cat-badge">🕵️</span>
+                        <span class="fact-cat-badge">🔎</span>
                         <span class="fact-text" id="fact-text-${f.id}">${escHtml(f.text)}</span>
                         <div class="fact-item-actions" id="fact-actions-${f.id}">
                           <button class="fact-edit-btn" data-id="${f.id}" title="Edit this point">✏️</button>
@@ -3369,7 +3369,7 @@ if (addFactBtn) {
       text = `[Habit/Preference]: ${text}`;
     }
 
-    const defaultTitle = activeMemoryCat === 'stalker' ? 'Stalker Intelligence' : activeMemoryCat === 'hackathons' ? 'Hackathons' : activeMemoryCat === 'habits' ? 'Habits & Preferences' : (currentSession?.title || 'Main Memory');
+    const defaultTitle = activeMemoryCat === 'stalker' ? 'Deep Research' : activeMemoryCat === 'hackathons' ? 'Hackathons' : activeMemoryCat === 'habits' ? 'Habits & Preferences' : (currentSession?.title || 'Main Memory');
 
     try {
       await apiFetch('/api/memory/facts', {
@@ -4328,7 +4328,7 @@ function renderHQ(data) {
   const cards = [
     hqCard({ id: 'keys', icon: '🔑', title: 'Keys Limit', color: 'amber', badge: 'OpenRouter', meta: 'key health · auto-refresh', items: [], action: 'Open Keys Management' }),
     hqCard({ id: 'hackathons', icon: '🏆', title: 'Hackathons', color: (hacks.active || 0) > 0 ? 'green' : 'amber', badge: `${hacks.count || 0}`, meta: `active ${hacks.active || 0} · tracking ${hacks.tracking || 0} · 🟢 ${hacks.participating || 0}`, items: (hacks.items || []).slice(0, 3).map(h => ({ text: h.title, sub: `${h.status} · ${fmtDate(h.endDate)}`, dot: h.statusColor })), action: 'Open Hackathon Workspace' }),
-    hqCard({ id: 'stalking', icon: '🕵️', title: 'Stalking', color: (stalks.researching || 0) > 0 ? 'amber' : 'green', badge: `${stalks.count || 0}`, meta: `ready ${stalks.ready || 0} · researching ${stalks.researching || 0}`, items: (stalks.items || []).slice(0, 3).map(s => ({ text: s.name, sub: s.status, dot: s.status === 'ready' ? 'green' : (s.status === 'researching' ? 'amber' : 'grey') })), action: 'Open Stalking Workspace' }),
+    hqCard({ id: 'stalking', icon: '🔎', title: 'Deep Research', color: (stalks.researching || 0) > 0 ? 'amber' : 'green', badge: `${stalks.count || 0}`, meta: `ready ${stalks.ready || 0} · researching ${stalks.researching || 0}`, items: (stalks.items || []).slice(0, 3).map(s => ({ text: s.name, sub: s.status, dot: s.status === 'ready' ? 'green' : (s.status === 'researching' ? 'amber' : 'grey') })), action: 'Open Deep Research' }),
     hqCard({ id: 'routines', icon: '⏰', title: 'Routines', color: (routs.dueSoon || 0) > 0 ? 'green' : 'amber', badge: `${routs.active || 0} active`, meta: `total ${routs.count || 0} · due soon ${routs.dueSoon || 0}`, items: (routs.items || []).slice(0, 3).map(r => ({ text: r.title, sub: `${r.workspace || ''} · every ${r.intervalHours}h`, dot: r.active ? 'green' : 'grey' })), action: 'Open Routines Engine' }),
     hqCard({ id: 'vault', icon: '🔒', title: 'Secret Vault', color: 'amber', badge: 'private', meta: 'PIN protected · spacious workspace', items: [], action: 'Open Secret Vault' }),
     hqCard({ id: 'memory', icon: '🧠', title: 'Memory', color: 'green', badge: `${facts.length} facts`, meta: `months ${months.length}`, items: facts.slice(0, 3).map(f => ({ text: f.text, sub: '', dot: 'green' })), action: 'Open Memory Workspace' }),
@@ -6081,7 +6081,7 @@ async function sendStalkMessage() {
     // No profile selected → treat as "add new person" via description
     const loadingMsg = document.createElement('div');
     loadingMsg.className = 'ws-msg assistant';
-    loadingMsg.innerHTML = '<div class="ws-msg-role">Bob 🕵️</div><div class="ws-msg-text">⏳ Profile create kar raha hu…</div>';
+    loadingMsg.innerHTML = '<div class="ws-msg-role">Bob 🔎</div><div class="ws-msg-text">⏳ Profile create kar raha hu…</div>';
     el.appendChild(loadingMsg); el.scrollTop = el.scrollHeight;
     try {
       const urlMatch = text.match(/https?:\/\/[^\s]+/);
@@ -6091,10 +6091,10 @@ async function sendStalkMessage() {
       el.removeChild(loadingMsg);
       await loadStalking();
       await selectStalk(String(profile.id));
-      appendWsMsg(el, 'assistant', 'Bob 🕵️', `✅ "${profile.name}" profile list me add ho gaya! Research background me chal raha hai. Ab tum directly iske baare me chat kar sakte ho.`);
+      appendWsMsg(el, 'assistant', 'Bob 🔎', `✅ "${profile.name}" profile list me add ho gaya! Research background me chal raha hai. Ab tum directly iske baare me chat kar sakte ho.`);
     } catch (err) {
       try { el.removeChild(loadingMsg); } catch(_) {}
-      appendWsMsg(el, 'assistant', 'Bob 🕵️', '⚠️ ' + err.message + '\n\nTip: Name aur LinkedIn/GitHub URL dena zaroori hai, jaise: "Rahul Sharma - https://linkedin.com/in/rahul"');
+      appendWsMsg(el, 'assistant', 'Bob 🔎', '⚠️ ' + err.message + '\n\nTip: Name aur LinkedIn/GitHub URL dena zaroori hai, jaise: "Rahul Sharma - https://linkedin.com/in/rahul"');
     }
     input.disabled = false; input.focus();
     return;
@@ -6103,7 +6103,7 @@ async function sendStalkMessage() {
   // Profile selected → normal workspace chat
   try {
     const data = await apiFetch(`/api/stalking/${currentStalk.id}/chat`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ message: text }) });
-    appendWsMsg(el, 'assistant', 'Bob 🕵️', data.reply);
+    appendWsMsg(el, 'assistant', 'Bob 🔎', data.reply);
 
     if (data.action === 'data_updated' && data.updatedProfile) {
       currentStalk = data.updatedProfile;
@@ -6123,12 +6123,12 @@ async function sendStalkMessage() {
         }
       }, 8000);
     }
-  } catch (err) { appendWsMsg(el, 'assistant', 'Bob 🕵️', '⚠️ ' + err.message); }
+  } catch (err) { appendWsMsg(el, 'assistant', 'Bob 🔎', '⚠️ ' + err.message); }
   input.disabled = false; input.focus();
 }
 
 function openAddStalkModal() {
-  openModal('🕵️ Add Person to Stalk', `
+  openModal('🔎 Add Person to Research', `
     <div class="modal-form">
       <label>Name / Username *<input id="sk-name" type="text" placeholder="e.g. Rahul Sharma or @rahul" /></label>
       <label>LinkedIn / GitHub / Site Link<input id="sk-link" type="url" placeholder="https://linkedin.com/in/... or https://github.com/..." /></label>
@@ -6200,7 +6200,7 @@ document.getElementById('add-routine-btn').addEventListener('click', () => {
           <select id="rt-ws">
             <option value="vault">🔒 Vault</option>
             <option value="hackathon">🏆 Hackathons</option>
-            <option value="stalking">🕵️ Stalking</option>
+            <option value="stalking">🔎 Deep Research</option>
             <option value="market">📈 Market</option>
             <option value="habit">📝 Habit</option>
             <option value="bob">🧠 Bob</option>
@@ -6234,10 +6234,10 @@ async function loadLive() {
 // ── Shared workspace chat helpers ─────────────────────
 function renderWsChat(el, messages, tag) {
   if (!messages || !messages.length) { el.innerHTML = '<div class="empty-msg">Is workspace me abhi koi baat nahi hui. Pehla message bhejo — context totally isolated hai.</div>'; return; }
-  el.innerHTML = messages.map(m => wsMsgHTML(m.role, m.role === 'user' ? 'Nikhil' : (tag === 'hack' ? 'Bob 🏆' : tag === 'seo' ? 'Bob 🔍' : 'Bob 🕵️'), m.content)).join('');
+  el.innerHTML = messages.map(m => wsMsgHTML(m.role, m.role === 'user' ? 'Nikhil' : (tag === 'hack' ? 'Bob 🏆' : tag === 'seo' ? 'Bob 🔍' : 'Bob 🔎'), m.content)).join('');
   el.scrollTop = el.scrollHeight;
 }
-function wsMsgHTML(role, author, text) { return `<div class="ws-msg ${role}"><div class="ws-msg-role">${escHtml(author)}</div><div class="ws-msg-text">${escHtml(text)}</div></div>`; }
+function wsMsgHTML(role, author, text) { return `<div class="ws-msg ${role}"><div class="ws-msg-role">${escHtml(author)}</div><div class="ws-msg-text">${renderTextContent(text)}</div></div>`; }
 function appendWsMsg(el, role, author, text) { el.insertAdjacentHTML('beforeend', wsMsgHTML(role, author, text)); el.scrollTop = el.scrollHeight; }
 
 
