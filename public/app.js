@@ -4977,27 +4977,37 @@ function seoDownloadBlob(name, content, type = 'text/plain') {
   setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 600);
 }
 
-function seoExportSite(site, fmt) {
-  const a = site.audit || {};
+async function seoExportSite(site, fmt) {
+  // fmt: 'doc' | 'pdf' | 'html' — replaced legacy JSON/CSV exports
   const safeDomain = (site.domain || site.url || 'site').replace(/[^a-zA-Z0-9._-]/g, '_');
-  if (fmt === 'json') {
-    seoDownloadBlob(`seo-audit-${safeDomain}.json`,
-      JSON.stringify({ domain: site.domain, url: site.url, generatedAt: new Date().toISOString(), score: a.score, breakdown: a.breakdown || {}, issues: a.issues || [], recommendations: a.recommendations || [], signals: a.signals || {}, techNotes: a.techNotes || {}, history: site.history || [] }, null, 2),
-      'application/json');
-  } else {
-    const rows = [];
-    rows.push(['SEO AUDIT EXPORT']);
-    rows.push(['domain', site.domain, 'url', site.url, 'score', a.score]);
-    rows.push([]);
-    rows.push(['breakdown', 'score']);
-    Object.entries(a.breakdown || {}).forEach(([k, v]) => rows.push([k, v]));
-    rows.push([]);
-    rows.push(['severity', 'category', 'issue']);
-    (a.issues || []).forEach(i => rows.push([i.severity, i.category, i.text]));
-    rows.push([]);
-    rows.push(['priority', 'issue', 'fix']);
-    (a.recommendations || []).forEach(r => rows.push([r.priority, r.issue, r.fix]));
-    seoDownloadBlob(`seo-audit-${safeDomain}.csv`, rows.map(r => r.map(c => `"${String(c == null ? '' : c).replace(/"/g, '""')}"`).join(',')).join('\n'), 'text/csv');
+  const reportBody = (html) => {
+    const tmp = document.createElement('template');
+    tmp.innerHTML = html;
+    const style = (tmp.content.querySelector('style') || { textContent: '' }).textContent || '';
+    const body = (tmp.content.querySelector('body') || tmp.content).innerHTML || html;
+    return { style, body };
+  };
+  try {
+    const { html } = await apiFetch('/api/seo/' + site.id + '/report');
+    if (fmt === 'html') {
+      seoDownloadBlob(`seo-report-${safeDomain}.html`, html, 'text/html');
+      return;
+    }
+    if (fmt === 'pdf') {
+      const { style, body } = reportBody(html);
+      const f = document.createElement('iframe');
+      f.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0;';
+      f.srcdoc = `<!doctype html><html><head><meta charset="utf-8"><title>SEO Report: ${escHtml(site.domain || site.url)}</title><style>${style}</style></head><body>${body}</body></html>`;
+      document.body.appendChild(f);
+      f.addEventListener('load', () => setTimeout(() => { try { f.contentWindow.focus(); f.contentWindow.print(); } catch (e) {} }, 80));
+      return;
+    }
+    const { style, body } = reportBody(html);
+    const wordHtml = '\ufeff<html xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40"><head><meta charset="utf-8"><title>SEO Report</title><style>' + style + '</style></head><body>' + body + '</body></html>';
+    seoDownloadBlob(`seo-report-${safeDomain}.doc`, wordHtml, 'application/msword');
+  } catch (err) {
+    alert('Export failed: ' + err.message);
+    throw err;
   }
 }
 
@@ -5064,11 +5074,14 @@ function renderSeoAudit(site) {
           <span style="font-weight:700;font-size:12px;color:var(--text1);">✨ Bob AI Master Plan</span>
           ${(a.aiActionPlan) ? '<span style="font-size:10px;color:var(--green);font-weight:700;padding:2px 6px;border-radius:4px;background:rgba(52,211,153,0.12);">✓ Ready in Chat</span>' : ''}
         </div>
-        <div style="font-size:11px;color:var(--text2);margin:6px 0 10px;line-height:1.45;">
+<div style="font-size:11px;color:var(--text2);margin:6px 0 10px;line-height:1.45;">
           ${(a.aiActionPlan) 
-            ? 'Action plan generated! Chat section me detailed roadmap aur developer steps available hain.' 
-            : 'Master Bob website ke 50+ pages, Core Web Vitals aur vulnerabilities ko analyze karke Chat me action plan dega.'}
+            ? 'Pura roadmap niche preview hai — chat section mein bhi available. Re-generate for fresh plan.' 
+            : 'Master Bob website ke 50+ pages, Core Web Vitals aur vulnerabilities ko analyze karke action plan dega.'}
         </div>
+        ${(a.aiActionPlan && a.aiActionPlan.text)
+          ? `<div class="md-content" style="max-height:230px;overflow-y:auto;margin-bottom:10px;font-size:11.5px;color:var(--text1);line-height:1.55;background:rgba(0,0,0,0.28);border:1px solid rgba(var(--accent-rgb),0.2);border-radius:6px;padding:10px 12px;">${renderTextContent(a.aiActionPlan.text)}</div>`
+          : ''}
         <button class="btn-small" id="seo-generate-ai-plan" style="width:100%;padding:7px 0;font-weight:700;background:var(--accent);color:#fff;border:none;border-radius:6px;cursor:pointer;">
           ${(a.aiActionPlan) ? '💬 View / Re-Generate in Chat' : '✨ Generate AI Action Plan in Chat'}
         </button>
@@ -5110,12 +5123,17 @@ function renderSeoAudit(site) {
           <option value="0">Off — sirf manual re-audit</option>
           <option value="24">Daily (har 24h)</option>
           <option value="168">Weekly (har 168h)</option>
+          <option value="custom">Custom... (apni day gap do)</option>
         </select>
-        <div style="font-size:10px;color:var(--text3);margin-top:4px;">GitHub Actions background pump auto re-audit karega aur score history maintain rakhega.</div>
+        <div style="display:none;gap:6px;align-items:center;margin-top:6px;" id="seo-reaudit-custom">
+          <input id="seo-reaudit-days" type="number" min="1" max="30" value="2" title="Days (1-30)" style="flex:1;padding:6px;border-radius:6px;background:#00000033;color:var(--text1);border:1px solid #ffffff22;font-size:12px;">
+          <button class="btn-small" id="seo-reaudit-custom-apply" style="font-size:11px;">Har X din — Apply</button>
+        </div>
+        <div style="font-size:10px;color:var(--text3);margin-top:4px;">GitHub Actions background pump auto re-audit karega aur score history maintain rakhega. Custom = har 2 / 3 / 4 din jaisa gap.</div>
         <div style="display:flex;gap:6px;margin-top:8px;">
-          <button class="btn-small" id="seo-export-json" title="Download JSON" style="flex:1;">⤓ JSON</button>
-          <button class="btn-small" id="seo-export-csv" title="Download CSV" style="flex:1;">⤓ CSV</button>
-          <button class="btn-small" id="seo-report-btn" title="Download full HTML report" style="flex:1;">📄 Report</button>
+          <button class="btn-small" id="seo-export-pdf" title="Save as PDF (print dialog)" style="flex:1;">⤓ PDF</button>
+          <button class="btn-small" id="seo-export-doc" title="Download Word document" style="flex:1;">⤓ DOC</button>
+          <button class="btn-small" id="seo-report-btn" title="Download full HTML report" style="flex:1;">📄 HTML</button>
         </div>
         <button class="btn-small" id="re-audit-seo" style="width:100%;margin-top:8px;padding:6px 0;font-weight:700;">↻ Re-Audit Website</button>
       </div>
@@ -5178,10 +5196,18 @@ function renderSeoAudit(site) {
 
   el.querySelectorAll('.seo-op-tab').forEach(b => b.addEventListener('click', () => switchSeoOpTab(b.dataset.seop)));
 
-  const expJson = document.getElementById('seo-export-json');
-  if (expJson) expJson.addEventListener('click', () => seoExportSite(site, 'json'));
-  const expCsv = document.getElementById('seo-export-csv');
-  if (expCsv) expCsv.addEventListener('click', () => seoExportSite(site, 'csv'));
+  const expPdf = document.getElementById('seo-export-pdf');
+  if (expPdf) expPdf.addEventListener('click', async () => {
+    expPdf.disabled = true; expPdf.textContent = '⏳';
+    try { await seoExportSite(site, 'pdf'); } catch (e) {}
+    finally { expPdf.disabled = false; expPdf.textContent = '⤓ PDF'; }
+  });
+  const expDoc = document.getElementById('seo-export-doc');
+  if (expDoc) expDoc.addEventListener('click', async () => {
+    expDoc.disabled = true; expDoc.textContent = '⏳';
+    try { await seoExportSite(site, 'doc'); } catch (e) {}
+    finally { expDoc.disabled = false; expDoc.textContent = '⤓ DOC'; }
+  });
 
   const rptBtn = document.getElementById('seo-report-btn');
   if (rptBtn) rptBtn.addEventListener('click', async () => {
@@ -5197,20 +5223,37 @@ function renderSeoAudit(site) {
 
   const freq = document.getElementById('seo-reaudit-freq');
   if (freq) {
-    freq.value = String(site.reAuditEnabled ? (Number(site.reAuditIntervalHours) || 24) : 0);
-    freq.addEventListener('change', async () => {
-      const val = Number(freq.value) || 0;
-      const enabled = val > 0;
+    const customRow = document.getElementById('seo-reaudit-custom');
+    const daysInp = document.getElementById('seo-reaudit-days');
+    const presetInterval = site.reAuditEnabled ? (Number(site.reAuditIntervalHours) || 24) : 0;
+    const preset = !site.reAuditEnabled ? '0' : presetInterval === 24 ? '24' : presetInterval === 168 ? '168' : 'custom';
+    freq.value = preset;
+    if (customRow && daysInp) {
+      customRow.style.display = preset === 'custom' ? 'flex' : 'none';
+      daysInp.value = String(Math.round((presetInterval || 24) / 24));
+    }
+    const applyReauditSettings = async (enabled, val) => {
       try {
         const { site: updated } = await apiFetch('/api/seo/' + site.id, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ reAuditEnabled: enabled, reAuditIntervalHours: val }) });
         const idx = seoSitesCache.findIndex(x => String(x.id) === String(site.id));
         if (idx !== -1) seoSitesCache[idx] = updated;
         currentSeoSite = updated;
-        alert(enabled ? '✅ Auto re-audit ON — har ' + val + 'h mein background mein chalega.' : 'Auto re-audit OFF.');
+        alert(enabled ? '✅ Auto re-audit ON — har ' + (val / 24) + ' din mein background mein chalega.' : 'Auto re-audit OFF.');
       } catch (err) {
         freq.value = String(site.reAuditEnabled ? (Number(site.reAuditIntervalHours) || 24) : 0);
         alert('Settings update failed: ' + err.message);
       }
+    };
+    freq.addEventListener('change', async () => {
+      if (freq.value === 'custom') { if (customRow) customRow.style.display = 'flex'; return; }
+      if (customRow) customRow.style.display = 'none';
+      const val = Number(freq.value) || 0;
+      await applyReauditSettings(val > 0, val);
+    });
+    const customApply = document.getElementById('seo-reaudit-custom-apply');
+    if (customApply && daysInp) customApply.addEventListener('click', async () => {
+      const days = Math.max(1, Math.min(30, parseInt(daysInp.value || '2', 10) || 2));
+      await applyReauditSettings(true, days * 24);
     });
   }
 }
@@ -5277,7 +5320,7 @@ function renderSeoIssues(site) {
             <span class="seo-badge-tag category">${escHtml(i.category || 'general')}</span>
           </div>
         </div>
-        <div style="font-size:12.5px;font-weight:600;color:var(--text1);line-height:1.45;">${escHtml(i.text)}</div>
+        <div class="md-content" style="font-size:12.5px;font-weight:600;color:var(--text1);line-height:1.45;">${renderTextContent(i.text)}</div>
         <div style="font-size:11px;color:var(--text3);margin-top:8px;padding-top:6px;border-top:1px dashed var(--border2);line-height:1.4;">
           <span style="color:var(--text2);font-weight:600;">Impact:</span> Crawler indexing, page load performance aur user search ranking affect ho sakti hai.
         </div>
@@ -5532,17 +5575,17 @@ function renderSeoTopics(site) {
           <span class="seo-topic-chevron">▼</span>
         </div>
         <div class="seo-topic-body">
-          <div style="font-size:11.5px;color:var(--text1);margin-bottom:8px;line-height:1.45;">
+<div class="md-content" style="font-size:11.5px;color:var(--text1);margin-bottom:8px;line-height:1.45;">
             <strong style="color:var(--text2);display:block;font-size:10.5px;text-transform:uppercase;letter-spacing:0.4px;margin-bottom:2px;">🔍 Live Audit Finding:</strong>
-            ${escHtml(t.finding)}
+            ${renderTextContent(t.finding)}
           </div>
-          <div style="font-size:11.5px;color:#fbbf24;margin-bottom:8px;line-height:1.45;background:rgba(251,191,36,0.06);padding:6px 8px;border-radius:5px;">
+          <div class="md-content" style="font-size:11.5px;color:#fbbf24;margin-bottom:8px;line-height:1.45;background:rgba(251,191,36,0.06);padding:6px 8px;border-radius:5px;">
             <strong style="display:block;font-size:10.5px;text-transform:uppercase;letter-spacing:0.4px;margin-bottom:2px;">⚠️ Problem & Impact:</strong>
-            ${escHtml(t.problem)}
+            ${renderTextContent(t.problem)}
           </div>
-          <div style="font-size:11.5px;color:var(--text2);line-height:1.45;background:rgba(255,255,255,0.04);padding:6px 8px;border-radius:5px;">
+          <div class="md-content" style="font-size:11.5px;color:var(--text2);line-height:1.45;background:rgba(255,255,255,0.04);padding:6px 8px;border-radius:5px;">
             <strong style="color:var(--green);display:block;font-size:10.5px;text-transform:uppercase;letter-spacing:0.4px;margin-bottom:2px;">💡 Recommended Correction:</strong>
-            ${escHtml(t.guide)}
+            ${renderTextContent(t.guide)}
           </div>
         </div>
       </div>`;
@@ -5641,9 +5684,9 @@ function renderSeoPages(site) {
       </div>
       <div class="seo-page-body">
         <div style="display:grid;grid-template-columns:auto 1fr;gap:3px 10px;font-size:11px;color:var(--text2);line-height:1.6;">
-          <span style="color:var(--text3);">Title</span><span style="color:${p.title ? 'var(--text2)' : '#f87171'}">${escHtml(p.title || '(missing)')}</span>
-          <span style="color:var(--text3);">H1</span><span style="color:${p.h1 ? 'var(--text2)' : '#fbbf24'}">${escHtml(p.h1 || '(missing)')}</span>
-          <span style="color:var(--text3);">Meta</span><span style="color:${p.metaDesc ? 'var(--text2)' : '#f87171'}">${p.metaDesc ? escHtml(p.metaDesc.slice(0, 80)) + (p.metaDesc.length > 80 ? '…' : '') : '(missing)'}</span>
+          <strong style="color:var(--text3);">Title</strong><span style="color:${p.title ? 'var(--text2)' : '#f87171'}">${escHtml(p.title || '(missing)')}</span>
+          <strong style="color:var(--text3);">H1</strong><span style="color:${p.h1 ? 'var(--text2)' : '#fbbf24'}">${escHtml(p.h1 || '(missing)')}</span>
+          <strong style="color:var(--text3);">Meta</strong><span style="color:${p.metaDesc ? 'var(--text2)' : '#f87171'}">${p.metaDesc ? escHtml(p.metaDesc.slice(0, 80)) + (p.metaDesc.length > 80 ? '…' : '') : '(missing)'}</span>
           <span style="color:var(--text3);">Incoming</span><span style="color:${p.incomingLinks > 0 ? 'var(--green)' : '#f87171'}">${p.incomingLinks} internal link${p.incomingLinks !== 1 ? 's' : ''}${p.isOrphan ? ' ⚠️ orphan' : ''}</span>
           <span style="color:var(--text3);">Canonical</span><span style="color:${p.hasCanonical ? 'var(--green)' : '#fbbf24'}">${p.hasCanonical ? '✓ set' : '✗ missing'}</span>
           <span style="color:var(--text3);">Scripts</span><span style="color:${p.blockingScripts > 0 ? '#fbbf24' : 'var(--text2)'}">${p.blockingScripts > 0 ? p.blockingScripts + ' blocking' : 'clean'}</span>

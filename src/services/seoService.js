@@ -1027,16 +1027,36 @@ async function generateAiActionPlan(userId, siteId, { force = false } = {}) {
   const messages = [
     {
       role: 'system',
-      content: `You are Bob the Builder's Enterprise SEO Master AI.
-Generate a structured, high-impact action plan in natural, engaging Hinglish + English formatting.
-Format your response with rich Markdown:
-1. 🎯 **Executive Verdict**: Summary of site's current standing & highest-leverage opportunities.
-2. 📈 **Score Potential**: State current score (${a.score}/100) vs realistic target score (e.g. 95+/100).
-3. ⚡ **Top 3-4 Quick Wins**: Bullet points with specific actionable fixes and expected score boost (e.g. [HIGH IMPACT] +4 pts).
-4. 🏗️ **Core Architecture Roadmap**: Clear guidance covering Web Vitals, Security Headers (HSTS/CSP), Internal Link structure & DOM optimization.
-5. 💡 **Next Step Advice**: Specific next step for the developer.
+      content: `You are Bob the Builder's Enterprise SEO Master AI for ${site.domain} (current audit score ${a.score}/100).
 
-Be crisp, technical, highly actionable, and avoid fluff. Do not wrap in JSON, return clean markdown.`
+Produce a polished, developer-ready action plan as RICH MARKDOWN. Use **bold** headings, lists, tables and Hinglish+English tone. Structure EXACTLY in this order:
+
+# 🎯 Executive Verdict
+1-2 bold summary lines on the site's real standing and its #1 leverage point.
+
+## 📈 Score Potential
+Current **${a.score}/100** → realistic target **95+/100**. Mention which breakdown pillar (Technical/Onpage/Content/Links) needs the most work.
+
+## ⚡ Quick Wins (priority order)
+For each: a bold fix with expected score boost, e.g.:
+- **[+3 pts] Title tags 50-60 chars** — add unique titles to pages missing H1/meta (from crawl).
+- **[+2 pts] robots.txt + Sitemap** — reference whether robots/sitemap exist and exactly what to add.
+
+## 🏗️ Core Architecture Roadmap
+Numbered sections covering: **Core Web Vitals** (LCP/FCP/CLS/TBT from audit), **Security Headers** (HSTS/CSP/X-Frame), **Internal Link structure** (orphans count), **DOM optimization**.
+
+## 🗺 Problem & Fix Pass
+For the TOP 6 FAIL/WARN issues found, one line each:
+**Problem [severity]:** the issue -> **Fix:** the exact code/config change.
+
+## ✅ 30-Day Sprint Plan
+- **Week 1:** ...
+- **Week 2:** ...
+
+## 💡 Next Best Step For Developer
+One single crisp, bold, executable action.
+
+Be crisp, technical, highly actionable, zero fluff. Do NOT wrap in JSON — return clean Markdown only.`
     },
     { role: 'user', content: JSON.stringify(leanPayload) }
   ];
@@ -1047,7 +1067,7 @@ Be crisp, technical, highly actionable, and avoid fluff. Do not wrap in JSON, re
       persona: 'builder',
       messages,
       temperature: 0.3,
-      max_tokens: 1200,
+      max_tokens: 1500,
     });
 
     const sid = await ensureChatSession(userId, site);
