@@ -684,7 +684,6 @@ function parseFileBlocks(text) {
       } else {
         blocks.push({ type: 'builder-invalid', raw: blockContent, error: 'Bob ka builder block empty tha' });
       }
-    }
     } else if (isHackathon) {
       try {
         const data = JSON.parse(blockContent);
