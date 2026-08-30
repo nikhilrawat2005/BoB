@@ -4328,7 +4328,7 @@ function renderHQ(data) {
   const cards = [
     hqCard({ id: 'keys', icon: '🔑', title: 'Keys Limit', color: 'amber', badge: 'OpenRouter', meta: 'key health · auto-refresh', items: [], action: 'Open Keys Management' }),
     hqCard({ id: 'hackathons', icon: '🏆', title: 'Hackathons', color: (hacks.active || 0) > 0 ? 'green' : 'amber', badge: `${hacks.count || 0}`, meta: `active ${hacks.active || 0} · tracking ${hacks.tracking || 0} · 🟢 ${hacks.participating || 0}`, items: (hacks.items || []).slice(0, 3).map(h => ({ text: h.title, sub: `${h.status} · ${fmtDate(h.endDate)}`, dot: h.statusColor })), action: 'Open Hackathon Workspace' }),
-    hqCard({ id: 'stalking', icon: '🔎', title: 'Deep Research', color: (stalks.researching || 0) > 0 ? 'amber' : 'green', badge: `${stalks.count || 0}`, meta: `ready ${stalks.ready || 0} · researching ${stalks.researching || 0}`, items: (stalks.items || []).slice(0, 3).map(s => ({ text: s.name, sub: s.status, dot: s.status === 'ready' ? 'green' : (s.status === 'researching' ? 'amber' : 'grey') })), action: 'Open Deep Research' }),
+    hqCard({ id: 'stalking', icon: '🕵️', title: 'Developer Dossier & Radar', color: (stalks.researching || 0) > 0 ? 'amber' : 'green', badge: `${stalks.count || 0}`, meta: `ready ${stalks.ready || 0} · researching ${stalks.researching || 0}`, items: (stalks.items || []).slice(0, 3).map(s => ({ text: s.name, sub: s.status, dot: s.status === 'ready' ? 'green' : (s.status === 'researching' ? 'amber' : 'grey') })), action: 'Open Developer Dossier' }),
     hqCard({ id: 'routines', icon: '⏰', title: 'Routines', color: (routs.dueSoon || 0) > 0 ? 'green' : 'amber', badge: `${routs.active || 0} active`, meta: `total ${routs.count || 0} · due soon ${routs.dueSoon || 0}`, items: (routs.items || []).slice(0, 3).map(r => ({ text: r.title, sub: `${r.workspace || ''} · every ${r.intervalHours}h`, dot: r.active ? 'green' : 'grey' })), action: 'Open Routines Engine' }),
     hqCard({ id: 'vault', icon: '🔒', title: 'Secret Vault', color: 'amber', badge: 'private', meta: 'PIN protected · spacious workspace', items: [], action: 'Open Secret Vault' }),
     hqCard({ id: 'memory', icon: '🧠', title: 'Memory', color: 'green', badge: `${facts.length} facts`, meta: `months ${months.length}`, items: facts.slice(0, 3).map(f => ({ text: f.text, sub: '', dot: 'green' })), action: 'Open Memory Workspace' }),
@@ -6292,7 +6292,7 @@ async function loadKeys() {
             <span class="ks-label">Failover:</span><span class="ks-val ks-ok">OpenRouter Auto-Swap</span>
           </div>
 
-          <div class="keys-section-title" style="color:#c084fc; margin-top:12px;">🟣 Google Gemini Free Keys (11-Key Rotating Pool) <span class="ks-note">For Bursty Tasks: SEO, Deep Research, Hackathons, Stalker, Memory</span></div>
+          <div class="keys-section-title" style="color:#c084fc; margin-top:12px;">🟣 Google Gemini Free Keys (11-Key Rotating Pool) <span class="ks-note">For Bursty Tasks: SEO, Deep Research, Hackathons, Developer Dossier, Memory</span></div>
           <div class="key-chips">
             ${gemini.keys.map(gk => geminiKeyChip(gk)).join('')}
           </div>
