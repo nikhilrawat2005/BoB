@@ -3286,6 +3286,34 @@ body.persona-builder #model-selector { display: none !important; }
 .hq-notif-card {
   background: var(--surface);
   border: 1px solid var(--border2);
+  border-left: 3px solid var(--text3);
+  border-radius: var(--radius-sm);
+  padding: 10px 14px;
+  display: flex; align-items: center; gap: 12px;
+}
+.hq-notif-card.unread { border-left-color: var(--accent); background: rgba(var(--accent-rgb),0.08); }
+.hq-notif-title { font-weight: 600; font-size: 13px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.hq-notif-msg { flex: 1; font-size: 12px; color: var(--text2); line-height: 1.4; display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical; overflow: hidden; }
+.hq-notif-actions { display: flex; gap: 6px; flex-shrink: 0; }
+.btn-notif-reply { padding: 5px 10px; background: var(--accent); border: none; border-radius: var(--radius-sm); color: #fff; font-size: 11px; font-weight: 600; cursor: pointer; transition: opacity var(--transition); }
+.btn-notif-reply:hover { opacity: 0.85; }
+.btn-notif-del { background: none; border: none; color: var(--text3); cursor: pointer; font-size: 14px; padding: 2px 6px; border-radius: 6px; transition: color var(--transition); }
+.btn-notif-del:hover { color: var(--red); }
+.hq-notif-all { margin-top: 10px; align-self: flex-start; background: none; border: 1px solid var(--border2); color: var(--accent); font-size: 12px; font-weight: 600; padding: 6px 12px; border-radius: 99px; cursor: pointer; transition: background var(--transition); }
+.hq-notif-all:hover { background: var(--surface); }
+
+/* -------------------------------------------------------
+   BOB + BUILDER COLLAB TOGGLE (sidebar bottom)
+------------------------------------------------------- */
+.collab-btn {
+  display: flex; align-items: center; gap: 8px;
+  width: 100%; padding: 8px 10px;
+  background: var(--surface); border: 1px solid var(--border2);
+  border-radius: var(--radius-sm); color: var(--text2);
+  cursor: pointer; font-size: 12px; font-weight: 600;
+  transition: border-color var(--transition), color var(--transition), background var(--transition);
+}
+.collab-btn svg { flex-shrink: 0; }
 .collab-label { flex: 1; text-align: left; }
 .collab-state { font-size: 11px; font-weight: 800; letter-spacing: 0.5px; color: var(--text3); padding: 2px 8px; border-radius: 99px; background: var(--bg2); }
 .collab-btn:hover { border-color: var(--border2); color: var(--text); }
@@ -4168,61 +4196,4 @@ body.collab-on .collab-state { color: #fff; background: var(--green); }
 .stalk-workspace .ws-chat-messages * {
   max-width: 100%;
   overflow-wrap: anywhere;
-}
-
-
-/* ══════════════════════════════════════════════════════════════════
-   LAPTOP / DESKTOP ONLY WORKSTATION ENGINE
-   Locks BOB Web interface to a full-screen high-density desktop workstation.
-   ══════════════════════════════════════════════════════════════════ */
-@media screen {
-  body {
-    min-width: 1024px;
-    overflow-x: auto;
-  }
-  .sidebar {
-    position: static !important;
-    transform: none !important;
-    width: var(--sidebar-w, 260px) !important;
-    height: 100vh !important;
-    box-shadow: none !important;
-    display: flex !important;
-  }
-  .sidebar-backdrop,
-  .sidebar-toggle-btn,
-  .ws-mobile-tabs {
-    display: none !important;
-  }
-  .hq-grid-inner {
-    grid-template-columns: repeat(4, 1fr) !important;
-    gap: 16px !important;
-  }
-  .memory-cards-grid {
-    grid-template-columns: repeat(3, 1fr) !important;
-    gap: 16px !important;
-  }
-  .files-grid-list {
-    grid-template-columns: repeat(3, 1fr) !important;
-    gap: 16px !important;
-  }
-  .routines-grid {
-    grid-template-columns: repeat(3, 1fr) !important;
-    gap: 16px !important;
-  }
-  .hack-workspace {
-    display: grid !important;
-    grid-template-columns: 260px minmax(0, 1fr) minmax(360px, 38%) !important;
-  }
-  .stalk-workspace {
-    display: grid !important;
-    grid-template-columns: 280px minmax(0, 1fr) minmax(360px, 38%) !important;
-  }
-  .message-row {
-    max-width: 1050px !important;
-    margin: 0 auto !important;
-  }
-  .input-wrapper {
-    max-width: 1050px !important;
-    margin: 0 auto !important;
-  }
 }
