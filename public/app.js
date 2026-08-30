@@ -677,12 +677,12 @@ function parseFileBlocks(text) {
           data = { title: title.slice(0, 80), instruction };
         }
       }
-      if (data && data.instruction && typeof data.instruction === 'string' && data.instruction.trim()) {
+      if (data && data.instruction && typeof data.instruction === 'string' && data.instruction.trim().length > 5) {
         blocks.push({ type: 'builder', data });
-      } else if (trimmed.length > 5) {
+      } else if (trimmed.length > 15 && !trimmed.startsWith('{') && !trimmed.startsWith('```')) {
         blocks.push({ type: 'builder', data: { title: 'Builder Task', instruction: trimmed } });
-      } else {
-        blocks.push({ type: 'builder-invalid', raw: blockContent, error: 'Bob ka builder block empty tha' });
+      } else if (trimmed.length > 0) {
+        blocks.push({ type: 'text', content: match[0] });
       }
     } else if (isHackathon) {
       try {
@@ -4342,7 +4342,7 @@ function renderHQ(data) {
     hqCard({ id: 'memory', icon: '🧠', title: 'Memory', color: 'green', badge: `${facts.length} facts`, meta: `months ${months.length}`, items: facts.slice(0, 3).map(f => ({ text: f.text, sub: '', dot: 'green' })), action: 'Open Memory Workspace' }),
     hqCard({ id: 'files', icon: '📁', title: 'Files', color: 'grey', badge: `${files.length}`, meta: 'uploaded files', items: files.slice(0, 3).map(f => ({ text: f.filename || f.id, sub: '', dot: 'grey' })), action: 'Open Files Workspace' }),
     hqCard({ id: 'live', icon: '📈', title: 'Live Pulse', color: 'green', badge: 'live', meta: 'weather · news · stocks', items: [], action: 'Open Live' }),
-    hqCard({ id: 'builder', icon: '🏗️', title: 'Bob the Builder', color: 'amber', badge: collabMode ? 'ON' : 'off', meta: 'Builder collaboration · plan-confirm first', items: [], action: 'Start new project' }),
+    hqCard({ id: 'resume_builder', icon: '📄', title: 'Resume Builder', color: 'blue', badge: 'Workspace', meta: 'AI Resume Architect & ATS Scanner', items: [], action: 'Open Resume Builder' }),
   ];
 
   grid.innerHTML = `<div class="hq-grid-inner">${cards.join('')}</div>`;
@@ -4363,7 +4363,7 @@ function openHqCard(id) {
   if (id === 'vault') { openVaultPanel(); return; }
   if (id === 'memory') { showView('memory'); showMemorySubview('dashboard'); loadFacts(); loadMonthlyFiles(); return; }
   if (id === 'files') { showView('files'); loadFiles(); return; }
-  if (id === 'builder') { startBobBuilderCollab(); return; }
+  if (id === 'resume_builder') { alert('📄 Resume Builder workspace is ready for development! You can configure ATS templates and profile here.'); return; }
   if (id === 'hackathons') { showView('hackathons'); loadHackathons(); return; }
   if (id === 'stalking') { showView('stalking'); loadStalking(); return; }
   if (id === 'seo') { showView('seo'); loadSeoSites(); return; }

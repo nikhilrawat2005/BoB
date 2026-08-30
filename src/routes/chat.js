@@ -640,21 +640,22 @@ router.post('/', requireAuth, async (req, res) => {
 - Lists for steps; Markdown tables for comparisons. Keep spacing clean (no unbroken text walls).`
     ];
 
-    // 2. FILE GENERATOR MODULE (~250 tokens — only if file intent or file requested)
-    const wantsFile = binaryFileIntent || /(?:file|document|doc|pdf|excel|xlsx|docx|pptx|markdown|csv|json|export|bana do|download)/i.test(promptMessage);
+    // 2. FILE GENERATOR MODULE (~250 tokens — only if explicit file creation requested)
+    const wantsFile = binaryFileIntent || /(?:file bana|generate file|export as|downloadable file|create (?:xlsx|docx|pdf|csv|json) file|\bcreate file\b|\bsave file\b)/i.test(promptMessage);
     if (wantsFile) {
       promptModules.push(`━━━ 📁 FILE GENERATION ENGINE ━━━
-🚨 RULE: Only generate downloadable files when Master explicitly asks.
+🚨 CRITICAL RULE: Only output a file block if you are generating the complete downloadable content right now.
 For REAL Office files (.xlsx, .docx, .pdf, .pptx), output a SINGLE \`\`\`filespec block:
 📊 xlsx: \`\`\`filespec\n{ "format":"xlsx", "filename":"name.xlsx", "sheets":[{"name":"Sheet1","headers":["Col1","Col2"],"rows":[["Val1","Val2"]]}] }\n\`\`\`
 📝 docx: \`\`\`filespec\n{ "format":"docx", "filename":"name.docx", "title":"Doc Title", "blocks":[{"type":"heading","text":"...","level":1},{"type":"paragraph","text":"..."},{"type":"bullets","items":["..."]},{"type":"table","headers":[...],"rows":[[...]]}] }\n\`\`\`
 📄 pdf:  \`\`\`filespec\n{ "format":"pdf", "filename":"name.pdf", "title":"Doc Title", "sections":[{"heading":"...","body":"..."}] }\n\`\`\`
 📽️ pptx: \`\`\`filespec\n{ "format":"pptx", "filename":"name.pptx", "slides":[{"title":"...","bullets":["..."]}] }\n\`\`\`
-For text/code files: \`\`\`<language> filename=<name.ext>\n<complete code>\n\`\`\` (csv, py, js, json, etc.).`);
+For text/code files: \`\`\`<language> filename=<name.ext>\n<complete code>\n\`\`\` (csv, py, js, json, etc.).
+NEVER output an empty file or filespec block.`);
     }
 
     // 3. DATA VISUALIZATION / CHARTS MODULE (~160 tokens — only if CSV/data present)
-    const wantsChart = autoStats || /(?:chart|graph|visualiz|plot|bar|pie|stats|data block)/i.test(promptMessage);
+    const wantsChart = autoStats || /(?:generate chart|render chart|create graph|plot chart|bar chart|pie chart)/i.test(promptMessage);
     if (wantsChart) {
       promptModules.push(`━━━ 📊 DATA VISUALIZATION ENGINE ━━━
 To render interactive charts directly in chat, use fenced block (no filename):
@@ -671,19 +672,20 @@ When asked for a flowchart, roadmap, or timeline, output a Mermaid block (no fil
     }
 
     // 5. SCHEDULER MODULE (~160 tokens — only if scheduling or time reminder mentioned)
-    const wantsSchedule = /(?:remind|schedule|kal\s+\d|baje|pm\b|am\b|every day|har din|daily|alarm|notify me)/i.test(promptMessage);
+    const wantsSchedule = /(?:remind me|schedule a|schedule task|kal\s+\d|every day at|har din at|alarm lagao|notify me at)/i.test(promptMessage);
     if (wantsSchedule) {
       promptModules.push(`━━━ ⏰ SCHEDULED SELF-MESSAGING ━━━
 When Master asks to schedule something, output a \`\`\`schedule block:
 \`\`\`schedule\n{ "title": "Task Name", "prompt": "Detailed task instructions", "scheduledAt": "ISO_8601_IST_STRING", "repeat": "none|daily|weekly" }\n\`\`\``);
     }
 
-    // 6. BUILDER DELEGATION MODULE (~140 tokens — only if collab enabled or builder requested)
-    const wantsBuilder = req.body.collab || /(?:builder|delegate|architect|blueprint|prompt pack|bada project)/i.test(promptMessage);
+    // 6. BUILDER DELEGATION MODULE (~140 tokens — only if explicit delegation requested)
+    const wantsBuilder = req.body.collab || /(?:delegate to builder|builder ko assign|builder se code karwao|builder ko task de do|architect blueprint banao)/i.test(promptMessage);
     if (wantsBuilder) {
       promptModules.push(`━━━ 🏗️ BUILDER DELEGATION ━━━
-When planning large app architecture or prompt packs, delegate to Builder persona:
-\`\`\`builder\n{ "title": "Project Title", "instruction": "Full context and instructions for Bob the Builder" }\n\`\`\``);
+🚨 CRITICAL RULE: Only output a \`\`\`builder block when you are assigning an immediate, complete instruction to Bob the Builder.
+\`\`\`builder\n{ "title": "Project Title", "instruction": "Full detailed context and instructions for Bob the Builder" }\n\`\`\`
+NEVER output an empty \`\`\`builder block or quote it in casual conversation sentences.`);
     }
 
     // 7. HACKATHON WORKSPACE MODULE (~120 tokens — only if hackathon mentioned)
