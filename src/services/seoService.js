@@ -63,6 +63,25 @@ function parsePage(html, origin, rawHeaders = {}) {
   const h2Count = $('h2').length;
   const h3Count = $('h3').length;
 
+  // ── H1 NLP Quality & Typo / Word-Concatenation Analysis ──
+  let h1TypoFound = false;
+  let h1TypoText = '';
+  if (h1s.length > 0) {
+    const rawH1 = h1s[0];
+    // Detect run-on concatenated English words (e.g. falconflies, packagetour, desertsafari)
+    const typoRegex = /\b[a-z]{3,}(?:flies|tour|tours|travel|hotel|flight|trip|packages|beach|world|guide|escapes|journey)\b/i;
+    const isSpecialWord = /^(butterfly|dragonfly|housefly|mayfly|firefly|blowfly|gadfly|sawfly|stonefly|fruitfly|botfly|tsetse|blackfly|mayflies|fireflies|butterflies|dragonflies|houseflies)$/i;
+    const wordsInH1 = rawH1.split(/\s+/);
+    for (const w of wordsInH1) {
+      const cleanW = w.replace(/[^a-z]/gi, '');
+      if (cleanW.length >= 8 && typoRegex.test(cleanW) && !isSpecialWord.test(cleanW)) {
+        h1TypoFound = true;
+        h1TypoText = w;
+        break;
+      }
+    }
+  }
+
   // ── Heading hierarchy AST analysis ──
   const headingFlow = [];
   $('h1, h2, h3, h4, h5, h6').each((_, el) => {
@@ -88,24 +107,76 @@ function parsePage(html, origin, rawHeaders = {}) {
   const xFrame = rawHeaders['x-frame-options'] || '';
   const xContentType = rawHeaders['x-content-type-options'] || '';
   const referrerPolicy = rawHeaders['referrer-policy'] || '';
+  const permissionsPolicy = Boolean(rawHeaders['permissions-policy']);
+  const http3Supported = Boolean(rawHeaders['alt-svc'] && String(rawHeaders['alt-svc']).includes('h3'));
+  const serverHeader = rawHeaders['server'] || '';
 
+  // ── Image Formats & CLS / Dimension Diagnostics ──
   const images = $('img').map((_, el) => $(el)).get();
   const altCovered = images.filter((im) => (im.attr('alt') || '').trim()).length;
   const lazyCount = $('img[loading="lazy"]').length;
+  const imageFormats = { webp: 0, avif: 0, svg: 0, png: 0, jpg: 0, other: 0 };
+  let missingDimensionsCount = 0;
+
+  images.forEach((im) => {
+    const src = (im.attr('src') || im.attr('data-src') || '').toLowerCase();
+    if (src.includes('.webp')) imageFormats.webp++;
+    else if (src.includes('.avif')) imageFormats.avif++;
+    else if (src.includes('.svg')) imageFormats.svg++;
+    else if (src.includes('.png')) imageFormats.png++;
+    else if (src.includes('.jpg') || src.includes('.jpeg')) imageFormats.jpg++;
+    else imageFormats.other++;
+
+    if (!im.attr('width') || !im.attr('height')) {
+      missingDimensionsCount++;
+    }
+  });
+
+  const nextGenCount = imageFormats.webp + imageFormats.avif + imageFormats.svg;
+  const nextGenCoverage = images.length > 0 ? Math.round((nextGenCount / images.length) * 100) : 100;
+
+  // ── Open Graph & Social Preview Quality ──
   const ogTitle = !!$('meta[property="og:title"]').attr('content');
-  const ogImage = !!$('meta[property="og:image"]').attr('content');
-  const hasSchema = html.includes('application/ld+json');
+  const ogImage = $('meta[property="og:image"]').attr('content') || '';
+  const isOgImageSmallOrLogo = Boolean(
+    ogImage && (/\b(logo|favicon|icon|avatar)\b/i.test(ogImage) || /\.ico$/i.test(ogImage))
+  );
   const twitterCard = !!$('meta[name="twitter:card"]').attr('content');
   const hreflangLinks = $('link[rel="alternate"][hreflang]').get().map((el) => $(el).attr('hreflang'));
-  const schemaTypes = (() => {
-    const types = [];
-    $('script[type="application/ld+json"]').each((_, el) => {
-      const raw = $(el).html() || '';
+
+  // ── Deep JSON-LD Schema Inspection ──
+  const schemaTypes = [];
+  let hasSchemaErrors = false;
+  $('script[type="application/ld+json"]').each((_, el) => {
+    const raw = $(el).html() || '';
+    try {
+      const parsed = JSON.parse(raw);
+      function extractTypes(obj) {
+        if (!obj || typeof obj !== 'object') return;
+        if (Array.isArray(obj)) {
+          obj.forEach(extractTypes);
+        } else {
+          if (obj['@type']) {
+            const t = Array.isArray(obj['@type']) ? obj['@type'] : [obj['@type']];
+            t.forEach(item => {
+              if (typeof item === 'string' && !schemaTypes.includes(item)) schemaTypes.push(item);
+            });
+          }
+          if (obj['@graph']) extractTypes(obj['@graph']);
+          if (obj.itemListElement) extractTypes(obj.itemListElement);
+          if (obj.address) extractTypes(obj.address);
+          if (obj.review) extractTypes(obj.review);
+          if (obj.aggregateRating) extractTypes(obj.aggregateRating);
+        }
+      }
+      extractTypes(parsed);
+    } catch (e) {
+      hasSchemaErrors = true;
       const m = raw.match(/"@type"\s*:\s*"([^"]+)"/);
-      if (m && !types.includes(m[1])) types.push(m[1]);
-    });
-    return types.slice(0, 4);
-  })();
+      if (m && !schemaTypes.includes(m[1])) schemaTypes.push(m[1]);
+    }
+  });
+  const hasSchema = schemaTypes.length > 0 || html.includes('application/ld+json');
 
   // ── Clean HTML structure signals ──
   const semanticTags = ['header', 'nav', 'main', 'article', 'section', 'aside', 'footer']
@@ -151,15 +222,29 @@ function parsePage(html, origin, rawHeaders = {}) {
   const avgWordsPerSentence = Math.round(wordCount / sentenceCount);
   const readability = avgWordsPerSentence <= 18 ? 'Good' : avgWordsPerSentence <= 25 ? 'Moderate' : 'Complex';
 
+  // Check Schema opportunities on page
+  const lowerBody = bodyText.toLowerCase();
+  const faqOpportunity = (lowerBody.includes('frequently asked') || lowerBody.includes('questions travellers') || lowerBody.includes('faq')) && !schemaTypes.some(t => /faq/i.test(t));
+  const reviewOpportunity = (lowerBody.includes('google review') || lowerBody.includes('travellers say') || lowerBody.includes('testimonials') || lowerBody.includes('5-star')) && !schemaTypes.some(t => /review|aggregaterating/i.test(t));
+
   const internalLinks = [];
   const externalLinks = [];
+  let externalUnsafeCount = 0;
   $('a[href]').each((_, el) => {
     const href = $(el).attr('href') || '';
+    const target = $(el).attr('target') || '';
+    const rel = ($(el).attr('rel') || '').toLowerCase();
     if (/^(mailto:|tel:|javascript:|#|data:)/i.test(href)) return;
     try {
       const abs = new URL(href, origin).href;
-      if (new URL(abs).hostname === new URL(origin).hostname) internalLinks.push(abs);
-      else externalLinks.push(abs);
+      if (new URL(abs).hostname === new URL(origin).hostname) {
+        internalLinks.push(abs);
+      } else {
+        externalLinks.push(abs);
+        if (target === '_blank' && (!rel.includes('noopener') && !rel.includes('noreferrer'))) {
+          externalUnsafeCount++;
+        }
+      }
     } catch { /* skip malformed */ }
   });
   const uniqueInternal = [...new Set(internalLinks)].filter((u) => {
@@ -179,6 +264,8 @@ function parsePage(html, origin, rawHeaders = {}) {
     hasFavicon,
     h1Count: h1s.length,
     h1Texts: h1s.slice(0, 3),
+    h1TypoFound,
+    h1TypoText,
     h2Count,
     h3Count,
     headingSkipped,
@@ -190,16 +277,28 @@ function parsePage(html, origin, rawHeaders = {}) {
     xFrame,
     xContentType,
     referrerPolicy,
+    permissionsPolicy,
+    http3Supported,
+    serverHeader,
     imageCount: images.length,
     altCovered,
     altCoverage: images.length ? Math.round((altCovered / images.length) * 100) : 100,
     lazyCount,
+    imageFormats,
+    nextGenCount,
+    nextGenCoverage,
+    missingDimensionsCount,
     ogTitle,
-    ogImage,
+    ogImage: Boolean(ogImage),
+    ogImageSrc: ogImage,
+    isOgImageSmallOrLogo,
     hasSchema,
+    hasSchemaErrors,
     twitterCard,
     hreflangCount: hreflangLinks.length,
-    schemaTypes,
+    schemaTypes: schemaTypes.slice(0, 8),
+    faqOpportunity,
+    reviewOpportunity,
     semanticTags,
     semanticCount: semanticTags.length,
     deprecatedTags,
@@ -216,6 +315,7 @@ function parsePage(html, origin, rawHeaders = {}) {
     readability,
     internalCount: uniqueInternal.length,
     externalCount: externalLinks.length,
+    externalUnsafeCount,
     internalLinks: uniqueInternal.slice(0, 40),
   };
 }
@@ -338,14 +438,14 @@ async function fetchGooglePageSpeed(targetUrl, timeoutMs = 8000) {
 function scoreAudit(home, robots, broken) {
   const issues = [];
 
-  // Technical (100) — Stage 1: clean HTML + speed proxy + mobile basics + security + DOM complexity
+  // Technical (100) — Stage 1: clean HTML + speed proxy + mobile basics + security + DOM complexity + Next-gen images
   let tech = 0;
   if (home.https) tech += 8; else issues.push({ severity: 'high', category: 'technical', text: 'Website HTTP pe hai — HTTPS pe shift karo (security + ranking).' });
   if (home.status === 200) tech += 8; else issues.push({ severity: 'high', category: 'technical', text: `Homepage HTTP ${home.status} return kar raha hai.` });
   if (robots.robotsExists) tech += 8; else issues.push({ severity: 'medium', category: 'technical', text: 'robots.txt nahi mila.' });
   if (robots.sitemapFound) tech += 8; else issues.push({ severity: 'medium', category: 'technical', text: 'sitemap.xml nahi mila ya robots.txt mein declare nahi.' });
-  if (home.canonical) tech += 8; else issues.push({ severity: 'medium', category: 'technical', text: 'Canonical tag missing — duplicate content risk.' });
-  if (!home.noindex) tech += 8; else issues.push({ severity: 'high', category: 'technical', text: 'Page noindex flag hai — search me nahi aayega.' });
+  if (home.canonical) tech += 7; else issues.push({ severity: 'medium', category: 'technical', text: 'Canonical tag missing — duplicate content risk.' });
+  if (!home.noindex) tech += 7; else issues.push({ severity: 'high', category: 'technical', text: 'Page noindex flag hai — search me nahi aayega.' });
   if (home.viewport && !home.viewportBlocksZoom) tech += 6;
   else if (home.viewport) tech += 3;
   else issues.push({ severity: 'medium', category: 'technical', text: 'viewport meta missing — mobile SEO hurt.' });
@@ -353,41 +453,71 @@ function scoreAudit(home, robots, broken) {
   // Security Headers (Deterministic 0-token)
   if (home.hsts) tech += 4;
   else if (home.https) issues.push({ severity: 'low', category: 'technical', text: 'HSTS (Strict-Transport-Security) header missing — SSL security best practice.' });
-  if (home.csp || home.xFrame) tech += 4;
+  if (home.csp || home.xFrame) tech += 3;
   else issues.push({ severity: 'low', category: 'technical', text: 'Clickjacking / Content-Security headers configure karein (X-Frame-Options / CSP).' });
+  if (home.permissionsPolicy) tech += 2;
 
   // Clean HTML & DOM Complexity
-  if (home.semanticCount >= 4) tech += 8;
-  else if (home.semanticCount >= 2) tech += 4;
+  if (home.semanticCount >= 4) tech += 6;
+  else if (home.semanticCount >= 2) tech += 3;
   else tech += 0;
   if (home.semanticCount < 4) issues.push({ severity: 'medium', category: 'technical', text: `Weak semantic structure — sirf ${home.semanticCount}/7 layout tags (header/nav/main/article/section/footer).` });
-  if (!home.deprecatedTags || home.deprecatedTags.length === 0) tech += 4;
-  else { tech += 2; issues.push({ severity: 'low', category: 'technical', text: `Deprecated HTML tags mile: ${home.deprecatedTags.join(', ')}.` }); }
+  if (!home.deprecatedTags || home.deprecatedTags.length === 0) tech += 3;
+  else { tech += 1; issues.push({ severity: 'low', category: 'technical', text: `Deprecated HTML tags mile: ${home.deprecatedTags.join(', ')}.` }); }
   if (home.inlineStyleCount < 10) tech += 4;
   else { tech += 2; if (home.inlineStyleCount > 20) issues.push({ severity: 'low', category: 'technical', text: `${home.inlineStyleCount} inline style attributes — CSS ko external/<style> me nikalo.` }); }
   if (home.duplicateIds && home.duplicateIds.length) {
-    tech += 2; issues.push({ severity: 'low', category: 'technical', text: `Duplicate element IDs: ${home.duplicateIds.slice(0, 4).join(', ')}…` });
-  } else tech += 4;
+    tech += 1; issues.push({ severity: 'low', category: 'technical', text: `Duplicate element IDs: ${home.duplicateIds.slice(0, 4).join(', ')}…` });
+  } else tech += 3;
 
   if (home.domBloated) {
     issues.push({ severity: 'medium', category: 'technical', text: `Excessive DOM complexity — ${home.totalDomNodes || 0} nodes / depth ${home.maxDomDepth || 0} (target <1500 nodes & <32 depth).` });
   }
 
-  // Speed proxy metrics
-  if (home.ttfb < 600) tech += 6;
-  else if (home.ttfb < 1500) tech += 4;
-  else if (home.ttfb < 3000) tech += 2;
+  // Speed & Network Latency metrics
+  const ttfb = home.ttfb || 0;
+  if (ttfb > 0 && ttfb < 600) tech += 8;
+  else if (ttfb > 0 && ttfb < 1200) tech += 5;
+  else if (ttfb > 0 && ttfb < 2000) tech += 2;
+  else if (ttfb >= 2000) tech += 0;
+  else tech += 5; // fallback proxy
+
+  if (ttfb >= 1200) {
+    issues.push({ severity: 'medium', category: 'technical', text: `Slow initial server response — TTFB ${ttfb}ms (target < 600ms). Edge caching ya CDN configure karein.` });
+  }
+
+  if (home.htmlBytes < 200 * 1024) tech += 5;
+  else if (home.htmlBytes < 500 * 1024) tech += 2;
   else tech += 0;
-  if (home.ttfb >= 1500) issues.push({ severity: 'medium', category: 'technical', text: `Slow server response — TTFB ${home.ttfb}ms (target < 600ms).` });
-  if (home.htmlBytes < 200 * 1024) tech += 6;
-  else if (home.htmlBytes < 500 * 1024) tech += 3;
-  else tech += 0;
-  if (home.htmlBytes >= 500 * 1024) issues.push({ severity: 'medium', category: 'technical', text: `Heavy HTML — ${(home.htmlBytes / 1024).toFixed(0)}KB raw page (target < 200KB).` });
+  if (home.htmlBytes >= 500 * 1024) issues.push({ severity: 'medium', category: 'technical', text: `Heavy HTML payload — ${(home.htmlBytes / 1024).toFixed(0)}KB raw page (target < 200KB).` });
+
   if (home.blockingScripts === 0) tech += 6;
   else if (home.blockingScripts <= 3) tech += 3;
   else if (home.blockingScripts <= 8) tech += 1;
   else tech += 0;
-  if (home.blockingScripts > 3) issues.push({ severity: 'medium', category: 'technical', text: `${home.blockingScripts} render-blocking script(s) — async/defer lagao.` });
+  if (home.blockingScripts > 3) issues.push({ severity: 'medium', category: 'technical', text: `${home.blockingScripts} render-blocking script(s) — async/defer lagao (FCP/LCP boost).` });
+
+  // Next-Gen Image Formats & Layout Shift
+  if (home.imageCount > 5) {
+    if (home.nextGenCoverage >= 70) tech += 5;
+    else if (home.nextGenCoverage >= 30) tech += 2;
+    else {
+      issues.push({
+        severity: 'medium',
+        category: 'technical',
+        text: `Legacy image format bottleneck — sirf ${home.nextGenCoverage}% images WebP/AVIF format me hain (${home.imageFormats?.jpg || 0} JPGs / ${home.imageFormats?.png || 0} PNGs). Modern formats me convert karein.`
+      });
+    }
+    if (home.missingDimensionsCount > 10) {
+      issues.push({
+        severity: 'low',
+        category: 'technical',
+        text: `${home.missingDimensionsCount} images par width aur height attributes missing hain — CLS layout shift rokne ke liye dimensions provide karein.`
+      });
+    }
+  } else {
+    tech += 5;
+  }
 
   // Hard flags
   if (home.https && home.mixedContent && home.mixedContent.length) {
@@ -395,31 +525,49 @@ function scoreAudit(home, robots, broken) {
   }
   if (!home.hasFavicon) issues.push({ severity: 'low', category: 'technical', text: 'Favicon nahi mila.' });
   if (home.viewportBlocksZoom) issues.push({ severity: 'low', category: 'technical', text: 'Viewport zoom block hai (user-scalable=no) — accessibility + mobile UX issue.' });
-  if (!home.twitterCard) issues.push({ severity: 'low', category: 'onpage', text: 'Twitter Card meta missing (social share preview).' });
 
   // On-page (100)
   let onpage = 0;
   if (home.title) {
     onpage += 25;
-    if (home.title.length >= 15 && home.title.length <= 70) onpage += 10;
-    else issues.push({ severity: 'low', category: 'onpage', text: `Title length ${home.title.length} chars — ideal 40-60.` });
+    if (home.title.length >= 25 && home.title.length <= 65) onpage += 10;
+    else issues.push({ severity: 'low', category: 'onpage', text: `Title length ${home.title.length} chars — ideal 35-65 characters.` });
   } else issues.push({ severity: 'high', category: 'onpage', text: 'Title tag missing.' });
+
   if (home.metaDescription) {
     onpage += 20;
     if (home.metaDescription.length >= 70 && home.metaDescription.length <= 170) onpage += 10;
     else issues.push({ severity: 'low', category: 'onpage', text: `Meta description ${home.metaDescription.length} chars — ideal 120-160.` });
   } else issues.push({ severity: 'medium', category: 'onpage', text: 'Meta description missing (CTR impact).' });
-  if (home.h1Count === 1) onpage += 15;
-  else issues.push({ severity: home.h1Count === 0 ? 'medium' : 'low', category: 'onpage', text: home.h1Count === 0 ? 'Koi H1 nahi.' : `${home.h1Count} H1 tags mile (sirf 1 hona chahiye).` });
-  if (home.ogTitle && home.ogImage) onpage += 10; else issues.push({ severity: 'low', category: 'onpage', text: 'OG social tags incomplete (title/image).' });
+
+  if (home.h1Count === 1) {
+    onpage += 15;
+    if (home.h1TypoFound) {
+      onpage -= 5;
+      issues.push({ severity: 'medium', category: 'onpage', text: `H1 tag mein spacing / concatenated word defect mila: "${home.h1TypoText}" — words ko theek se space aur format karein.` });
+    }
+  } else {
+    issues.push({ severity: home.h1Count === 0 ? 'medium' : 'low', category: 'onpage', text: home.h1Count === 0 ? 'Koi H1 tag nahi mila.' : `${home.h1Count} H1 tags mile (sirf 1 single targeted H1 hona chahiye).` });
+  }
+
+  if (home.ogTitle && home.ogImage) {
+    onpage += 10;
+    if (home.isOgImageSmallOrLogo) {
+      issues.push({ severity: 'low', category: 'onpage', text: 'og:image square logo ya favicon URL lag raha hai — WhatsApp/Facebook previews ke liye 1200x630px high-resolution banner image set karein.' });
+    }
+  } else {
+    issues.push({ severity: 'low', category: 'onpage', text: 'OG social tags incomplete (title/image missing).' });
+  }
+  if (!home.twitterCard) issues.push({ severity: 'low', category: 'onpage', text: 'Twitter Card meta missing (summary_large_image preview ke liye).' });
+
   if (home.lang) onpage += 10; else issues.push({ severity: 'low', category: 'onpage', text: '<html lang> attribute missing.' });
 
-  // Content (100) — includes Readability & Heading Hierarchy
+  // Content (100) — includes Readability, Schema & Heading Hierarchy
   let content = 0;
   const wc = home.wordCount;
-  if (wc >= 300) content += 35;
-  else if (wc >= 150) content += 24;
-  else if (wc >= 50) content += 14;
+  if (wc >= 300) content += 30;
+  else if (wc >= 150) content += 20;
+  else if (wc >= 50) content += 10;
   else content += 4;
   if (wc < 150) issues.push({ severity: 'medium', category: 'content', text: `Thin content — sirf ${wc} words.` });
   if (home.h2Count > 0) content += 15; else issues.push({ severity: 'low', category: 'content', text: 'Koi H2 heading nahi — structure weak.' });
@@ -438,14 +586,31 @@ function scoreAudit(home, robots, broken) {
   else if (home.altCoverage >= 80) content += 15;
   else content += 8;
   if (home.imageCount > 0 && home.altCoverage < 80) issues.push({ severity: 'medium', category: 'content', text: `Sirf ${home.altCoverage}% images pe alt text hai.` });
-  if (home.internalCount > 0) content += 15; else issues.push({ severity: 'medium', category: 'content', text: 'Koi internal link nahi — crawl budget waste.' });
-  if (home.hasSchema) content += 10; else issues.push({ severity: 'low', category: 'content', text: 'Structured data (JSON-LD schema) nahi hai.' });
+  if (home.internalCount > 0) content += 10; else issues.push({ severity: 'medium', category: 'content', text: 'Koi internal link nahi — crawl budget waste.' });
+
+  // Structured Data Schema Depth & Opportunities
+  if (home.hasSchema) {
+    content += 10;
+    if (home.faqOpportunity) {
+      issues.push({ severity: 'low', category: 'content', text: 'Homepage par FAQ / Questions section hai par FAQPage schema (JSON-LD) missing hai — Rich Results ke liye FAQ schema inject karein.' });
+    }
+    if (home.reviewOpportunity) {
+      issues.push({ severity: 'low', category: 'content', text: 'Homepage par Customer Reviews / Testimonials hain par AggregateRating / Review schema missing hai — Google Search star rating preview ke liye schema add karein.' });
+    }
+  } else {
+    issues.push({ severity: 'low', category: 'content', text: 'Structured data (JSON-LD schema) nahi hai — Google rich snippets hurt.' });
+  }
 
   // Links (100)
   let links = 0;
   if (broken.length === 0) links += 50; else issues.push({ severity: 'medium', category: 'links', text: `${broken.length} broken internal link(s) mile: ${broken.map((b) => b.url).join(', ')}` });
   if (home.internalCount > 0) links += 25; else issues.push({ severity: 'medium', category: 'links', text: 'Internal links nahi mile.' });
-  if (home.externalCount > 0) links += 25;
+  if (home.externalCount > 0) {
+    links += 25;
+    if (home.externalUnsafeCount > 0) {
+      issues.push({ severity: 'low', category: 'links', text: `${home.externalUnsafeCount} external link(s) par rel="noopener noreferrer" missing hai — security & performance best practice.` });
+    }
+  }
 
   const breakdown = { technical: Math.min(100, tech), onpage: Math.min(100, onpage), content: Math.min(100, content), links: Math.min(100, links) };
   const score = Math.round((breakdown.technical + breakdown.onpage + breakdown.content + breakdown.links) / 4);
@@ -680,6 +845,18 @@ async function runAudit(originUrl, { skipLlm = false, keywords = [] } = {}) {
     imgCount: home.imageCount || 0,
     lazyImages: home.lazyCount || 0,
     altCoverage: home.altCoverage || 100,
+    imageFormats: home.imageFormats || {},
+    nextGenCoverage: home.nextGenCoverage ?? 100,
+    missingDimensionsCount: home.missingDimensionsCount || 0,
+    h1TypoFound: !!home.h1TypoFound,
+    h1TypoText: home.h1TypoText || '',
+    isOgImageSmallOrLogo: !!home.isOgImageSmallOrLogo,
+    faqOpportunity: !!home.faqOpportunity,
+    reviewOpportunity: !!home.reviewOpportunity,
+    externalUnsafeCount: home.externalUnsafeCount || 0,
+    permissionsPolicy: !!home.permissionsPolicy,
+    http3Supported: !!home.http3Supported,
+    serverHeader: home.serverHeader || '',
     semanticCount: home.semanticCount || 0,
     semanticTags: home.semanticTags || [],
     hreflangCount: home.hreflangCount || 0,
@@ -1295,11 +1472,13 @@ function generateSeoReport(site) {
     ['Scripts', typeof sig.scriptSrcCount === 'number' ? sig.scriptSrcCount + ' (' + (typeof sig.blockingScripts === 'number' ? sig.blockingScripts : 0) + ' blocking)' : '—'],
     ['CSS files', typeof sig.cssLinkCount === 'number' ? sig.cssLinkCount : '—'],
     ['Images', typeof sig.imgCount === 'number' ? sig.imgCount + ' (' + (typeof sig.lazyImages === 'number' ? sig.lazyImages : 0) + ' lazy)' : '—'],
+    ['Image Formats', typeof sig.nextGenCoverage === 'number' ? `${sig.nextGenCoverage}% Next-Gen (WebP/AVIF)` : '—'],
     ['Semantic tags', typeof sig.semanticCount === 'number' ? sig.semanticCount + '/7' : '—'],
+    ['Security Headers', `${sig.hsts ? 'HSTS' : 'No-HSTS'} · ${sig.csp || sig.xFrame ? 'CSP/X-Frame' : 'No-CSP'} · ${sig.permissionsPolicy ? 'Permissions-Policy' : 'No-PP'}`],
     ['Sitemap URLs', typeof sig.sitemapUrls === 'number' ? sig.sitemapUrls : '—'],
     ['robots.txt', sig.robotsExists ? 'Found' : 'Missing'],
     ['hreflang', typeof sig.hreflangCount === 'number' ? sig.hreflangCount : '—'],
-    ['Schema', Array.isArray(sig.schemaTypes) && sig.schemaTypes.length ? sig.schemaTypes.join(', ') : 'None'],
+    ['Schema (JSON-LD)', Array.isArray(sig.schemaTypes) && sig.schemaTypes.length ? sig.schemaTypes.join(', ') : 'None'],
   ].map(([k, v]) => `<tr><td style="padding:4px 8px;border-bottom:1px solid #f1f5f9;color:#666;">${escXml(k)}</td><td style="padding:4px 8px;border-bottom:1px solid #f1f5f9;font-weight:600;text-align:right;">${escXml(v)}</td></tr>`).join('');
 
   const kwRows = (site.keywords || []).map((kw) => {

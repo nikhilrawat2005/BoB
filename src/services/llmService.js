@@ -671,21 +671,207 @@ async function verifyModels() {
  *
  * `model` is a HINT, not a command. If the hinted slug is retired, or is
  * text-only while images are attached, or is too small for the prompt, the
- * router silently shifts to a capable model and reports it in `routing`.
- *
- * @param {object}   opts
- * @param {string}   [opts.role='chat']  Role key from MODEL_ROLES.
- * @param {Array}    opts.messages       OpenAI-format messages array.
- * @param {string}   [opts.model]        Preferred slug (caller or user dropdown).
- * @param {string[]} [opts.imageUrls=[]] Image URLs. Non-empty ⇒ vision path.
- * @param {string}   [opts.userText]     Current user text for the vision path.
- *                                       Falls back to the last user message.
- * @param {number}   [opts.temperature]  Defaults to TEMPERATURE env or 0.2.
- * @param {number}   [opts.max_tokens]   Defaults to MAX_TOKENS env or 2000.
- * @param {string}   [opts.persona]      'builder' ⇒ use the dedicated key.
- * @returns {Promise<{text: string, model: string, usage: object|null, routing: string[]}>}
+//   costIn  - USD per 1M input tokens  (used to pick the CHEAPEST valid option)
+//   costOut - USD per 1M output tokens (informational / dashboards)
+//   tier    - 1 cheap · 2 mid · 3 premium
+//
+// Verified against https://openrouter.ai/api/v1/models. If you add a new slug to
+// .env, add it here too — an unknown slug is treated as "capabilities unknown"
+// and will be shifted away from whenever a hard requirement (images, context
+// size) has to be guaranteed. Run verifyModels() to re-check against live data.
+// ---------------------------------------------------------------------------
+const MODEL_CAPS = {
+  'google/gemini-2.5-flash-lite': { vision: true,  ctx: 1000000, costIn: 0.10, costOut: 0.40,  tier: 1 },
+  'google/gemini-2.5-flash':      { vision: true,  ctx: 1000000, costIn: 0.30, costOut: 2.50,  tier: 2 },
+  'deepseek/deepseek-chat-v3':    { vision: false, ctx:  163840, costIn: 0.26, costOut: 1.03,  tier: 1 },
+  'deepseek/deepseek-chat':       { vision: false, ctx:  163840, costIn: 0.26, costOut: 1.03,  tier: 1 },
+  'openai/gpt-4o':                { vision: true,  ctx:  128000, costIn: 2.50, costOut: 10.00, tier: 3 },
+  'anthropic/claude-sonnet-4':    { vision: true,  ctx: 1000000, costIn: 3.00, costOut: 15.00, tier: 3 },
+};
+
+// Slugs that still RESOLVE on OpenRouter but have ZERO serving endpoints, so any
+// call using them fails. These are silently replaced instead of burning a key
+// attempt on a guaranteed error.
+const DEAD_MODELS = new Set([
+  'google/gemini-2.0-flash-001',
+]);
+
+function _capsFor(model) {
+  return MODEL_CAPS[model] || null;
+}
+
+/** Cheapest non-dead model in MODEL_CAPS satisfying `predicate`, else null. */
+function _pickCheapest(predicate) {
+  let best = null;
+  for (const [slug, caps] of Object.entries(MODEL_CAPS)) {
+    if (DEAD_MODELS.has(slug)) continue;
+    if (!predicate(caps, slug)) continue;
+    if (!best || caps.costIn < best.caps.costIn) best = { slug, caps };
+  }
+  return best ? best.slug : null;
+}
+
+/**
+ * Rough token estimate for a messages array (~4 chars per token).
+ * Image parts are charged a flat ~1k tokens each, which is the right ballpark
+ * for Gemini/GPT-4o tiling. Only used to decide whether a prompt will FIT —
+ * it never needs to be exact, just not wildly low.
  */
-async function callLLM({
+function estimateTokens(messages, extraText = '') {
+  let chars = String(extraText || '').length;
+  for (const m of messages || []) {
+    if (typeof m.content === 'string') {
+      chars += m.content.length;
+    } else if (Array.isArray(m.content)) {
+      for (const part of m.content) {
+        if (part && part.type === 'text') chars += String(part.text || '').length;
+        else if (part && part.type === 'image_url') chars += 4000;
+      }
+    }
+  }
+  return Math.ceil(chars / 4);
+}
+
+/**
+ * THE model router. Single place that decides which model actually runs.
+ *
+ * Pure function — no network, no side effects beyond console warnings — so it is
+ * safe to call on every request and easy to unit test.
+ *
+ * Shift order:
+ *   1. configured/hinted slug is retired      → role default, else FALLBACK_MODEL
+ *   2. images attached but model is text-only → cheapest vision-capable model
+ *   3. prompt won't fit the context window    → cheapest roomy-enough model
+ *
+ * @param {object}  opts
+ * @param {string}  [opts.role='chat']      Role key from MODEL_ROLES.
+ * @param {string}  [opts.hint]             Caller/user preference. Honoured unless
+ *                                          it cannot do the job.
+ * @param {boolean} [opts.needsVision=false] True when image parts are present.
+ * @param {number}  [opts.estTokens=0]      Estimated prompt size; 0 = skip check.
+ * @returns {{model: string, why: string[]}} Chosen slug + why it was chosen.
+ */
+function resolveModel({ role = 'chat', hint, needsVision = false, estTokens = 0 } = {}) {
+  const why = [];
+  let model = hint || MODEL_ROLES[role] || MODEL_ROLES.chat || FALLBACK_MODEL;
+
+  // 1. Retired slug → never send it.
+  if (DEAD_MODELS.has(model)) {
+    const roleDefault = MODEL_ROLES[role];
+    const next = roleDefault && !DEAD_MODELS.has(roleDefault) ? roleDefault : FALLBACK_MODEL;
+    why.push(`dead-slug:${model}->${next}`);
+    model = next;
+  }
+
+  // 2. Vision requirement is hard — a blind model simply cannot answer.
+  if (needsVision) {
+    const caps = _capsFor(model);
+    if (!caps) {
+      const swap = _pickCheapest((c) => c.vision) || FALLBACK_MODEL;
+      if (swap !== model) {
+        console.warn(
+          `[llmService] "${model}" has unknown capabilities and images are attached. ` +
+          `Shifting to "${swap}". Add "${model}" to MODEL_CAPS to keep using it for vision.`
+        );
+        why.push(`unknown-caps-vision:${model}->${swap}`);
+        model = swap;
+      }
+    } else if (caps.vision !== true) {
+      const swap = _pickCheapest((c) => c.vision) || FALLBACK_MODEL;
+      if (swap !== model) {
+        why.push(`needs-vision:${model}->${swap}`);
+        model = swap;
+      }
+    }
+  }
+
+  // 3. Context requirement. 0.8 leaves headroom for the completion itself.
+  if (estTokens > 0) {
+    const caps = _capsFor(model);
+    if (caps && estTokens > caps.ctx * 0.8) {
+      const swap = _pickCheapest(
+        (c) => c.ctx >= estTokens * 1.25 && (!needsVision || c.vision)
+      );
+      if (swap && swap !== model) {
+        why.push(`needs-context:${estTokens}tok:${model}->${swap}`);
+        model = swap;
+      }
+    }
+  }
+
+  return { model, why };
+}
+
+/**
+ * On-demand health check for every slug referenced by MODEL_ROLES / MODEL_CAPS.
+ * Deliberately NOT called at boot — on Vercel that would add a network round
+ * trip to every cold start. Call it from an admin endpoint when you change
+ * models, and it will catch retired slugs and vision-capability drift for you.
+ *
+ * @returns {Promise<{ok: boolean, checked: number, problems: Array}>}
+ */
+async function verifyModels() {
+  const slugs = new Set([...Object.values(MODEL_ROLES), ...Object.keys(MODEL_CAPS)]);
+  const problems = [];
+
+  const res = await fetch('https://openrouter.ai/api/v1/models');
+  if (!res.ok) throw new Error(`OpenRouter model list failed: HTTP ${res.status}`);
+  const { data } = await res.json();
+
+  // Index by BOTH `id` and `canonical_slug`. Some working slugs are aliases that
+  // never appear as an `id` in the listing — e.g. "deepseek/deepseek-chat-v3" is
+  // an alias of "deepseek/deepseek-chat" and calls succeed, but a naive id-only
+  // lookup would wrongly report it as not-found.
+  const live = new Map();
+  for (const m of data || []) {
+    if (m.id) live.set(m.id, m);
+    if (m.canonical_slug && !live.has(m.canonical_slug)) live.set(m.canonical_slug, m);
+  }
+
+  for (const slug of slugs) {
+    const m = live.get(slug);
+    if (!m) {
+      problems.push({ slug, issue: 'not-found', detail: 'No such model id on OpenRouter.' });
+      continue;
+    }
+    const mods = (m.architecture && m.architecture.input_modalities) || [];
+    const caps = MODEL_CAPS[slug];
+
+    if (!caps) {
+      problems.push({ slug, issue: 'missing-from-MODEL_CAPS', detail: `modalities: ${mods.join(', ')}` });
+    } else if (caps.vision !== mods.includes('image')) {
+      problems.push({
+        slug,
+        issue: 'vision-mismatch',
+        detail: `MODEL_CAPS says vision=${caps.vision}, OpenRouter says image input=${mods.includes('image')}`,
+      });
+    }
+
+    if (DEAD_MODELS.has(slug)) {
+      problems.push({ slug, issue: 'marked-dead', detail: 'Listed in DEAD_MODELS; replaced automatically.' });
+    }
+  }
+
+  return { ok: problems.length === 0, checked: slugs.size, problems };
+}
+
+
+// ---------------------------------------------------------------------------
+// Core caller
+// ---------------------------------------------------------------------------
+
+const geminiPool = require('./geminiPoolService');
+
+const NON_CONTINUOUS_ROLES = new Set([
+  'seo',
+  'research',
+  'review',
+  'memorySummarize',
+  'writer',
+  'router',
+]);
+
+async function callOpenRouterDirect({
   role = 'chat',
   messages,
   model,
@@ -697,9 +883,6 @@ async function callLLM({
 }) {
   const hasImages = Array.isArray(imageUrls) && imageUrls.length > 0;
 
-  // --- Build the outgoing messages array -----------------------------------
-  // With images, the trailing user message is rebuilt as multimodal content.
-  // System and assistant history is always preserved untouched.
   let finalMessages = Array.isArray(messages) ? messages : [];
   if (hasImages) {
     let text = userText;
@@ -719,10 +902,6 @@ async function callLLM({
     finalMessages.push({ role: 'user', content: userContent });
   }
 
-  // --- Choose the model ----------------------------------------------------
-  // Plain chat + images ⇒ consult the dedicated `vision` role so VISION_MODEL
-  // stays meaningful. Any other role keeps its own default and relies on the
-  // capability shift inside resolveModel().
   const effectiveRole = hasImages && role === 'chat' ? 'vision' : role;
   const { model: selectedModel, why } = resolveModel({
     role: effectiveRole,
@@ -744,13 +923,11 @@ async function callLLM({
     max_tokens:  requestedMaxTokens,
   };
 
-
   const res = await fetch(OPENROUTER_URL, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       'Authorization': `Bearer ${apiKey}`,
-      // Recommended by OpenRouter for usage tracking
       'HTTP-Referer': 'https://github.com/nikhilrawat2005/BoB',
       'X-Title': 'Bob Personal Assistant',
     },
@@ -763,18 +940,15 @@ async function callLLM({
     const msg = String(data.error.message || '');
     const isCreditError = msg.includes('credits') || msg.includes('afford') || msg.includes('balance') || /requires more credits/.test(msg.toLowerCase());
     if (isCreditError) {
-      // Burn-limit / balance exhausted THIS key → retire it from rotation, don't retry.
       markKeyExhausted(apiKey);
       const err = new Error('OpenRouter credit/balance exhausted for this key — auto-skipped. ' + msg);
       err.details = data.error;
       err.code = 'CREDIT_EXHAUSTED';
       throw err;
     }
-    // max_tokens-only error → retry once with a smaller ceiling.
-    // Pass the already-resolved slug so the router does not run twice.
     if ((msg.includes('max_tokens')) && requestedMaxTokens > 1000) {
       console.warn(`[llmService] max_tokens limit hit (${requestedMaxTokens}). Retrying with max_tokens: 1500...`);
-      return callLLM({
+      return callOpenRouterDirect({
         role, messages, model: selectedModel, imageUrls, userText,
         temperature, max_tokens: 1500, persona,
       });
@@ -796,7 +970,34 @@ async function callLLM({
     model:   selectedModel,
     usage:   data.usage || null,
     routing: why,
+    provider: 'openrouter',
   };
+}
+
+/**
+ * Unified Smart LLM caller:
+ * Automatically routes bursty, non-continuous workloads (SEO, Research, Hackathons, Stalker, Memory)
+ * to the free Gemini 11-key rotating pool to save OpenRouter credits, with instant fallback to
+ * OpenRouter if Gemini fails or rate limits. Interactive chat and builder loops stay on OpenRouter.
+ */
+async function callLLM(opts = {}) {
+  const {
+    role = 'chat',
+    imageUrls = [],
+    useGeminiPool,
+    preferOpenRouter,
+  } = opts;
+
+  const hasImages = Array.isArray(imageUrls) && imageUrls.length > 0;
+  const isNonContinuous = NON_CONTINUOUS_ROLES.has(role) || useGeminiPool === true;
+
+  // If bursty non-continuous task without image inputs and OpenRouter is not forced -> Use Gemini Pool with Fallback
+  if (isNonContinuous && !hasImages && !preferOpenRouter) {
+    return geminiPool.callGeminiWithFallback(opts, () => callOpenRouterDirect(opts));
+  }
+
+  // Otherwise, use OpenRouter fast pool directly
+  return callOpenRouterDirect(opts);
 }
 
 // ---------------------------------------------------------------------------
@@ -827,5 +1028,6 @@ module.exports = {
   resolveModel, estimateTokens, verifyModels,
   MAX_TOKENS_PER_KEY,
   checkKeyHealth, keyHealthSnapshot, markKeyExhausted,
+  getGeminiPoolHealth: geminiPool.getGeminiPoolHealth,
   _rawKeys, _keyMeta,
 };

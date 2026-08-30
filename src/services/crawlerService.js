@@ -56,20 +56,33 @@ async function validatePublicUrl(targetUrl) {
 function fetchWithTimeout(url, options = {}, timeoutMs = 8000) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
+  const start = Date.now();
+  let ttfb = 0;
   return fetch(url, { ...options, signal: controller.signal })
     .then(async (res) => {
+      ttfb = Date.now() - start;
       // Also abort if body takes too long — read text with a race
       const bodyPromise = res.text();
       const bodyTimer = new Promise((_, reject) =>
         setTimeout(() => reject(new Error('Body read timeout')), timeoutMs)
       );
       const text = await Promise.race([bodyPromise, bodyTimer]);
+      const loadMs = Date.now() - start;
       clearTimeout(timer);
       const rawHeaders = {};
       if (res.headers && typeof res.headers.entries === 'function') {
         for (const [k, v] of res.headers.entries()) rawHeaders[k.toLowerCase()] = v;
       }
-      return { ok: res.ok, status: res.status, statusText: res.statusText, text, headers: rawHeaders };
+      return {
+        ok: res.ok,
+        status: res.status,
+        statusText: res.statusText,
+        text,
+        headers: rawHeaders,
+        ttfb,
+        loadMs,
+        htmlBytes: Buffer.byteLength(text || '', 'utf8'),
+      };
     })
     .catch((err) => {
       clearTimeout(timer);
