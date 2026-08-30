@@ -4169,3 +4169,60 @@ body.collab-on .collab-state { color: #fff; background: var(--green); }
   max-width: 100%;
   overflow-wrap: anywhere;
 }
+
+
+/* ══════════════════════════════════════════════════════════════════
+   LAPTOP / DESKTOP ONLY WORKSTATION ENGINE
+   Locks BOB Web interface to a full-screen high-density desktop workstation.
+   ══════════════════════════════════════════════════════════════════ */
+@media screen {
+  body {
+    min-width: 1024px;
+    overflow-x: auto;
+  }
+  .sidebar {
+    position: static !important;
+    transform: none !important;
+    width: var(--sidebar-w, 260px) !important;
+    height: 100vh !important;
+    box-shadow: none !important;
+    display: flex !important;
+  }
+  .sidebar-backdrop,
+  .sidebar-toggle-btn,
+  .ws-mobile-tabs {
+    display: none !important;
+  }
+  .hq-grid-inner {
+    grid-template-columns: repeat(4, 1fr) !important;
+    gap: 16px !important;
+  }
+  .memory-cards-grid {
+    grid-template-columns: repeat(3, 1fr) !important;
+    gap: 16px !important;
+  }
+  .files-grid-list {
+    grid-template-columns: repeat(3, 1fr) !important;
+    gap: 16px !important;
+  }
+  .routines-grid {
+    grid-template-columns: repeat(3, 1fr) !important;
+    gap: 16px !important;
+  }
+  .hack-workspace {
+    display: grid !important;
+    grid-template-columns: 260px minmax(0, 1fr) minmax(360px, 38%) !important;
+  }
+  .stalk-workspace {
+    display: grid !important;
+    grid-template-columns: 280px minmax(0, 1fr) minmax(360px, 38%) !important;
+  }
+  .message-row {
+    max-width: 1050px !important;
+    margin: 0 auto !important;
+  }
+  .input-wrapper {
+    max-width: 1050px !important;
+    margin: 0 auto !important;
+  }
+}
