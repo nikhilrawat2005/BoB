@@ -12,48 +12,39 @@
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
 :root {
-  /* ── Surfaces: near-black with a slight cool tint, 5 elevation steps ─── */
-  --bg:          #08090c;
-  --bg2:         #0d0f13;
-  --bg3:         #12151b;
-  --surface:     #15181f;
-  --surface2:    #1e232c;
+  /* ── Surfaces: Abyssal Void Black with Electric Blue Glass ─── */
+  --bg:          #040508;
+  --bg2:         #080a10;
+  --bg3:         #0d111b;
+  --surface:     #0d111b;
+  --surface2:    #131826;
 
-  /* ── Borders: lifted from 0.07/0.12. The old values were effectively
-        invisible on a dark background, which is why card and input edges
-        disappeared. These are the minimum that read as a real edge. ──────── */
-  --border:      rgba(255,255,255,0.09);
-  --border2:     rgba(255,255,255,0.16);
-  --border3:     rgba(255,255,255,0.24);
+  /* ── Borders: Luminous Blue Flame Glass Hairlines ──────── */
+  --border:      rgba(56, 189, 248, 0.12);
+  --border2:     rgba(56, 189, 248, 0.22);
+  --border3:     rgba(0, 242, 254, 0.35);
 
-  /* ── Accent: azure -> deep blue. Cool and restrained; contrast on --bg is
-        7.6:1 so it is legible as text, not just as decoration. ───────────── */
-  --accent:      #4d9fff;
-  --accent2:     #2f7cf6;
-  --accent-rgb:  77,159,255;
-  --accent2-rgb: 47,124,246;
-  --accent-glow: rgba(77,159,255,0.30);
-  --accent-soft: rgba(77,159,255,0.12);
-  --accent-dim:  #8fc2ff;
+  /* ── Accent: Electric Cyan Flame -> Plasma Sky Blue ───────────── */
+  --accent:      #00f2fe;
+  --accent2:     #38bdf8;
+  --accent-rgb:  0, 242, 254;
+  --accent2-rgb: 56, 189, 248;
+  --accent-glow: rgba(0, 242, 254, 0.35);
+  --accent-soft: rgba(0, 242, 254, 0.12);
+  --accent-dim:  #7dd3fc;
 
-  /* Secondary hue, only for places that genuinely need a 2nd colour
-     (chart series, distinct badges). Not part of the main UI language. */
-  --cyan:        #22d3ee;
+  --cyan:        #00f2fe;
 
-  /* ── Status: all tuned for >=4.5:1 on --bg ──────────────────────────── */
-  --green:       #3ddc97;
-  --red:         #ff6b6b;
-  --amber:       #fbbf24;
-  --blue:        #60a5fa;
-  /* RGB triplets so tints/borders derive from ONE source of truth via
-     rgba(var(--red-rgb), 0.15). Previously the file carried ~100 hardcoded
-     copies of an older, darker palette (#ef4444, #f59e0b, rgb(34,197,94)…)
-     which both drifted from these tokens and failed AA on near-black. */
-  --green-rgb:   61, 220, 151;
-  --red-rgb:     255, 107, 107;
-  --amber-rgb:   251, 191, 36;
-  --blue-rgb:    96, 165, 250;
-  --cyan-rgb:    34, 211, 238;
+  /* ── Status: Cyber Neon Accents ──────────────────────────── */
+  --green:       #10b981;
+  --red:         #f43f5e;
+  --amber:       #facc15;
+  --blue:        #38bdf8;
+  --green-rgb:   16, 185, 129;
+  --red-rgb:     244, 63, 94;
+  --amber-rgb:   250, 204, 21;
+  --blue-rgb:    56, 189, 248;
+  --cyan-rgb:    0, 242, 254;
 
   /* ── Text: --text3 was #6b7280 = 4.03:1, below the 4.5:1 AA floor, so
         every timestamp/caption/hint in the app was failing. All three steps
