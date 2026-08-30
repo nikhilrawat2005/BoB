@@ -4,23 +4,16 @@ const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions';
 
 // ---------------------------------------------------------------------------
 // API Key Pool — reads OPENROUTER_API_KEY1 … OPENROUTER_API_KEY30 from .env
-// Rotates through them round-robin so no single key hits rate limits.
-// Keys that are empty / missing are skipped automatically.
 // ---------------------------------------------------------------------------
 const _rawKeys = [];
 for (let i = 1; i <= 30; i++) {
   const k = process.env[`OPENROUTER_API_KEY${i}`];
   if (k && k.trim()) _rawKeys.push(k.trim());
 }
-
-// Fallback: also support plain OPENROUTER_API_KEY (original .env.example format)
 if (process.env.OPENROUTER_API_KEY && process.env.OPENROUTER_API_KEY.trim()) {
   _rawKeys.push(process.env.OPENROUTER_API_KEY.trim());
 }
 
-// Dedicated Builder keys stay OUT of Bob's rotation pool.
-// Supports BUILDER_API_KEY1 … BUILDER_API_KEY30 (multi-key rotation, like Bob),
-// with BUILDER_API_KEY kept as the legacy alias for BUILDER_API_KEY1.
 const _builderKeys = [];
 for (let i = 1; i <= 30; i++) {
   const k = process.env[`BUILDER_API_KEY${i}`];
@@ -30,35 +23,28 @@ for (let i = 1; i <= 30; i++) {
   const b0 = (process.env.BUILDER_API_KEY || '').trim();
   if (b0 && !_builderKeys.includes(b0)) _builderKeys.unshift(b0);
 }
-const _builderKey = _builderKeys[0] || '';
 for (const bk of _builderKeys) {
   for (let i = _rawKeys.length - 1; i >= 0; i--) {
     if (_rawKeys[i] === bk) _rawKeys.splice(i, 1);
   }
 }
 
-// Role assignment (env-driven, stable across cold starts): each role uses a FIXED key.
-// BOB = Bob's main rotation, CENTER = center-work, BUILDER = builder (excluded above).
-// Any configured key with no role is a REPLACEMENT (swap-in when a role key exhausts).
 const _roles = {
   BOB: (process.env.BOB_API_KEY || '').trim(),
   CENTER: (process.env.CENTER_API_KEY || '').trim(),
   BUILDER: (process.env.BUILDER_API_KEY || '').trim(),
 };
+
 function _roleOf(key) {
-  // Current holder wins — this makes the label FOLLOW promotions across cold starts.
   for (const role of Object.keys(_roleHolders)) {
     if (key === _holderKey(role)) return role;
   }
-  // Initial assignment from env, but only while that key is still usable.
   for (const [role, rk] of Object.entries(_roles)) {
     if (rk && rk === key) {
       const m = _keyMeta(key);
       if (m.status !== 'exhausted' && (m.lastBalance ?? 0) >= 0) return role;
     }
   }
-  // Builder keys keep the BUILDER label forever (never 'REPLACEMENT'), so the
-  // pool machinery can't pull them in as Bob/Center swap-ins.
   if (_builderKeys.includes(key)) {
     const m = _keyMeta(key);
     if (m.status !== 'exhausted' && (m.lastBalance ?? 0) >= 0) return 'BUILDER';
@@ -66,32 +52,26 @@ function _roleOf(key) {
   return 'REPLACEMENT';
 }
 
-if (_rawKeys.length === 0) {
+if (_rawKeys.length === 0 && _builderKeys.length === 0) {
   console.warn(
     '[llmService] WARNING: No OpenRouter API key found. ' +
     'Set OPENROUTER_API_KEY1 (or OPENROUTER_API_KEY) in your .env file.'
   );
 }
 
-// All keys visible in the HQ "Keys" card. Rotation pool (_rawKeys) EXCLUDES the
-// Builder keys; Builder keys are shown separately so you can see their status
-// without letting Bob ever borrow them. KEY1..KEYn ordering: env rotation keys
-// first, Builder keys last.
 function _allVisibleKeys() {
   return _builderKeys.length ? [..._rawKeys, ..._builderKeys] : _rawKeys.slice();
 }
 
-// Stable key identity (KEY1..KEY9) across cold starts — index within _allVisibleKeys.
 function _keyIdOf(key) {
   const i = _allVisibleKeys().indexOf(key);
   return i >= 0 ? `KEY${i + 1}` : null;
 }
 
-// --- Persistent key state (Firestore) so exhaustion/usage survives cold starts.
-// Falls back to in-memory only when Firebase is not configured (no new dep needed).
 function _firestore() {
   try { const { db } = require('../config/firebase'); return db; } catch { return null; }
 }
+
 let _stateLoaded = false;
 async function _loadState() {
   if (_stateLoaded) return;
@@ -106,6 +86,20 @@ async function _loadState() {
       if (!key) return;
       const m = _keyMeta(key);
       const d = doc.data() || {};
+      const currentLast4 = key.slice(-4);
+
+      // AUTO-HEALING: If key was replaced in env (last4 changed), auto-reset status & tokens!
+      if (d.last4 && d.last4 !== currentLast4) {
+        console.log(`[llmService] Key ${doc.id} changed in env (${d.last4} -> ${currentLast4}). Resetting to fresh state.`);
+        m.tokens = 0;
+        m.status = 'healthy';
+        m.lastBalance = 0;
+        m.lastUsed = 0;
+        m.lastCheck = 0;
+        _persistKey(doc.id, { last4: currentLast4, tokens: 0, status: 'healthy', lastBalance: 0, lastUsed: 0, lastCheck: 0 });
+        return;
+      }
+
       if (d.tokens != null) m.tokens = d.tokens;
       if (d.status) m.status = d.status;
       if (d.lastBalance != null) m.lastBalance = d.lastBalance;
@@ -117,6 +111,7 @@ async function _loadState() {
   }
   _stateLoaded = true;
 }
+
 async function _persistKey(keyId, data) {
   const db = _firestore();
   if (!db || !keyId) return;
@@ -124,16 +119,6 @@ async function _persistKey(keyId, data) {
   catch (e) { console.warn('[llmService] keyState persist failed:', e.message); }
 }
 
-// (state loading kicked off further below, once _initRoleHolders exists —
-// see _initPromise / _ensureInit)
-
-// ---------------------------------------------------------------------------
-// Role-holders cursor (Firestore): tracks which KEY# is currently "Bob"/"Center".
-// Env seeds it on first run (BOB_API_KEY / CENTER_API_KEY); promoteReplacement()
-// moves a role to a fresh key when its current holder exhausts, so the dashboard
-// label follows the live key. BUILDER is fixed (excluded from pool by design).
-// Mirrored in-memory; persisted in collection `keyHolders` doc `roleHolders`.
-// ---------------------------------------------------------------------------
 const _roleHolders = { BOB: null, CENTER: null };
 
 async function _initRoleHolders() {
@@ -158,15 +143,6 @@ async function _initRoleHolders() {
   }
 }
 
-// FIX (#3): _loadState() and _initRoleHolders() used to be fired at module
-// load time with no one awaiting them ("fire and forget"). On a cold
-// serverless start, a request could arrive and start picking/using keys
-// before Firestore-persisted exhaustion/usage state (and role-holder
-// assignments) finished loading — meaning a key that was actually exhausted
-// on a previous invocation could briefly look "fresh" again, or budget
-// counters could be double-spent right after a restart. We now keep a single
-// shared init promise and every entry point (callLLM, callLLMWithVision,
-// checkKeyHealth, _resolveRoleKey) awaits it before touching key state.
 const _initPromise = Promise.all([_loadState(), _initRoleHolders()]);
 async function _ensureInit() {
   await _initPromise;
@@ -180,7 +156,6 @@ function _holderKey(role) {
   return visible[idx] || null;
 }
 
-// Healthy keys not currently held by another role, NEW-priority first.
 function _freeReplacements(forRole) {
   const visible = _allVisibleKeys();
   const held = new Set();
@@ -189,8 +164,6 @@ function _freeReplacements(forRole) {
     const idx = parseInt(String(kid).replace('KEY', ''), 10) - 1;
     if (visible[idx]) held.add(visible[idx]);
   });
-  // builder keys are never replacements
-  _builderKeys.forEach(bk => held.add(bk));
   return visible.filter(k => {
     const m = _keyMeta(k);
     return m.status !== 'exhausted' && (m.lastBalance ?? 0) >= 0 && !held.has(k);
@@ -201,18 +174,12 @@ function _freeReplacements(forRole) {
   });
 }
 
-// Atomic (Firestore transaction when available) promotion of a role to a fresh key.
+// Promotion of a role to a fresh key from the shared bag
 async function promoteReplacement(role) {
   const db = _firestore();
   const current = _holderKey(role);
   const replacements = _freeReplacements(role);
   if (!replacements.length) {
-    // No swap possible. FIX (#2): previously this returned `current` even when
-    // it was an exhausted key, which made _resolveRoleKey() treat it as a
-    // valid "promoted" key (since it's truthy) and keep retrying a dead key.
-    // Returning null here forces the caller to fall through to _nextKey(),
-    // which correctly searches the whole shared pool (or throws a clear
-    // "all keys exhausted" error instead of silently reusing a dead one).
     if (!current) _roleHolders[role] = null;
     return null;
   }
@@ -235,9 +202,6 @@ async function promoteReplacement(role) {
   return next;
 }
 
-// Resolve the live key for a role from the Firestore-backed cursor every call.
-// If the holder is exhausted/not fundable, atomically promote to a fresh key;
-// if no fresh key exists, fall back to the shared pool so calls never break.
 async function _resolveRoleKey(role) {
   await _ensureInit();
   const held = _holderKey(role);
@@ -258,18 +222,8 @@ let _keyIndex = 0;
  * previously drove the originals into negative territory on free credits).
  * Once a key's IN-MEMORY token usage hits MAX_TOKENS_PER_KEY (or its live
   * balance goes NEGATIVE (boundary — free-credit keys are tried at $0 and
-  * only retired when a real call fails or they turn negative), it is marked EXHAUSTED and skipped by _nextKey().
- * Configurable via env so you can re-tune without a deploy.
  */
 const MAX_TOKENS_PER_KEY = Number(process.env.MAX_TOKENS_PER_KEY || 500000);
-
-/**
- * In-memory per-key bookkeeping.
- *  keyUsage[fullKey] = { tokens: n, lastBalance: '$x', lastUsed: '$y', status: 'ok'|'exhausted', lastCheck: epochMs }
- * NOTE: resets on server restart (deliberate — tokens are re-checked live
- * via checkKeyHealth() against the OpenRouter /credits endpoint so the budget
- * is re-evaluated against the real balance each time).
- */
 const keyUsage = {};
 
 function _keyMeta(key) {
