@@ -664,16 +664,27 @@ function parseFileBlocks(text) {
     } else if (isMermaid) {
       blocks.push({ type: 'mermaid', source: blockContent });
     } else if (isBuilder) {
+      let data = null;
+      const trimmed = (blockContent || '').trim();
       try {
-        const data = JSON.parse(blockContent);
-        if (!data.instruction || typeof data.instruction !== 'string' || !data.instruction.trim()) {
-          blocks.push({ type: 'builder-invalid', raw: blockContent, error: 'instruction is required (Bob ka builder block incomplete hai — instruction missing/empty)' });
-        } else {
-          blocks.push({ type: 'builder', data });
-        }
+        data = JSON.parse(trimmed);
       } catch {
-        blocks.push({ type: 'builder-invalid', raw: blockContent, error: 'invalid JSON builder block' });
+        const titleMatch = trimmed.match(/"title"\s*:\s*"([^"]+)"/i) || trimmed.match(/title\s*[:=]\s*(.+?)(?:\n|$)/i);
+        const instrMatch = trimmed.match(/"instruction"\s*:\s*"([\s\S]*?)"\s*}/i) || trimmed.match(/instruction\s*[:=]\s*([\s\S]+)/i);
+        const title = (titleMatch ? titleMatch[1].trim() : trimmed.split('\n')[0].replace(/[{}"']/g, '').trim()) || 'Project Delegation';
+        const instruction = (instrMatch ? instrMatch[1].trim() : trimmed.replace(/^{?\s*"title":.*?,?/i, '').replace(/}?$/, '').trim()) || trimmed;
+        if (instruction) {
+          data = { title: title.slice(0, 80), instruction };
+        }
       }
+      if (data && data.instruction && typeof data.instruction === 'string' && data.instruction.trim()) {
+        blocks.push({ type: 'builder', data });
+      } else if (trimmed.length > 5) {
+        blocks.push({ type: 'builder', data: { title: 'Builder Task', instruction: trimmed } });
+      } else {
+        blocks.push({ type: 'builder-invalid', raw: blockContent, error: 'Bob ka builder block empty tha' });
+      }
+    }
     } else if (isHackathon) {
       try {
         const data = JSON.parse(blockContent);
@@ -1448,7 +1459,7 @@ async function delegateToBuilder(data, card) {
     if (!data.instruction || typeof data.instruction !== 'string' || !data.instruction.trim()) {
       throw new Error('instruction is required');
     }
-    const res = await apiFetch('/api/builder/delegate', {
+    const out = await apiFetch('/api/builder/delegate', {
       method: 'POST',
       body: JSON.stringify({
         title: data.title,
@@ -1456,10 +1467,8 @@ async function delegateToBuilder(data, card) {
         sessionId: data.sessionId || null,
       }),
     });
-    const out = await res.json();
     const body = card.querySelector('.builder-delegation-body');
     const meta = card.querySelector('.file-gen-meta');
-    if (!res.ok) throw new Error(out.error || 'delegation failed');
 
     meta.textContent = '✅ Builder ne jawab de diya';
     body.innerHTML = '';
@@ -5132,7 +5141,7 @@ function renderSeoAudit(site) {
         <div style="font-size:10px;color:var(--text3);margin-top:4px;">GitHub Actions background pump auto re-audit karega aur score history maintain rakhega. Custom = har 2 / 3 / 4 din jaisa gap.</div>
         <div style="display:flex;gap:6px;margin-top:8px;">
           <button class="btn-small" id="seo-export-pdf" title="Save as PDF (print dialog)" style="flex:1;">⤓ PDF</button>
-          <button class="btn-small" id="seo-export-doc" title="Download Word document" style="flex:1;">⤓ DOC</button>
+          
           <button class="btn-small" id="seo-report-btn" title="Download full HTML report" style="flex:1;">📄 HTML</button>
         </div>
         <button class="btn-small" id="re-audit-seo" style="width:100%;margin-top:8px;padding:6px 0;font-weight:700;">↻ Re-Audit Website</button>
