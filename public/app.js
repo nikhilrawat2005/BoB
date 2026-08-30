@@ -6271,6 +6271,7 @@ async function loadKeys() {
     const data = await apiFetch('/api/keys/health');
     const keys = data.keys || [];
     const summary = data.summary || {};
+    const gemini = data.gemini || null;
 
     // 3-pool model: NEW = untouched ($0, 0 usage); ACTIVE = in-flight (usage>0, healthy); EXHAUSTED = retired.
     const active = keys.filter(k => k.pool === 'ACTIVE');
@@ -6279,8 +6280,29 @@ async function loadKeys() {
     const byRole = {};
     keys.forEach(k => { byRole[k.role] = (byRole[k.role] || 0) + 1; });
 
+    let geminiHtml = '';
+    if (gemini && gemini.keys && gemini.keys.length > 0) {
+      geminiHtml = `
+        <div style="margin-top: 24px; padding-top: 18px; border-top: 1px solid var(--border2);">
+          <div class="keys-summary-bar" style="background: rgba(168, 85, 247, 0.08); border: 1px solid rgba(168, 85, 247, 0.2);">
+            <span class="ks-label" style="color:#d8b4fe; font-weight:700;">🟣 GEMINI POOL:</span>
+            <span class="ks-label">Active:</span><span class="ks-val ks-gemini">${gemini.activeCount || 0} / ${gemini.totalKeys || 11}</span>
+            <span class="ks-label">Requests Today:</span><span class="ks-val" style="color:#38bdf8;">${gemini.totalRequestsToday || 0}</span>
+            <span class="ks-label">Daily Capacity:</span><span class="ks-val" style="color:#fbbf24;">${(gemini.dailyCapacity || 11000).toLocaleString()} req/day</span>
+            <span class="ks-label">Failover:</span><span class="ks-val ks-ok">OpenRouter Auto-Swap</span>
+          </div>
+
+          <div class="keys-section-title" style="color:#c084fc; margin-top:12px;">🟣 Google Gemini Free Keys (11-Key Rotating Pool) <span class="ks-note">For Bursty Tasks: SEO, Deep Research, Hackathons, Stalker, Memory</span></div>
+          <div class="key-chips">
+            ${gemini.keys.map(gk => geminiKeyChip(gk)).join('')}
+          </div>
+        </div>
+      `;
+    }
+
     grid.innerHTML = `
       <div class="keys-summary-bar">
+        <span class="ks-label" style="font-weight:700;">⚡ OPENROUTER:</span>
         <span class="ks-label">Active:</span><span class="ks-val ks-ok">${active.length}</span>
         <span class="ks-label">New spares:</span><span class="ks-val ks-ok">${newKeys.length}</span>
         <span class="ks-label">Exhausted:</span><span class="ks-val ks-bad">${notActive.length}</span>
@@ -6300,6 +6322,8 @@ async function loadKeys() {
       <div class="keys-section-title">🔴 Used / Expired <span class="ks-note">Exhausted or out of credits</span></div>
       <div class="key-chips">${notActive.map(k => keyChip(k, 'bad')).join('') || '<div class="empty-msg">none archived yet</div>'}</div>
 
+      ${geminiHtml}
+
       ${summary.allExhausted || active.length === 0
         ? '<div class="keys-empty-state">All active keys exhausted — add credits to a replacement key (or ask me to load the new keys), then hit Refresh.</div>'
         : ''}
@@ -6307,6 +6331,22 @@ async function loadKeys() {
   } catch (err) {
     grid.innerHTML = `<div class="empty-msg">⚠️ Keys health load fail: ${escHtml(err.message)}</div>`;
   }
+}
+
+function geminiKeyChip(gk) {
+  const isOk = gk.status === 'active';
+  const cls = isOk ? 'key-gemini' : 'key-gemini-warn';
+  const last = gk.lastUsedAt ? new Date(gk.lastUsedAt).toLocaleTimeString('en-IN', { hour12: false }) : '—';
+  const reqs = gk.requestsToday || 0;
+  const limit = gk.dailyLimit || 1000;
+  return `<div class="key-chip ${cls}">
+    <span class="key-last4">GEMINI #${gk.index}</span>
+    <span class="key-role" style="color:#c084fc;">…${gk.keySuffix || '****'}</span>
+    <span class="key-bal" style="color:#38bdf8;">${reqs}/${limit} reqs</span>
+    <span class="key-status" style="color:${isOk ? '#c084fc' : '#facc15'};">${(gk.status || 'ACTIVE').toUpperCase()}</span>
+    <span class="key-pool">pool FREE</span>
+    <span class="key-time">${last}</span>
+  </div>`;
 }
 
 function keyChip(k, variant) {
