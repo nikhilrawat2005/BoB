@@ -111,6 +111,7 @@ app.use('/api/scheduler',     schedulerRoute);
 app.use('/api/live',          liveRoute);
 app.use('/api/builder',       builderRoute);
 app.use('/api/hackathons',    hackathonsRoute);
+app.use('/api/dossier',       stalkingRoute);
 app.use('/api/stalking',      stalkingRoute);
 app.use('/api/routines',      routinesRoute);
 app.use('/api/hq',            hqRoute);
