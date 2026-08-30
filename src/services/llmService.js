@@ -4,24 +4,36 @@ const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions';
 
 // ---------------------------------------------------------------------------
 // API Key Pool — reads OPENROUTER_API_KEY1 … OPENROUTER_API_KEY30 from .env
+// _keyEnvName maps key value → its env variable name so KEY IDs stay stable.
 // ---------------------------------------------------------------------------
 const _rawKeys = [];
+const _keyEnvName = new Map(); // key value → env var name (e.g. "OPENROUTER_API_KEY7")
+
 for (let i = 1; i <= 30; i++) {
-  const k = process.env[`OPENROUTER_API_KEY${i}`];
-  if (k && k.trim()) _rawKeys.push(k.trim());
+  const envName = `OPENROUTER_API_KEY${i}`;
+  const raw = process.env[envName];
+  if (raw && raw.trim() && !_rawKeys.includes(raw.trim())) {
+    _rawKeys.push(raw.trim());
+    _keyEnvName.set(raw.trim(), envName);
+  }
 }
 if (process.env.OPENROUTER_API_KEY && process.env.OPENROUTER_API_KEY.trim()) {
-  _rawKeys.push(process.env.OPENROUTER_API_KEY.trim());
+  const k = process.env.OPENROUTER_API_KEY.trim();
+  if (!_rawKeys.includes(k)) { _rawKeys.push(k); _keyEnvName.set(k, 'OPENROUTER_API_KEY'); }
 }
 
 const _builderKeys = [];
 for (let i = 1; i <= 30; i++) {
-  const k = process.env[`BUILDER_API_KEY${i}`];
-  if (k && k.trim()) _builderKeys.push(k.trim());
+  const envName = `BUILDER_API_KEY${i}`;
+  const raw = process.env[envName];
+  if (raw && raw.trim() && !_builderKeys.includes(raw.trim())) {
+    _builderKeys.push(raw.trim());
+    _keyEnvName.set(raw.trim(), envName);
+  }
 }
 {
   const b0 = (process.env.BUILDER_API_KEY || '').trim();
-  if (b0 && !_builderKeys.includes(b0)) _builderKeys.unshift(b0);
+  if (b0 && !_builderKeys.includes(b0)) { _builderKeys.unshift(b0); _keyEnvName.set(b0, 'BUILDER_API_KEY'); }
 }
 for (const bk of _builderKeys) {
   for (let i = _rawKeys.length - 1; i >= 0; i--) {
@@ -63,7 +75,16 @@ function _allVisibleKeys() {
   return _builderKeys.length ? [..._rawKeys, ..._builderKeys] : _rawKeys.slice();
 }
 
+// Return stable key ID based on env var name (e.g. OPENROUTER_API_KEY20 → KEY20)
+// so dashboard labels don't shift when a key is added/removed from the middle.
 function _keyIdOf(key) {
+  const envVar = _keyEnvName.get(key);
+  if (envVar) {
+    const match = envVar.match(/(\d+)$/);
+    const num = match ? match[1] : '';
+    if (envVar.startsWith('BUILDER_API_KEY')) return num ? `BUILDER${num}` : 'BUILDER';
+    return num ? `KEY${num}` : 'KEY';
+  }
   const i = _allVisibleKeys().indexOf(key);
   return i >= 0 ? `KEY${i + 1}` : null;
 }
@@ -81,26 +102,25 @@ async function _loadState() {
     const snap = await db.collection('keyStates').get();
     const visible = _allVisibleKeys();
     snap.forEach(doc => {
-      const idx = parseInt(doc.id.replace('KEY', ''), 10) - 1;
-      const key = visible[idx];
+      // Match by stable key ID (env var based) first, fall back to last4 fingerprint.
+      const docId = doc.id;
+      const d = doc.data() || {};
+      const key = visible.find(k => _keyIdOf(k) === docId) ||
+                  (d.last4 ? visible.find(k => k.slice(-4) === d.last4) : null);
+
       if (!key) {
-        // Auto-purge deleted/orphan keys from Firestore
+        // This doc refers to a key that was deleted from Vercel env — purge it.
         doc.ref.delete().catch(() => {});
         return;
       }
       const m = _keyMeta(key);
-      const d = doc.data() || {};
       const currentLast4 = key.slice(-4);
 
-      // AUTO-HEALING: If key was replaced in env (last4 changed), auto-reset status & tokens!
+      // AUTO-HEALING: If key value was swapped (same position, different key), reset state.
       if (d.last4 && d.last4 !== currentLast4) {
-        console.log(`[llmService] Key ${doc.id} changed in env (${d.last4} -> ${currentLast4}). Resetting to fresh state.`);
-        m.tokens = 0;
-        m.status = 'healthy';
-        m.lastBalance = 0;
-        m.lastUsed = 0;
-        m.lastCheck = 0;
-        _persistKey(doc.id, { last4: currentLast4, tokens: 0, status: 'healthy', lastBalance: 0, lastUsed: 0, lastCheck: 0 });
+        console.log(`[llmService] Key ${docId} replaced in env (${d.last4} -> ${currentLast4}). Resetting.`);
+        m.tokens = 0; m.status = 'healthy'; m.lastBalance = 0; m.lastUsed = 0; m.lastCheck = 0;
+        _persistKey(_keyIdOf(key), { last4: currentLast4, tokens: 0, status: 'healthy', lastBalance: 0, lastUsed: 0, lastCheck: 0 });
         return;
       }
 
@@ -332,26 +352,42 @@ async function checkKeyHealth(cacheMs = 60000) {
       m.lastCheck = now;
       // FIX (#1): exhausted status is now STICKY. Previously, a live /credits
       // check that happened to see balance >= 0 (common with free-credit keys,
-      // which can lag/flap around $0) would silently overwrite an existing
-      // 'exhausted' status back to 'healthy' — putting a dead key straight
-      // back into rotation until it failed a real call again. Now, once a
-      // key has been marked exhausted (via markKeyExhausted(), triggered by
-      // an actual failed OpenRouter call), only a NEGATIVE balance or the
-      // token ceiling can re-affirm 'exhausted' — a clean live check can no
-      // longer un-exhaust it on its own. Restarting the server (or a future
-      // explicit "reset key" action) is required to bring it back.
+      // A positive balance means the key is alive — always mark healthy so that
+      // newly added keys activate immediately on the next /credits check.
       if (balance < 0 || m.tokens >= MAX_TOKENS_PER_KEY) {
         m.status = 'exhausted';
-      } else if (m.status !== 'exhausted') {
+      } else {
         m.status = 'healthy';
       }
-      _persistKey(_keyIdOf(key), { status: m.status, lastCheck: m.lastCheck, lastBalance: m.lastBalance, lastUsed: m.lastUsed, tokens: m.tokens });
+      _persistKey(_keyIdOf(key), { last4: key.slice(-4), status: m.status, lastCheck: m.lastCheck, lastBalance: m.lastBalance, lastUsed: m.lastUsed, tokens: m.tokens });
       results.push({ keyId: _keyIdOf(key) || `KEY?`, role: _roleOf(key), pool: _poolOf(m), last4: key.slice(-4), status: m.status, balance, used, tokensUsed: m.tokens });
     } catch (e) {
       results.push({ keyId: _keyIdOf(key) || `KEY?`, role: _roleOf(key), pool: _poolOf(m), last4: key.slice(-4), status: m.status, balance: m.lastBalance, used: m.lastUsed, tokensUsed: m.tokens, error: e.message });
     }
   }
   return results;
+}
+
+/**
+ * Force-reset ALL keys to healthy and run fresh live credit checks.
+ * Hit /api/keys/reset after adding or removing keys in Vercel env.
+ */
+async function resetKeyHealth() {
+  await _ensureInit();
+  const db = _firestore();
+  const visible = _allVisibleKeys();
+  for (const key of visible) {
+    const m = _keyMeta(key);
+    m.tokens = 0; m.status = 'healthy'; m.lastBalance = 0; m.lastUsed = 0; m.lastCheck = 0;
+    const keyId = _keyIdOf(key);
+    if (db && keyId) {
+      await db.collection('keyStates').doc(keyId).set(
+        { last4: key.slice(-4), tokens: 0, status: 'healthy', lastBalance: 0, lastUsed: 0, lastCheck: 0 },
+        { merge: true }
+      ).catch(() => {});
+    }
+  }
+  return checkKeyHealth(0);
 }
 
 /**
@@ -362,9 +398,8 @@ function _recordUsage(key, usedTokens) {
   if (!key || !usedTokens) return;
   const m = _keyMeta(key);
   m.tokens += usedTokens;
-  if (m.status !== 'exhausted') m.status = 'healthy';
   if (m.tokens >= MAX_TOKENS_PER_KEY) m.status = 'exhausted';
-  _persistKey(_keyIdOf(key), { tokens: m.tokens, status: m.status, lastBalance: m.lastBalance, lastUsed: m.lastUsed });
+  _persistKey(_keyIdOf(key), { last4: key.slice(-4), tokens: m.tokens, status: m.status, lastBalance: m.lastBalance, lastUsed: m.lastUsed });
 }
 
 // ---------------------------------------------------------------------------
@@ -985,7 +1020,7 @@ module.exports = {
   MODEL_CAPS, DEAD_MODELS, FALLBACK_MODEL,
   resolveModel, estimateTokens, verifyModels,
   MAX_TOKENS_PER_KEY,
-  checkKeyHealth, keyHealthSnapshot, markKeyExhausted,
+  checkKeyHealth, keyHealthSnapshot, markKeyExhausted, resetKeyHealth,
   getGeminiPoolHealth: geminiPool.getGeminiPoolHealth,
   _rawKeys, _keyMeta,
 };

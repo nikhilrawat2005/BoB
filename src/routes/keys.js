@@ -78,4 +78,16 @@ router.get('/route-preview', requireAuth, (req, res) => {
   }
 });
 
+// POST /api/keys/reset — wipe all key states and run fresh credit checks.
+// Use this after adding/removing keys in Vercel env to make changes take effect
+// without waiting for the next cold start.
+router.post('/reset', requireAuth, async (req, res) => {
+  try {
+    const results = await llm.resetKeyHealth();
+    res.json({ ok: true, message: 'All keys reset to healthy. Fresh credit checks complete.', keys: results });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 module.exports = router;
