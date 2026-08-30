@@ -1769,11 +1769,11 @@ const WELCOME_SUGGESTIONS = [
   { icon: '📊', label: 'Ek data chart banao' },
 ];
 const BUILDER_SUGGESTIONS = [
-  { icon: '🛒', label: 'E-commerce website ka plan banao' },
-  { icon: '🏗️', label: 'Portfolio site architect karo' },
-  { icon: '🍔', label: 'Food delivery app ka prompt pack banao' },
-  { icon: '💳', label: 'SaaS dashboard project setup plan' },
-  { icon: '🎨', label: 'UI polish master prompt banao' },
+  { icon: '🎨', label: 'E-commerce app ke liye best color palette & stack suggest karo' },
+  { icon: '⚡', label: 'Next.js vs Vite/React architecture & DB design discuss karo' },
+  { icon: '🏗️', label: 'Full-stack SaaS dashboard ka schema & auth flow plan karo' },
+  { icon: '📱', label: 'Mobile app ke liye state & offline storage architect karo' },
+  { icon: '🚀', label: 'AI tool project ka roadmap & feature plan banao' },
 ];
 function renderWelcomeSuggestions() {
   const wrap = document.getElementById('welcome-suggestions');
@@ -1803,7 +1803,7 @@ function updateWelcomeText() {
   if (!title) return;
   if (currentPersona === 'builder') {
     title.textContent = "Hi, I'm Bob the Builder";
-    sub.textContent = 'Your project planning & prompt-engineering side. Ek idea batao — Bob the Builder use architect karega, poora prompt pack likhega, aur step-by-step guide karega.';
+    sub.textContent = 'Your Principal Software Architect & Tech Co-Founder. Discuss tech stacks, color palettes, database schemas & architecture. Jab ready ho, tab final code files generate hongi.';
     if (btn) btn.textContent = 'Start New Project';
   } else {
     title.textContent = "Hi, I'm Bob";
@@ -1816,7 +1816,7 @@ function showWelcome() {
   const c = document.getElementById('messages-container');
   c.innerHTML = `
     <div class="welcome-screen" id="welcome-screen">
-      <div class="welcome-orb"></div>
+      <img src="/logo.png" class="welcome-cat-logo" alt="Bob" />
       <h1 id="welcome-title">Hi, I'm Bob</h1>
       <p id="welcome-sub">Your personal AI assistant with memory. Start a new chat or select one from the sidebar.</p>
       <button id="welcome-new-chat" class="btn-primary">Start New Chat</button>

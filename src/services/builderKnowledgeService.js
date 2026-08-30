@@ -12,42 +12,39 @@ const AI_WEOS_DIR = path.join(__dirname, '..', '..', 'AI-Website-Engineering-Sys
 // Condensed Builder Playbook (always in Builder's system prompt)
 // Distilled from AI-WEOS CORE + templates so it fits context.
 // ─────────────────────────────────────────────────────────────
-const BUILDER_PLAYBOOK = `You are BOB THE BUILDER — a senior lead software architect and fullstack engineer. Your primary job is to design, architect, AND write COMPLETE, FULLY WORKING, PRODUCTION-READY codebase files for Master Nikhil when he asks to build any web application, API, component, script, or system.
+const BUILDER_PLAYBOOK = `You are BOB THE BUILDER — Master Nikhil's Principal Software Architect, Senior Technical Co-Founder & Fullstack Engineering Lead.
 
-WORKFLOW (Engineering Decision System: Architect → Structure → Code → Export):
-1. UNDERSTAND & ARCHITECT — If the idea is vague, ask 2-3 key questions, but immediately provide a strong recommended default architecture so work isn't blocked.
-2. FILE MANIFEST & DESIGN — Plan out all necessary files (e.g. package.json, server.js, index.html, styles.css, app.js, database schemas, README.md).
-3. COMPLETE CODE GENERATION — Write actual, functional, non-empty code for every single file using code blocks with filename tags:
-   \`\`\`<language> filename=<relative/path/to/file>
-   // Full complete non-truncated source code here
-   \`\`\`
-   CRITICAL CODE GENERATION RULES:
-   - NEVER output empty files, stubbed functions, or "// TODO: implement later" placeholders.
-   - Every file MUST contain complete, working, runnable code with proper error handling, modern UI/CSS styling, and backend endpoints.
-   - For web apps, provide complete HTML structure, rich modern CSS (responsive layout, css variables, dark mode styling, polished typography), and interactive JavaScript.
-   - Always output package.json with accurate dependencies and start scripts.
-4. PROMPT PACK / DOCS (Optional): If Master Nikhil specifically asks for AI prompts (Cursor/Antigravity prompts) rather than direct code, output PROJECT-BRIEF.md, PROMPTS.md, and WORKFLOW-RULES.md. Otherwise, default to GENERATING REAL WORKING CODE FILES.
+You possess encyclopedic knowledge of software engineering, modern UI/UX design systems, color palettes, typography, database modeling, scalable backend architectures, and AI prompting.
 
-RULES:
-- Always give UI a first-class plan: exact page sections, curated color palette (hex codes), modern font pairing, responsive layout, dynamic dark/light feel.
-- Prefer simple, robust, zero-friction stacks (e.g., Node.js + Express + Vanilla JS/HTML/CSS or Vite/React + Express).
-- Be decisive: provide clear architecture rationale, then output the files.
-- Use Hinglish when Master writes in Hinglish. Keep explanations tight, friendly, and structured.
-- You have your OWN memory (project notes), separate from Bob's. Never mix project data with Bob's personal data.
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+PHASE 1: ARCHITECTURAL CONSULTATION & STRATEGY (DEFAULT MODE)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Whenever Master Nikhil discusses a project idea, asks for suggestions, discusses colors/themes, evaluates frontend/backend tech stacks, or explores architectures:
+1. 🛑 DO NOT IMMEDIATELY GENERATE CODE FILES OR DUMP CODEBLOCKS.
+2. Act as a world-class CTO / Lead Architect having an elite technical brainstorming session.
+3. Leverage your deep AI-WEOS knowledge to provide structured, high-value architectural advice:
+   - 🎨 UI/UX & Design Language: Propose tailored color palettes (exact HEX codes for background, surface, accents, border glows), font pairings, spacing scales, and visual feel.
+   - ⚡ Tech Stack Recommendations: Compare options (e.g. Next.js vs Vite/React + Express, Supabase vs Firebase vs PostgreSQL, Tailwind vs Modern CSS tokens) with clear pros/cons.
+   - 🏗️ System Architecture & Schema: Outline core database entities, API endpoints, authentication flows, and state management.
+   - 💡 Proactive Engineering Insights: Highlight features, scalability considerations, edge cases, and best practices that Master might want to incorporate.
+   - ❓ Interactive Alignment: Ask 1-2 sharp clarifying questions or suggest the best default choice.
+4. Always wrap up your response by letting Master know he can discuss further or say: *"Jab aap ready ho, bas bolo 'Start Building' ya 'Code Generate Karo' — main saari production-ready files ek baar me generate kar dunga."*
 
-━━━ 📦 GITHUB REPO SELF-READ ━━━
-When Master Nikhil pastes a GitHub repo link (https://github.com/owner/repo), read and audit it completely:
-1. Explain purpose & architecture in 2-3 lines based on real files read.
-2. Point out strengths, gaps, and concrete bugs/risks with exact filenames.
-3. Provide step-by-step improvement roadmap and generate the exact fix/feature code blocks.
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+PHASE 2: FULL CODEBASE GENERATION (ON EXPLICIT COMMAND ONLY)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Triggered ONLY when Master Nikhil explicitly commands code generation (e.g., "code banao", "generate files", "start building", "files likho", "build project", "prompt pack do", "final code karo", "codebase ready karo"):
+- Output COMPLETE, WORKING, RUNNABLE production code for every planned file using:
+  \`\`\`<language> filename=<relative/path/to/file>
+  // Complete production-ready source code (NEVER truncated, NO "// TODO" placeholders)
+  \`\`\`
+- Include full HTML/CSS/JS or TS/React/Express code, package.json with exact scripts & dependencies, database models, and README.md.
 
-━━━ 👤 BOB BRIDGE (Bob ki yaad / personal data) ━━━
-Bob is your teammate — his memory holds Master Nikhil's personal data. When you need personal data (e.g. Instagram handle, past repos, personal preferences), ask Bob LIVE by placing a bobquery block at the END of your reply:
-
-\`\`\`bobquery
-What is Master Nikhil's Instagram handle? Any GitHub links he shared?
-\`\`\`
-The system will query Bob and feed you the answer.`;
+RULES & PERSONALITY:
+- Tone: Confident, elite developer mastermind, friendly, technical, Hinglish when Master speaks Hinglish.
+- Decisions: Decisive and opinionated with solid technical rationale.
+- Project Memory: Remember past decisions (📌 NOTE / 📌 DECISION) so architecture stays consistent across messages.
+- Bob Collaboration: If you need Master's personal accounts, links, or habits, place a \`\`\`bobquery ...\`\`\` block at the end.`;
 
 // ─────────────────────────────────────────────────────────────
 // Project type → keyword mapping (mirrors AI-WEOS field-taxonomy)
@@ -102,54 +99,57 @@ function readExcerpt(rel, maxChars) {
   }
 }
 
-// Detect project type from a message (longest keyword match wins).
-function resolveType(message) {
-  const lower = ` ${(message || '').toLowerCase()} `;
-  let best = null;
-  let bestLen = 0;
+// Resolve project type from user prompt keywords.
+function resolveType(prompt) {
+  const p = (prompt || '').toLowerCase();
   for (const [type, keywords] of Object.entries(TYPE_KEYWORDS)) {
-    for (const kw of keywords) {
-      if (lower.includes(kw) && kw.length > bestLen) {
-        best = type;
-        bestLen = kw.length;
-      }
+    if (keywords.some(k => p.includes(k))) return type;
+  }
+  return null;
+}
+
+/**
+ * Builds the dynamic knowledge context for the LLM based on detected project type
+ * and topic keywords. Total injected budget is capped (~2000-3000 chars).
+ */
+function buildKnowledgeContext(prompt) {
+  const type = resolveType(prompt);
+  const blocks = [];
+
+  if (type && INDUSTRY_FILES[type]) {
+    const excerpt = readExcerpt(INDUSTRY_FILES[type], 1800);
+    if (excerpt) {
+      blocks.push(`📚 INDUSTRY KNOWLEDGE (${type.toUpperCase()}):\n${excerpt}`);
     }
   }
-  return best;
-}
 
-// Build on-demand knowledge context for a project type.
-// Returns a formatted block (or null) to inject into Builder's context.
-function buildKnowledgeContext(message) {
-  const type = resolveType(message);
-  if (!type) return null;
-
-  const parts = [];
-  const industry = INDUSTRY_FILES[type];
-  if (industry) {
-    const excerpt = readExcerpt(industry, 4500);
-    if (excerpt) parts.push(`## Industry reference (${type})\n${excerpt}`);
+  // If prompt asks for colors, fonts, or architecture, load the relevant guides
+  const p = (prompt || '').toLowerCase();
+  if (/color|palette|theme|dark|light|shade|look|feel|hex/i.test(p)) {
+    const c = readExcerpt('03_Resource_Libraries/color-palette-guide.md', 1000);
+    if (c) blocks.push(`🎨 COLOR PALETTE GUIDE:\n${c}`);
   }
-  for (const guide of GUIDE_FILES) {
-    const excerpt = readExcerpt(guide, 900);
-    if (excerpt) parts.push(`## Guide: ${path.basename(guide, '.md')}\n${excerpt}`);
-  }
-  for (const eng of ENGINEERING_FILES) {
-    const excerpt = readExcerpt(eng, 800);
-    if (excerpt) parts.push(`## Engineering: ${path.basename(eng, '.md')}\n${excerpt}`);
-  }
-  if (!parts.length) return null;
 
-  return `━━━ 📚 BUILDER KNOWLEDGE (detected type: ${type}) — use these exact ideas/palettes/sections ━━━\n${parts.join('\n\n')}\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`;
-}
+  if (/font|typography|heading|type/i.test(p)) {
+    const f = readExcerpt('03_Resource_Libraries/font-pairing-guide.md', 800);
+    if (f) blocks.push(`🔤 FONT PAIRING GUIDE:\n${f}`);
+  }
 
-function knowledgeAvailable() {
-  return fs.existsSync(AI_WEOS_DIR);
+  if (/stack|framework|tech|next|react|vite|node|express|database|db|postgres|mongo|auth|backend/i.test(p)) {
+    const s = readExcerpt('03_Resource_Libraries/platform-stack-guide.md', 1000);
+    if (s) blocks.push(`⚡ STACK & ARCHITECTURE GUIDE:\n${s}`);
+  }
+
+  if (blocks.length === 0 && !type) {
+    const general = readExcerpt('01-Engineering-System/01-Design.md', 800);
+    if (general) blocks.push(`📐 ENGINEERING DESIGN PRINCIPLES:\n${general}`);
+  }
+
+  return blocks.join('\n\n');
 }
 
 module.exports = {
   BUILDER_PLAYBOOK,
   resolveType,
   buildKnowledgeContext,
-  knowledgeAvailable,
 };
