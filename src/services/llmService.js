@@ -83,7 +83,11 @@ async function _loadState() {
     snap.forEach(doc => {
       const idx = parseInt(doc.id.replace('KEY', ''), 10) - 1;
       const key = visible[idx];
-      if (!key) return;
+      if (!key) {
+        // Auto-purge deleted/orphan keys from Firestore
+        doc.ref.delete().catch(() => {});
+        return;
+      }
       const m = _keyMeta(key);
       const d = doc.data() || {};
       const currentLast4 = key.slice(-4);
