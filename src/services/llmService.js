@@ -213,9 +213,33 @@ class DualQueueKeyBag {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Auto-split the shared OpenRouter pool 50/50 between Bob and Builder if no
+// dedicated BUILDER_API_KEY* env vars exist.
+//
+// With 19 keys: Bob gets keys 1–10, Builder gets keys 11–19 (rounded up for Bob).
+// If explicit BUILDER_API_KEY* env vars are set those take priority (no split).
+// ---------------------------------------------------------------------------
+let _bobPoolKeys;
+let _builderPoolKeys;
+
+if (_builderKeys.length > 0) {
+  // Explicit BUILDER_API_KEY* env vars exist — use them as-is, Bob gets rest
+  _bobPoolKeys  = _rawKeys;
+  _builderPoolKeys = _builderKeys;
+  console.log(`[llmService] Explicit split: Bob=${_rawKeys.length} keys, Builder=${_builderKeys.length} keys`);
+} else {
+  // No dedicated builder keys — auto-split shared pool evenly
+  const total = _rawKeys.length;
+  const bobCount = Math.ceil(total / 2);   // Bob gets the slightly larger half (e.g. 10 of 19)
+  _bobPoolKeys     = _rawKeys.slice(0, bobCount);
+  _builderPoolKeys = _rawKeys.slice(bobCount);
+  console.log(`[llmService] Auto-split ${total} shared keys → Bob=${_bobPoolKeys.length}, Builder=${_builderPoolKeys.length}`);
+}
+
 // Instantiate Bob Bag and Builder Bag
-const _bobBag = new DualQueueKeyBag('BOB', _rawKeys);
-const _builderBag = new DualQueueKeyBag('BUILDER', _builderKeys.length ? _builderKeys : _rawKeys);
+const _bobBag     = new DualQueueKeyBag('BOB',     _bobPoolKeys);
+const _builderBag = new DualQueueKeyBag('BUILDER', _builderPoolKeys.length ? _builderPoolKeys : _bobPoolKeys);
 
 async function _persistKey(keyId, data) {
   const db = _firestore();
