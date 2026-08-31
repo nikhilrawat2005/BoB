@@ -4336,7 +4336,7 @@ function renderHQ(data) {
   const cards = [
     hqCard({ id: 'keys', icon: '🔑', title: 'Keys Limit', color: 'amber', badge: 'OpenRouter', meta: 'key health · auto-refresh', items: [], action: 'Open Keys Management' }),
     hqCard({ id: 'hackathons', icon: '🏆', title: 'Hackathons', color: (hacks.active || 0) > 0 ? 'green' : 'amber', badge: `${hacks.count || 0}`, meta: `active ${hacks.active || 0} · tracking ${hacks.tracking || 0} · 🟢 ${hacks.participating || 0}`, items: (hacks.items || []).slice(0, 3).map(h => ({ text: h.title, sub: `${h.status} · ${fmtDate(h.endDate)}`, dot: h.statusColor })), action: 'Open Hackathon Workspace' }),
-    hqCard({ id: 'stalking', icon: '🕵️', title: 'Developer Dossier & Radar', color: (stalks.researching || 0) > 0 ? 'amber' : 'green', badge: `${stalks.count || 0}`, meta: `ready ${stalks.ready || 0} · researching ${stalks.researching || 0}`, items: (stalks.items || []).slice(0, 3).map(s => ({ text: s.name, sub: s.status, dot: s.status === 'ready' ? 'green' : (s.status === 'researching' ? 'amber' : 'grey') })), action: 'Open Developer Dossier' }),
+    hqCard({ id: 'stalking', icon: '🕵️', title: 'Developer Radar', color: (stalks.researching || 0) > 0 ? 'amber' : 'green', badge: `${stalks.count || 0}`, meta: `ready ${stalks.ready || 0} · researching ${stalks.researching || 0}`, items: (stalks.items || []).slice(0, 3).map(s => ({ text: s.name, sub: s.status, dot: s.status === 'ready' ? 'green' : (s.status === 'researching' ? 'amber' : 'grey') })), action: 'Open Developer Radar' }),
     hqCard({ id: 'routines', icon: '⏰', title: 'Routines', color: (routs.dueSoon || 0) > 0 ? 'green' : 'amber', badge: `${routs.active || 0} active`, meta: `total ${routs.count || 0} · due soon ${routs.dueSoon || 0}`, items: (routs.items || []).slice(0, 3).map(r => ({ text: r.title, sub: `${r.workspace || ''} · every ${r.intervalHours}h`, dot: r.active ? 'green' : 'grey' })), action: 'Open Routines Engine' }),
     hqCard({ id: 'vault', icon: '🔒', title: 'Secret Vault', color: 'amber', badge: 'private', meta: 'PIN protected · spacious workspace', items: [], action: 'Open Secret Vault' }),
     hqCard({ id: 'memory', icon: '🧠', title: 'Memory', color: 'green', badge: `${facts.length} facts`, meta: `months ${months.length}`, items: facts.slice(0, 3).map(f => ({ text: f.text, sub: '', dot: 'green' })), action: 'Open Memory Workspace' }),
@@ -5850,11 +5850,15 @@ async function loadStalking() {
 
     // Auto-poll if any profile is currently in 'researching' status
     const hasResearching = stalkCache.some(p => p.status === 'researching');
-    if (hasResearching && !stalkPollTimer) {
+    if (hasResearching) {
+      if (stalkPollTimer) clearTimeout(stalkPollTimer);
       stalkPollTimer = setTimeout(() => {
         stalkPollTimer = null;
         loadStalking();
-      }, 5000);
+      }, 2500);
+    } else if (stalkPollTimer) {
+      clearTimeout(stalkPollTimer);
+      stalkPollTimer = null;
     }
   } catch (err) { console.error('loadStalking error:', err); }
 }
@@ -5872,7 +5876,7 @@ function updateStalkHeader(prof) {
         <strong style="font-size:15px;color:var(--text-main);">${escHtml(prof.name)}</strong>
         <span class="status-badge ${prof.status === 'ready' ? 'green' : (prof.status === 'researching' ? 'amber' : 'grey')}" style="margin-left:8px;font-size:11px;padding:2px 6px;border-radius:4px;">${prof.status}</span>
       </div>
-      ${prof.link ? `<a href="${escHtml(prof.link)}" target="_blank" rel="noopener" style="font-size:12px;color:var(--accent-blue);text-decoration:none;">🔗 Open Source</a>` : ''}
+      ${prof.link ? `<a href="${escHtml(prof.link.startsWith('http') ? prof.link : 'https://' + prof.link)}" target="_blank" rel="noopener noreferrer" style="font-size:12px;color:var(--accent-blue);text-decoration:none;display:inline-flex;align-items:center;gap:4px;">🔗 <span>Open Source</span></a>` : ''}
     </div>`;
 }
 
@@ -5907,14 +5911,27 @@ function renderStalkList() {
   }));
 
   list.querySelectorAll('.ws-re-research').forEach(btn => btn.addEventListener('click', async () => {
-    btn.disabled = true; btn.textContent = '⏳…';
+    btn.disabled = true;
+    btn.textContent = '⏳ Starting…';
     try {
       await apiFetch(`/api/stalking/${btn.dataset.id}/research`, { method: 'POST' });
       const p = stalkCache.find(x => String(x.id) === String(btn.dataset.id));
       if (p) p.status = 'researching';
+      if (currentStalk && String(currentStalk.id) === String(btn.dataset.id)) {
+        currentStalk.status = 'researching';
+        updateStalkHeader(currentStalk);
+      }
       renderStalkList();
-      setTimeout(loadStalking, 3000);
-    } catch (err) { alert(err.message); }
+      if (stalkPollTimer) clearTimeout(stalkPollTimer);
+      stalkPollTimer = setTimeout(() => {
+        stalkPollTimer = null;
+        loadStalking();
+      }, 2000);
+    } catch (err) {
+      alert('Re-research error: ' + err.message);
+      btn.disabled = false;
+      btn.textContent = '🔍 Re-Research';
+    }
   }));
 }
 
