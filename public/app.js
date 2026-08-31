@@ -6294,68 +6294,87 @@ async function loadKeys() {
   const grid = document.getElementById('keys-grid');
   try {
     const data = await apiFetch('/api/keys/health');
-    const keys = data.keys || [];
-    const summary = data.summary || {};
-    const gemini = data.gemini || null;
-
-    // 3-pool model: NEW = untouched ($0, 0 usage); ACTIVE = in-flight (usage>0, healthy); EXHAUSTED = retired.
-    const active = keys.filter(k => k.pool === 'ACTIVE');
-    const newKeys = keys.filter(k => k.pool === 'NEW').sort((a, b) => String(a.keyId).localeCompare(b.keyId));
-    const notActive = keys.filter(k => k.pool === 'EXHAUSTED');
-    const byRole = {};
-    keys.forEach(k => { byRole[k.role] = (byRole[k.role] || 0) + 1; });
-
-    let geminiHtml = '';
-    if (gemini && gemini.keys && gemini.keys.length > 0) {
-      geminiHtml = `
-        <div style="margin-top: 24px; padding-top: 18px; border-top: 1px solid var(--border2);">
-          <div class="keys-summary-bar" style="background: rgba(168, 85, 247, 0.08); border: 1px solid rgba(168, 85, 247, 0.2);">
-            <span class="ks-label" style="color:#d8b4fe; font-weight:700;">🟣 GEMINI POOL:</span>
-            <span class="ks-label">Active:</span><span class="ks-val ks-gemini">${gemini.activeCount || 0} / ${gemini.totalKeys || 11}</span>
-            <span class="ks-label">Requests Today:</span><span class="ks-val" style="color:#38bdf8;">${gemini.totalRequestsToday || 0}</span>
-            <span class="ks-label">Daily Capacity:</span><span class="ks-val" style="color:#fbbf24;">${(gemini.dailyCapacity || 11000).toLocaleString()} req/day</span>
-            <span class="ks-label">Failover:</span><span class="ks-val ks-ok">OpenRouter Auto-Swap</span>
-          </div>
-
-          <div class="keys-section-title" style="color:#c084fc; margin-top:12px;">🟣 Google Gemini Free Keys (11-Key Rotating Pool) <span class="ks-note">For Bursty Tasks: SEO, Deep Research, Hackathons, Developer Dossier, Memory</span></div>
-          <div class="key-chips">
-            ${gemini.keys.map(gk => geminiKeyChip(gk)).join('')}
-          </div>
-        </div>
-      `;
-    }
+    const bags = data.bags || {};
+    const bob = bags.bobBag || { queueA: [], queueB: [], totalKeys: 0, activeCount: 0 };
+    const builder = bags.builderBag || { queueA: [], queueB: [], totalKeys: 0, activeCount: 0 };
+    const gemini = bags.geminiBag || data.gemini || { keys: [], queueA: [], queueB: [], totalKeys: 0, activeCount: 0 };
 
     grid.innerHTML = `
-      <div class="keys-summary-bar">
-        <span class="ks-label" style="font-weight:700;">⚡ OPENROUTER:</span>
-        <span class="ks-label">Active:</span><span class="ks-val ks-ok">${active.length}</span>
-        <span class="ks-label">New spares:</span><span class="ks-val ks-ok">${newKeys.length}</span>
-        <span class="ks-label">Exhausted:</span><span class="ks-val ks-bad">${notActive.length}</span>
-        <span class="ks-label">Roles:</span><span class="ks-val">${Object.entries(byRole).map(([r,c]) => `${r}:${c}`).join(' ')}</span>
-        <span class="ks-label">Max per key:</span><span class="ks-val">${(data.maxTokensPerKey || '—')}</span>
+      <!-- BLOCK 1: BOB KEY BAG -->
+      <div class="key-block-section" style="background:rgba(59,130,246,0.04); border:1px solid rgba(59,130,246,0.2); border-radius:12px; padding:16px; margin-bottom:20px;">
+        <div class="keys-summary-bar" style="background:rgba(59,130,246,0.1); border:1px solid rgba(59,130,246,0.3);">
+          <span class="ks-label" style="color:#60a5fa; font-weight:700; font-size:14px;">🤖 BLOCK 1: BOB KEY BAG</span>
+          <span class="ks-label">Queue A (Active Working):</span><span class="ks-val ks-ok">${bob.queueACount || (bob.queueA||[]).length} keys</span>
+          <span class="ks-label">Queue B (Cooldown/Rest):</span><span class="ks-val ks-bad">${bob.queueBCount || (bob.queueB||[]).length} keys</span>
+          <span class="ks-label">Total in Bag:</span><span class="ks-val">${bob.totalKeys || 0}</span>
+          <span class="ks-label">Auto-Shift:</span><span class="ks-val ks-ok">Active ⇄ Rest (Midnight Reset)</span>
+        </div>
+        <div class="keys-section-title" style="margin-top:12px; color:#93c5fd;">⚡ Queue A — Active Fast Working Queue</div>
+        <div class="key-chips">
+          ${(bob.queueA || []).map(k => queueKeyChip(k, 'ok')).join('') || '<div class="empty-msg">No active keys in Queue A</div>'}
+        </div>
+        ${(bob.queueB || []).length ? `
+          <div class="keys-section-title" style="margin-top:14px; color:#f87171;">⏳ Queue B — Cooldown & Next-Day Rest Queue</div>
+          <div class="key-chips">
+            ${bob.queueB.map(k => queueKeyChip(k, 'rest')).join('')}
+          </div>
+        ` : ''}
       </div>
 
-      <div class="keys-section-title">🟢 Active Keys <span class="ks-note">In rotation (in-flight)</span></div>
-      <div class="key-chips">${active.map(k => keyChip(k, 'ok')).join('') || '<div class="empty-msg">no active keys right now</div>'}</div>
-
-      <div class="keys-section-title">🟡 New / Replacement Keys <span class="ks-note">Untouched spares — swap in when active exhaust</span></div>
-      <div class="key-chips">
-        <div class="ks-label">Available in pool: ${newKeys.length} key(s)</div>
-        ${newKeys.map(k => keyChip(k, 'new')).join('')}
+      <!-- BLOCK 2: BUILDER KEY BAG -->
+      <div class="key-block-section" style="background:rgba(245,158,11,0.04); border:1px solid rgba(245,158,11,0.2); border-radius:12px; padding:16px; margin-bottom:20px;">
+        <div class="keys-summary-bar" style="background:rgba(245,158,11,0.1); border:1px solid rgba(245,158,11,0.3);">
+          <span class="ks-label" style="color:#fbbf24; font-weight:700; font-size:14px;">🏗️ BLOCK 2: BUILDER KEY BAG</span>
+          <span class="ks-label">Queue A (Active Working):</span><span class="ks-val ks-ok">${builder.queueACount || (builder.queueA||[]).length} keys</span>
+          <span class="ks-label">Queue B (Cooldown/Rest):</span><span class="ks-val ks-bad">${builder.queueBCount || (builder.queueB||[]).length} keys</span>
+          <span class="ks-label">Total in Bag:</span><span class="ks-val">${builder.totalKeys || 0}</span>
+          <span class="ks-label">Persona:</span><span class="ks-val ks-ok">Builder Architecture & Loops</span>
+        </div>
+        <div class="keys-section-title" style="margin-top:12px; color:#fcd34d;">⚡ Queue A — Active Fast Working Queue</div>
+        <div class="key-chips">
+          ${(builder.queueA || []).map(k => queueKeyChip(k, 'ok')).join('') || '<div class="empty-msg">No active keys in Queue A</div>'}
+        </div>
+        ${(builder.queueB || []).length ? `
+          <div class="keys-section-title" style="margin-top:14px; color:#f87171;">⏳ Queue B — Cooldown & Next-Day Rest Queue</div>
+          <div class="key-chips">
+            ${builder.queueB.map(k => queueKeyChip(k, 'rest')).join('')}
+          </div>
+        ` : ''}
       </div>
 
-      <div class="keys-section-title">🔴 Used / Expired <span class="ks-note">Exhausted or out of credits</span></div>
-      <div class="key-chips">${notActive.map(k => keyChip(k, 'bad')).join('') || '<div class="empty-msg">none archived yet</div>'}</div>
-
-      ${geminiHtml}
-
-      ${summary.allExhausted || active.length === 0
-        ? '<div class="keys-empty-state">All active keys exhausted — add credits to a replacement key (or ask me to load the new keys), then hit Refresh.</div>'
-        : ''}
+      <!-- BLOCK 3: GEMINI BURST BAG -->
+      <div class="key-block-section" style="background:rgba(168,85,247,0.04); border:1px solid rgba(168,85,247,0.2); border-radius:12px; padding:16px;">
+        <div class="keys-summary-bar" style="background:rgba(168,85,247,0.1); border:1px solid rgba(168,85,247,0.3);">
+          <span class="ks-label" style="color:#d8b4fe; font-weight:700; font-size:14px;">🟣 BLOCK 3: GEMINI BURST BAG</span>
+          <span class="ks-label">Active:</span><span class="ks-val ks-gemini">${gemini.activeCount || 0} / ${gemini.totalKeys || 11}</span>
+          <span class="ks-label">Requests Today:</span><span class="ks-val" style="color:#38bdf8;">${gemini.totalRequestsToday || 0}</span>
+          <span class="ks-label">Daily Capacity:</span><span class="ks-val" style="color:#fbbf24;">${(gemini.dailyCapacity || 11000).toLocaleString()} req/day</span>
+          <span class="ks-label">Workload:</span><span class="ks-val ks-ok">SEO, Research, Dossier, Radar & Memory</span>
+        </div>
+        <div class="keys-section-title" style="margin-top:12px; color:#c084fc;">⚡ 11-Key Rotating Burst Pool</div>
+        <div class="key-chips">
+          ${(gemini.keys || []).map(gk => geminiKeyChip(gk)).join('')}
+        </div>
+      </div>
     `;
   } catch (err) {
     grid.innerHTML = `<div class="empty-msg">⚠️ Keys health load fail: ${escHtml(err.message)}</div>`;
   }
+}
+
+function queueKeyChip(k, variant) {
+  const isRest = variant === 'rest' || k.status === 'cooldown';
+  const cls = isRest ? 'key-bad' : 'key-ok';
+  const bal = typeof k.lastBalance === 'number' ? k.lastBalance : (typeof k.balance === 'number' ? k.balance : '—');
+  const used = typeof k.tokensUsed === 'number' ? k.tokensUsed : 0;
+  const label = k.keyId || (k.last4 ? `…${k.last4}` : '#');
+  return `<div class="key-chip ${cls}">
+    <span class="key-last4">${escHtml(label)}</span>
+    <span class="key-role">${isRest ? 'REST / COOLDOWN' : 'QUEUE A (ACTIVE)'}</span>
+    <span class="key-bal">bal ${bal}</span>
+    <span class="key-used">tokens ${used}</span>
+    <span class="key-status" style="color:${isRest ? '#f87171' : '#34d399'};">${isRest ? 'COOLDOWN' : 'READY'}</span>
+  </div>`;
 }
 
 function geminiKeyChip(gk) {
@@ -6369,23 +6388,7 @@ function geminiKeyChip(gk) {
     <span class="key-role" style="color:#c084fc;">…${gk.keySuffix || '****'}</span>
     <span class="key-bal" style="color:#38bdf8;">${reqs}/${limit} reqs</span>
     <span class="key-status" style="color:${isOk ? '#c084fc' : '#facc15'};">${(gk.status || 'ACTIVE').toUpperCase()}</span>
-    <span class="key-pool">pool FREE</span>
-    <span class="key-time">${last}</span>
-  </div>`;
-}
-
-function keyChip(k, variant) {
-  const cls = variant === 'ok' ? 'key-ok' : variant === 'new' ? 'key-new' : 'key-bad';
-  const bal = typeof k.balance === 'number' ? k.balance : '?';
-  const used = typeof k.tokensUsed === 'number' ? k.tokensUsed : 0;
-  const last = k.lastCheck ? new Date(k.lastCheck).toLocaleTimeString('en-IN', { hour12: false }) : '—';
-  const label = k.keyId || (k.last4 ? `…${k.last4}` : '#');
-  return `<div class="key-chip ${cls}">
-    <span class="key-last4">${label}</span>
-    <span class="key-role">${k.role || 'REPLACEMENT'}</span>
-    <span class="key-bal">bal ${bal}</span>
-    <span class="key-used">used ${used}</span>
-    <span class="key-pool">pool ${k.pool || variant}</span>
+    <span class="key-pool">BURST POOL</span>
     <span class="key-time">${last}</span>
   </div>`;
 }

@@ -281,19 +281,23 @@ async function callGeminiWithFallback(opts = {}, openRouterFallbackFn) {
 // ── Health Snapshot for Dashboard & Keys Screen ──────────────
 function getGeminiPoolHealth() {
   checkDailyReset();
-  const activeKeys = _keyStates.filter(k => k.status === 'active' && k.requestsToday < k.dailyLimit);
-  const rateLimitedKeys = _keyStates.filter(k => k.status === 'rate_limited');
-  const exhaustedKeys = _keyStates.filter(k => k.status === 'exhausted' || k.requestsToday >= k.dailyLimit);
+  const queueA = _keyStates.filter(k => k.status === 'active' && k.requestsToday < k.dailyLimit);
+  const queueB = _keyStates.filter(k => k.status === 'rate_limited' || k.status === 'exhausted' || k.requestsToday >= k.dailyLimit);
   const totalRequestsToday = _keyStates.reduce((sum, k) => sum + (k.requestsToday || 0), 0);
   const dailyCapacity = _keyStates.length * DAILY_LIMIT_PER_KEY;
 
   return {
+    name: 'GEMINI_BURST_BAG',
     totalKeys: _keyStates.length,
-    activeCount: activeKeys.length,
-    rateLimitedCount: rateLimitedKeys.length,
-    exhaustedCount: exhaustedKeys.length,
+    activeCount: queueA.length,
+    queueACount: queueA.length,
+    queueBCount: queueB.length,
+    rateLimitedCount: _keyStates.filter(k => k.status === 'rate_limited').length,
+    exhaustedCount: _keyStates.filter(k => k.status === 'exhausted' || k.requestsToday >= k.dailyLimit).length,
     totalRequestsToday,
     dailyCapacity,
+    queueA: queueA.map(k => ({ index: k.index, keySuffix: k.keySuffix, status: k.status, requestsToday: k.requestsToday, dailyLimit: k.dailyLimit })),
+    queueB: queueB.map(k => ({ index: k.index, keySuffix: k.keySuffix, status: k.status, requestsToday: k.requestsToday, rateLimitedUntil: k.rateLimitedUntil })),
     keys: _keyStates.map(k => ({
       index: k.index,
       keySuffix: k.keySuffix,

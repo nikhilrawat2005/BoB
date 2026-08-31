@@ -3,7 +3,7 @@ const router = express.Router();
 const { requireAuth } = require('../middleware/auth');
 const llm = require('../services/llmService');
 
-// GET /api/keys and /api/keys/health — combined OpenRouter + Gemini Pool health
+// GET /api/keys and /api/keys/health — 3-Block Dual-Queue Key Bag Health
 router.get(['/', '/health'], requireAuth, async (req, res) => {
   try {
     const keys = await llm.checkKeyHealth();
@@ -11,13 +11,14 @@ router.get(['/', '/health'], requireAuth, async (req, res) => {
     const active = keys.filter(k => k.pool === 'ACTIVE');
     const exhausted = keys.filter(k => k.pool === 'EXHAUSTED');
     const geminiHealth = llm.getGeminiPoolHealth ? llm.getGeminiPoolHealth() : null;
+    const bags = llm.getBagsSnapshot ? llm.getBagsSnapshot() : {};
 
     res.json({
-      // Backward-compatible OpenRouter keys
+      // Backward-compatible fields
       keys,
       activeCount: active.length,
       exhaustedCount: exhausted.length,
-      newKeysLeft: keys.filter(k => k.pool === 'NEW' && k.role !== 'BUILDER').length,
+      newKeysLeft: 0,
       summary: {
         activeCount: active.length,
         totalKeys: keys.length,
@@ -27,14 +28,11 @@ router.get(['/', '/health'], requireAuth, async (req, res) => {
       maxTokensPerKey: llm.MAX_TOKENS_PER_KEY,
       snapshot,
 
-      // Dual Pool Health
-      openRouter: {
-        keys,
-        activeCount: active.length,
-        exhaustedCount: exhausted.length,
-        totalKeys: keys.length,
-        maxTokensPerKey: llm.MAX_TOKENS_PER_KEY,
-      },
+      // 3-Block Key Bag Structure
+      bags,
+      bobBag: bags.bobBag || null,
+      builderBag: bags.builderBag || null,
+      geminiBag: geminiHealth || bags.geminiBag || null,
       gemini: geminiHealth,
     });
   } catch (err) {
@@ -42,12 +40,7 @@ router.get(['/', '/health'], requireAuth, async (req, res) => {
   }
 });
 
-// GET /api/keys/verify-models — on-demand sanity check of the model routing
-// config against live OpenRouter data. Catches retired slugs (zero serving
-// endpoints), models missing from MODEL_CAPS, and vision-capability drift.
-//
-// Deliberately NOT run at boot: on Vercel that would add a network round trip to
-// every cold start. Hit this after changing any *_MODEL env var.
+// GET /api/keys/verify-models
 router.get('/verify-models', requireAuth, async (req, res) => {
   try {
     const result = await llm.verifyModels();
@@ -62,8 +55,7 @@ router.get('/verify-models', requireAuth, async (req, res) => {
   }
 });
 
-// GET /api/keys/route-preview — dry-run the router without spending a token.
-// Example: /api/keys/route-preview?role=chat&hint=deepseek/deepseek-chat-v3&images=1
+// GET /api/keys/route-preview
 router.get('/route-preview', requireAuth, (req, res) => {
   try {
     const { model, why } = llm.resolveModel({
@@ -78,13 +70,11 @@ router.get('/route-preview', requireAuth, (req, res) => {
   }
 });
 
-// POST /api/keys/reset — wipe all key states and run fresh credit checks.
-// Use this after adding/removing keys in Vercel env to make changes take effect
-// without waiting for the next cold start.
+// POST /api/keys/reset
 router.post('/reset', requireAuth, async (req, res) => {
   try {
     const results = await llm.resetKeyHealth();
-    res.json({ ok: true, message: 'All keys reset to healthy. Fresh credit checks complete.', keys: results });
+    res.json({ ok: true, message: 'All 3 Key Bags reset. Fresh credit checks complete.', keys: results });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
