@@ -178,9 +178,9 @@ class DualQueueKeyBag {
     if (!target || !tokens) return;
     target.tokens += tokens;
     target.lastUsed = Date.now();
-    if (target.tokens >= MAX_TOKENS_PER_KEY) {
-      this.markCooldown(keyStr, 86400000, 'Max token budget reached for today');
-    }
+    // NOTE: Token count is tracked for display ONLY.
+    // Keys NEVER move to Queue B based on token count.
+    // Only a live 429 / rate-limit response triggers markCooldown().
     _persistKey(target.keyId, {
       last4: target.last4,
       tokens: target.tokens,
@@ -216,28 +216,27 @@ class DualQueueKeyBag {
 }
 
 // ---------------------------------------------------------------------------
-// Auto-split the shared OpenRouter pool 50/50 between Bob and Builder if no
-// dedicated BUILDER_API_KEY* env vars exist.
+// Key Pool Distribution: Always split shared pool 50/50 between Bob and Builder.
 //
-// With 19 keys: Bob gets keys 1–10, Builder gets keys 11–19 (rounded up for Bob).
-// If explicit BUILDER_API_KEY* env vars are set those take priority (no split).
+// Rule: _rawKeys (OPENROUTER_API_KEY2..KEY20) are ALWAYS split evenly.
+//   Bob    → first half  (e.g. KEY2 .. KEY11, 10 keys)
+//   Builder → second half (e.g. KEY12 .. KEY20, 9 keys)
+//
+// If dedicated BUILDER_API_KEY* env vars also exist, those are PREPENDED to
+// Builder's half (deduped) — they don't override the split.
 // ---------------------------------------------------------------------------
-let _bobPoolKeys;
-let _builderPoolKeys;
+const total     = _rawKeys.length;
+const bobCount  = Math.ceil(total / 2); // Bob gets the slightly larger half
+const _bobPoolKeys     = _rawKeys.slice(0, bobCount);
+const _builderHalf     = _rawKeys.slice(bobCount);
 
-if (_builderKeys.length > 0) {
-  // Explicit BUILDER_API_KEY* env vars exist — use them as-is, Bob gets rest
-  _bobPoolKeys  = _rawKeys;
-  _builderPoolKeys = _builderKeys;
-  console.log(`[llmService] Explicit split: Bob=${_rawKeys.length} keys, Builder=${_builderKeys.length} keys`);
-} else {
-  // No dedicated builder keys — auto-split shared pool evenly
-  const total = _rawKeys.length;
-  const bobCount = Math.ceil(total / 2);   // Bob gets the slightly larger half (e.g. 10 of 19)
-  _bobPoolKeys     = _rawKeys.slice(0, bobCount);
-  _builderPoolKeys = _rawKeys.slice(bobCount);
-  console.log(`[llmService] Auto-split ${total} shared keys → Bob=${_bobPoolKeys.length}, Builder=${_builderPoolKeys.length}`);
-}
+// Prepend any dedicated BUILDER_API_KEY* keys to Builder's half (deduplicate)
+const _builderPoolKeys = [
+  ..._builderKeys.filter(k => !_builderHalf.includes(k)),
+  ..._builderHalf,
+];
+
+console.log(`[llmService] Key split → Bob=${_bobPoolKeys.length} keys | Builder=${_builderPoolKeys.length} keys (${_builderKeys.length} dedicated + ${_builderHalf.length} shared)`);
 
 // Instantiate Bob Bag and Builder Bag
 const _bobBag     = new DualQueueKeyBag('BOB',     _bobPoolKeys);
@@ -314,9 +313,9 @@ async function checkKeyHealth(cacheMs = 60000) {
         keyObj.lastUsed = used;
         keyObj.lastCheck = now;
 
-        if (balance < 0 || keyObj.tokens >= MAX_TOKENS_PER_KEY) {
-          bag.markCooldown(keyObj.key, 86400000, 'Negative balance or token budget reached');
-        }
+        // NOTE: We NEVER call markCooldown here.
+        // Balance and token data are updated for display only.
+        // Only a live 429 during callOpenRouterDirect() moves a key to Queue B.
 
         _persistKey(keyObj.keyId, { last4: keyObj.last4, status: keyObj.status, lastCheck: now, lastBalance: balance, lastUsed: used, tokens: keyObj.tokens });
         results.push({
