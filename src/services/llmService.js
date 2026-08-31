@@ -13,7 +13,8 @@ const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions';
 const _rawKeys = [];
 const _keyEnvName = new Map();
 
-for (let i = 1; i <= 30; i++) {
+// Loop up to 99 so high-numbered keys like OPENROUTER_API_KEY20..KEY38 are all loaded
+for (let i = 1; i <= 99; i++) {
   const envName = `OPENROUTER_API_KEY${i}`;
   const raw = process.env[envName];
   if (raw && raw.trim() && !_rawKeys.includes(raw.trim())) {
@@ -31,7 +32,8 @@ if (process.env.BOB_API_KEY && process.env.BOB_API_KEY.trim()) {
 }
 
 const _builderKeys = [];
-for (let i = 1; i <= 30; i++) {
+// Loop up to 99 for builder keys too
+for (let i = 1; i <= 99; i++) {
   const envName = `BUILDER_API_KEY${i}`;
   const raw = process.env[envName];
   if (raw && raw.trim() && !_builderKeys.includes(raw.trim())) {
