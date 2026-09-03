@@ -45,6 +45,30 @@ router.get('/stocks', requireAuth, async (req, res) => {
   }
 });
 
+// GET /api/live/pulse?city= — Combined Weather + News + Stocks in one call
+router.get('/pulse', requireAuth, async (req, res) => {
+  try {
+    const city = req.query.city || process.env.DEFAULT_CITY || 'New Delhi';
+    const [wRes, nRes, sRes] = await Promise.allSettled([
+      weather.getWeatherForCity(city),
+      news.getNews('tech', 5),
+      stocks.getQuotes(null),
+    ]);
+
+    const weatherData = wRes.status === 'fulfilled' ? wRes.value : null;
+    const newsData = nRes.status === 'fulfilled' ? nRes.value : [];
+    const stocksData = sRes.status === 'fulfilled' ? sRes.value : [];
+
+    res.json({
+      weather: weatherData,
+      news: newsData,
+      stocks: stocksData,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ─────────────────────────────────────────────────────────
 // POST /api/live/briefing — Daily self-briefing
 // Called each morning by the GitHub Actions workflow
