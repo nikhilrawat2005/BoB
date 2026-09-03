@@ -4,65 +4,32 @@ const { requireAuth } = require('../middleware/auth');
 const { callLLM } = require('../services/llmService');
 const memory = require('../services/memoryService');
 const memoryManager = require('../services/memoryManager');
-const weather = require('../services/weatherService');
-const news = require('../services/newsService');
-const stocks = require('../services/stocksService');
 const discovery = require('../services/hackathonDiscoveryService');
 
 // ─────────────────────────────────────────────────────────
-// GET /api/live/weather?city=   — Live weather for a city
-// GET /api/live/news?category=  — Top headlines (top/india/world/tech/sports/business)
-// GET /api/live/stocks?symbols= — Indian market quotes (comma separated)
+// LIVE PULSE — Autonomous Hackathon Discovery Hub
+// Returns active CSE hackathon cards, sync metadata, and radar stats.
 // ─────────────────────────────────────────────────────────
-
-router.get('/weather', requireAuth, async (req, res) => {
-  try {
-    const city = req.query.city || process.env.DEFAULT_CITY || 'New Delhi';
-    const w = await weather.getWeatherForCity(city);
-    res.json({ ...w, summary: weather.formatWeather(w) });
-  } catch (err) {
-    res.status(502).json({ error: 'Weather fetch failed', details: err.message });
-  }
-});
-
-router.get('/news', requireAuth, async (req, res) => {
-  try {
-    const category = req.query.category || 'top';
-    const limit = Math.min(parseInt(req.query.limit) || 5, 10);
-    const headlines = await news.getNews(category, limit);
-    res.json({ category, headlines });
-  } catch (err) {
-    res.status(502).json({ error: 'News fetch failed', details: err.message });
-  }
-});
-
-router.get('/stocks', requireAuth, async (req, res) => {
-  try {
-    const quotes = await stocks.getQuotes(req.query.symbols);
-    res.json({ quotes, summary: stocks.formatQuotes(quotes) });
-  } catch (err) {
-    res.status(502).json({ error: 'Market fetch failed', details: err.message });
-  }
-});
-
-// GET /api/live/pulse?city= — Combined Weather + News + Stocks in one call
 router.get('/pulse', requireAuth, async (req, res) => {
   try {
-    const city = req.query.city || process.env.DEFAULT_CITY || 'New Delhi';
-    const [wRes, nRes, sRes] = await Promise.allSettled([
-      weather.getWeatherForCity(city),
-      news.getNews('tech', 5),
-      stocks.getQuotes(null),
-    ]);
+    const items = await discovery.listDiscovery(req.userId);
+    const meta = await discovery.getDiscoveryMeta(req.userId);
+    const now = Date.now();
 
-    const weatherData = wRes.status === 'fulfilled' ? wRes.value : null;
-    const newsData = nRes.status === 'fulfilled' ? nRes.value : [];
-    const stocksData = sRes.status === 'fulfilled' ? sRes.value : [];
+    const activeCount = items.filter(
+      (h) => !h.registrationDeadline || h.registrationDeadline >= now
+    ).length;
 
     res.json({
-      weather: weatherData,
-      news: newsData,
-      stocks: stocksData,
+      hackathons: items,
+      meta,
+      stats: {
+        totalDiscovered: items.length,
+        active: activeCount,
+        enabled: meta.enabled !== false,
+        nextRunAt: meta.nextRunAt || null,
+        lastRunAt: meta.lastRunAt || null,
+      },
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
