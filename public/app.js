@@ -6211,9 +6211,50 @@ document.getElementById('add-stalk-btn-sidebar')?.addEventListener('click', open
 async function loadRoutines() {
   const grid = document.getElementById('routines-grid');
   try {
-    const { routines } = await apiFetch('/api/routines');
-    if (!routines.length) { grid.innerHTML = '<div class="empty-msg">No routines yet. Ek routine banao — Bob khud prompt karega aur workspace me output dega.</div>'; return; }
-    grid.innerHTML = routines.map(r => `
+    const [routRes, pulseRes] = await Promise.allSettled([
+      apiFetch('/api/routines'),
+      apiFetch('/api/live/pulse')
+    ]);
+
+    const routines = (routRes.status === 'fulfilled' && routRes.value.routines) || [];
+    const pulseData = (pulseRes.status === 'fulfilled' && pulseRes.value) || {};
+    const discMeta = pulseData.meta || {};
+
+    const isPaused = discMeta.enabled === false;
+    let nextScanStr = 'Ready';
+    if (discMeta.nextRunAt) {
+      const diffMs = discMeta.nextRunAt - Date.now();
+      if (diffMs > 0) {
+        const days = Math.floor(diffMs / (3600000 * 24));
+        const hours = Math.floor((diffMs % (3600000 * 24)) / 3600000);
+        nextScanStr = days > 0 ? `in ${days}d ${hours}h` : `in ${hours}h`;
+      }
+    }
+
+    const radarAckCard = `
+      <div class="routine-item" style="border: 1px solid rgba(139, 92, 246, 0.35); background: rgba(139, 92, 246, 0.05); grid-column: 1 / -1; margin-bottom: 12px;">
+        <div class="routine-head">
+          <span class="routine-title" style="color: #c084fc;">⚡ Hackathon Discovery Engine — Autonomous 4-Day Cycle</span>
+          <span class="routine-ws" style="background: rgba(139, 92, 246, 0.2); color: #c084fc;">AUTONOMOUS CYCLE</span>
+        </div>
+        <div class="routine-prompt" style="color: var(--text2);">
+          Ye schedule Bob backend me autonomously active rehta hai. Har 4 din ke gap me Devpost, Unstop aur Devfolio se naye CSE hackathons automatically scan karke radar me populate karta hai.
+        </div>
+        <div class="routine-meta" style="color: #38bdf8; font-weight: 600;">
+          Status: <span style="color: ${isPaused ? '#f59e0b' : '#4ade80'};">${isPaused ? '⏸ PAUSED' : '🟢 ACTIVE (Running every 4 days)'}</span> · Next Auto-Scan: <span style="color: #facc15;">${nextScanStr}</span>
+        </div>
+        <div style="font-size: 11px; color: var(--text3); margin-top: 6px;">
+          💡 Tip: Iska "Run Now", "Pause/Resume" aur discovery management seedha <strong>⚡ Hackathon Radar</strong> card ke andar se operate hota hai.
+        </div>
+      </div>
+    `;
+
+    if (!routines.length) {
+      grid.innerHTML = radarAckCard + '<div class="empty-msg">No custom user routines yet. Ek routine banao — Bob khud prompt karega aur workspace me output dega.</div>';
+      return;
+    }
+
+    grid.innerHTML = radarAckCard + routines.map(r => `
       <div class="routine-item ${r.active ? '' : 'routine-off'}">
         <div class="routine-head">
           <span class="routine-title">${escHtml(r.title)}</span>

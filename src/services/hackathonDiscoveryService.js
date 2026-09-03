@@ -91,112 +91,134 @@ async function safeFetch(url, timeoutMs = SCRAPE_TIMEOUT) {
 // ── Platform scrapers ─────────────────────────────────────
 
 /**
- * Devpost: https://devpost.com/hackathons?challenge_type=online&status=open
- * Renders basic HTML with .challenge-listing cards
+ * Devpost: Uses Devpost public AJAX API with fallback to HTML parsing
  */
 async function scrapeDevpost() {
   const items = [];
   try {
-    const html = await safeFetch('https://devpost.com/hackathons?challenge_type=online&status=open&order_by=deadline');
-    const $ = cheerio.load(html);
-
-    $('.challenge-listing, .hackathon-tile, article.hackathon-tile, .challenge-tile').each((_, el) => {
-      try {
-        const title = $(el).find('h2, h3, .title, .challenge-title').first().text().trim();
-        const link = $(el).find('a').first().attr('href') || '';
-        const prize = $(el).find('.prize-amount, .prize, .prizes').first().text().trim();
-        const deadline = $(el).find('.submission-period, .deadline, .date').first().text().trim();
-        const tags = [];
-        $(el).find('.theme-label, .challenge-label, .tag, .category').each((_, t) => {
-          const tag = $(t).text().trim();
-          if (tag) tags.push(tag);
-        });
-
-        if (title && link) {
-          items.push({
-            title,
-            link: link.startsWith('http') ? link : `https://devpost.com${link}`,
-            prize,
-            deadlineText: deadline,
-            tags,
-            platform: 'devpost',
-          });
-        }
-      } catch (e) { /* skip bad card */ }
+    // 1. First attempt: Devpost public JSON API
+    const apiUrl = 'https://devpost.com/api/hackathons?challenge_type[]=online&status[]=open';
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), SCRAPE_TIMEOUT);
+    const res = await fetch(apiUrl, {
+      headers: {
+        ...makeFetchHeaders(),
+        'Accept': 'application/json, text/javascript, */*; q=0.01',
+        'X-Requested-With': 'XMLHttpRequest',
+      },
+      signal: controller.signal,
     });
+    clearTimeout(timer);
 
-    // Fallback: look for JSON-LD or data attributes
-    if (items.length === 0) {
-      $('a[href*="/hackathons/"]').each((_, el) => {
-        const href = $(el).attr('href') || '';
-        const title = $(el).text().trim();
-        if (title.length > 5 && href.includes('/hackathons/')) {
+    if (res.ok) {
+      const data = await res.json();
+      const rawHacks = data.hackathons || [];
+      for (const h of rawHacks) {
+        if (h.title && h.url) {
           items.push({
-            title,
-            link: href.startsWith('http') ? href : `https://devpost.com${href}`,
-            prize: '',
-            deadlineText: '',
-            tags: [],
+            title: h.title,
+            link: h.url,
+            prize: h.prize_amount ? String(h.prize_amount) : '',
+            deadlineText: h.submission_period_dates || '',
+            tags: (h.themes || []).map(t => t.name || t).filter(Boolean),
             platform: 'devpost',
           });
         }
-      });
+      }
     }
   } catch (e) {
-    console.warn('[HackDiscovery] Devpost scrape failed:', e.message);
+    console.warn('[HackDiscovery] Devpost API failed, falling back to HTML:', e.message);
   }
+
+  // Fallback: HTML scraping
+  if (items.length === 0) {
+    try {
+      const html = await safeFetch('https://devpost.com/hackathons?challenge_type=online&status=open&order_by=deadline');
+      const $ = cheerio.load(html);
+
+      $('.challenge-listing, .hackathon-tile, article.hackathon-tile, .challenge-tile').each((_, el) => {
+        try {
+          const title = $(el).find('h2, h3, .title, .challenge-title').first().text().trim();
+          const link = $(el).find('a').first().attr('href') || '';
+          const prize = $(el).find('.prize-amount, .prize, .prizes').first().text().trim();
+          const deadline = $(el).find('.submission-period, .deadline, .date').first().text().trim();
+          const tags = [];
+          $(el).find('.theme-label, .challenge-label, .tag, .category').each((_, t) => {
+            const tag = $(t).text().trim();
+            if (tag) tags.push(tag);
+          });
+
+          if (title && link) {
+            items.push({
+              title,
+              link: link.startsWith('http') ? link : `https://devpost.com${link}`,
+              prize,
+              deadlineText: deadline,
+              tags,
+              platform: 'devpost',
+            });
+          }
+        } catch (_) {}
+      });
+    } catch (e) {
+      console.warn('[HackDiscovery] Devpost HTML scrape failed:', e.message);
+    }
+  }
+
   console.log(`[HackDiscovery] Devpost: found ${items.length} raw items`);
   return items;
 }
 
 /**
- * Unstop: https://unstop.com/hackathons?domain=it-software&deadline=upcoming
- * Partially server-rendered; we grab what we can from static HTML
+ * Unstop: Uses Unstop public search API with fallback to HTML parsing
  */
 async function scrapeUnstop() {
   const items = [];
   try {
-    const html = await safeFetch('https://unstop.com/hackathons?domain=it-software&deadline=upcoming');
-    const $ = cheerio.load(html);
-
-    // Unstop renders some data in JSON in script tags
-    let jsonData = null;
-    $('script[type="application/json"], script#__NEXT_DATA__').each((_, el) => {
-      try {
-        const text = $(el).html() || '';
-        if (text.includes('hackathon') || text.includes('competition')) {
-          jsonData = JSON.parse(text);
-        }
-      } catch (e) { /* skip */ }
+    // 1. First attempt: Unstop public API
+    const apiUrl = 'https://unstop.com/api/public/opportunity/search-result?opportunity=hackathons&per_page=20';
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), SCRAPE_TIMEOUT);
+    const res = await fetch(apiUrl, {
+      headers: {
+        ...makeFetchHeaders(),
+        'Accept': 'application/json',
+      },
+      signal: controller.signal,
     });
+    clearTimeout(timer);
 
-    // Try parsing competition data from NEXT_DATA
-    if (jsonData) {
-      const traverse = (obj) => {
-        if (!obj || typeof obj !== 'object') return;
-        if (Array.isArray(obj)) {
-          obj.forEach(traverse);
-          return;
-        }
-        // Look for competition objects
-        if (obj.title && (obj.public_url || obj.url || obj.slug)) {
-          const link = obj.public_url || `https://unstop.com/${obj.slug || ''}`;
-          items.push({
-            title: obj.title,
-            link: link.startsWith('http') ? link : `https://unstop.com${link}`,
-            prize: obj.prizes?.length ? String(obj.prizes[0]?.prize_amount || '') : (obj.prize || ''),
-            deadlineText: obj.reg_end_date || obj.deadline || '',
-            tags: (obj.tags || []).map((t) => t.name || t).filter(Boolean),
-            platform: 'unstop',
-          });
-        }
-        Object.values(obj).forEach(traverse);
-      };
-      traverse(jsonData);
+    if (res.ok) {
+      const json = await res.json();
+      const rawList = json.data?.data || json.data || [];
+      for (const op of rawList) {
+        const title = op.title || op.name;
+        if (!title) continue;
+        const slug = op.public_url || op.seo_url || (op.slug ? `https://unstop.com/${op.slug}` : '');
+        const prize = op.prizes?.length ? String(op.prizes[0]?.prize_amount || op.prizes[0]?.title || '') : (op.prize || '');
+        const deadline = op.regn_end_date || op.reg_end_date || op.deadline || '';
+        const tags = Array.isArray(op.filters) ? op.filters.map(f => f.name || f).filter(Boolean) : [];
+
+        items.push({
+          title,
+          link: slug.startsWith('http') ? slug : `https://unstop.com/${slug}`,
+          prize,
+          deadlineText: deadline,
+          tags,
+          platform: 'unstop',
+        });
+      }
     }
+  } catch (e) {
+    console.warn('[HackDiscovery] Unstop API failed, falling back to HTML:', e.message);
+  }
 
-    // Fallback: HTML card scrape
-    if (items.length === 0) {
+  // Fallback: HTML scrape
+  if (items.length === 0) {
+    try {
+      const html = await safeFetch('https://unstop.com/hackathons?domain=it-software&deadline=upcoming');
+      const $ = cheerio.load(html);
+
       $('.opportunity-card, .comp-card, [class*="listing"], [class*="card"]').each((_, el) => {
         try {
           const title = $(el).find('h2, h3, h4, [class*="title"]').first().text().trim();
@@ -212,12 +234,13 @@ async function scrapeUnstop() {
               platform: 'unstop',
             });
           }
-        } catch (e) { /* skip */ }
+        } catch (_) {}
       });
+    } catch (e) {
+      console.warn('[HackDiscovery] Unstop HTML scrape failed:', e.message);
     }
-  } catch (e) {
-    console.warn('[HackDiscovery] Unstop scrape failed:', e.message);
   }
+
   console.log(`[HackDiscovery] Unstop: found ${items.length} raw items`);
   return items;
 }
@@ -237,12 +260,13 @@ async function scrapeDevfolio() {
       try {
         const href = $(el).attr('href') || '';
         if (!href.includes('/hackathons/') && !href.match(/devfolio\.co\/[a-z0-9-]{4,}$/i)) return;
+        if (href.includes('/applied') || href.includes('/open') || href.includes('/explore')) return;
 
         const title = $(el).find('h2, h3, h4, p, span').filter((_, t) => $(t).text().trim().length > 5).first().text().trim()
           || $(el).text().trim();
         const prize = $(el).find('[class*="prize"], [class*="amount"]').first().text().trim();
 
-        if (title && title.length > 5) {
+        if (title && title.length > 5 && !title.toLowerCase().includes('your hackathons') && !title.toLowerCase().includes('all open')) {
           items.push({
             title,
             link: href.startsWith('http') ? href : `https://devfolio.co${href}`,
@@ -417,18 +441,18 @@ Generate JSON: {
 }
 
 // ── Main Discovery Runner ─────────────────────────────────
-async function runDiscovery(userId) {
+async function runDiscovery(userId, force = false) {
   const now = Date.now();
   const meta = await getMeta(userId);
 
-  // Check if discovery is paused by the user
-  if (meta.enabled === false) {
+  // Check if discovery is paused by the user (unless forced)
+  if (!force && meta.enabled === false) {
     console.log('[HackDiscovery] Discovery is paused by user.');
     return { paused: true };
   }
 
-  // Check if 4 days have passed
-  if (meta.nextRunAt && now < meta.nextRunAt) {
+  // Check if 4 days have passed (unless forced)
+  if (!force && meta.nextRunAt && now < meta.nextRunAt) {
     const hoursLeft = Math.ceil((meta.nextRunAt - now) / 3600000);
     console.log(`[HackDiscovery] Not yet time. Next run in ~${hoursLeft}h`);
     return { skipped: true, nextRunAt: meta.nextRunAt };

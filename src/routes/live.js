@@ -152,7 +152,7 @@ router.get('/hackathon-discovery', requireAuth, async (req, res) => {
 // POST /api/live/hackathon-discovery/run — manually trigger a discovery run
 router.post('/hackathon-discovery/run', requireAuth, async (req, res) => {
   try {
-    const result = await discovery.runDiscovery(req.userId);
+    const result = await discovery.runDiscovery(req.userId, true);
     res.json(result);
   } catch (err) {
     res.status(500).json({ error: err.message });
