@@ -113,6 +113,11 @@ router.post('/tick', tickAuth, async (req, res) => {
     if (targetUserId) {
       memoryManager.runWeeklyRollingSummarizer(targetUserId).catch(e => console.warn('[Scheduler tick] summarizer:', e.message));
       memoryManager.finalizeStaleMonths(targetUserId).catch(e => console.warn('[Scheduler tick] finalizeMonths:', e.message));
+
+      // ── Hackathon Discovery: run every 4 days + auto-expire stale cards ──
+      const hackDiscovery = require('../services/hackathonDiscoveryService');
+      hackDiscovery.runDiscovery(targetUserId).catch(e => console.warn('[Scheduler tick] hackDiscovery:', e.message));
+      hackDiscovery.autoExpireDiscovery(targetUserId).catch(e => console.warn('[Scheduler tick] hackDiscoveryExpire:', e.message));
     }
 
     res.json({ ok: true, ...result, timestamp: new Date().toISOString() });

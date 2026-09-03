@@ -7,6 +7,7 @@ const memoryManager = require('../services/memoryManager');
 const weather = require('../services/weatherService');
 const news = require('../services/newsService');
 const stocks = require('../services/stocksService');
+const discovery = require('../services/hackathonDiscoveryService');
 
 // ─────────────────────────────────────────────────────────
 // GET /api/live/weather?city=   — Live weather for a city
@@ -138,6 +139,64 @@ Current date (IST): ${nowIST}
     res.json({ ok: true, savedToSession: latestSession ? latestSession.id : null });
   } catch (err) {
     console.error('[Briefing] Error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─────────────────────────────────────────────────────────
+// Hackathon Discovery Radar (Live Pulse section)
+// ─────────────────────────────────────────────────────────
+
+// GET /api/live/hackathon-discovery — list active (non-expired, non-dismissed) discovery cards
+router.get('/hackathon-discovery', requireAuth, async (req, res) => {
+  try {
+    const items = await discovery.listDiscovery(req.userId);
+    const meta = await discovery.getDiscoveryMeta(req.userId);
+    res.json({ items, meta });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/live/hackathon-discovery/run — manually trigger a discovery run
+router.post('/hackathon-discovery/run', requireAuth, async (req, res) => {
+  try {
+    const result = await discovery.runDiscovery(req.userId);
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/live/hackathon-discovery/:id/save — save card to hackathons list
+router.post('/hackathon-discovery/:id/save', requireAuth, async (req, res) => {
+  try {
+    const participating = Boolean(req.body?.participating);
+    const hackathon = await discovery.saveDiscovery(req.userId, req.params.id, participating);
+    res.json({ hackathon });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/live/hackathon-discovery/:id/dismiss — dismiss forever
+router.post('/hackathon-discovery/:id/dismiss', requireAuth, async (req, res) => {
+  try {
+    await discovery.dismissDiscovery(req.userId, req.params.id);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/live/hackathon-discovery/toggle — pause or resume auto-discovery
+// Body: { enable: true | false }
+router.post('/hackathon-discovery/toggle', requireAuth, async (req, res) => {
+  try {
+    const enable = req.body?.enable !== false; // default true if not specified
+    const result = await discovery.toggleDiscovery(req.userId, enable);
+    res.json(result);
+  } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
