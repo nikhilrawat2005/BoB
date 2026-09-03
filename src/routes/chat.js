@@ -512,18 +512,27 @@ router.post('/', requireAuth, async (req, res) => {
     const sessionSnap = await require('../config/firebase').db.collection('users').doc(req.userId).collection('sessions').doc(sessionId).get().catch(() => null);
     const sessionTitle = (sessionSnap && sessionSnap.exists && sessionSnap.data()?.title) || 'Main Chat';
 
-    // Explicit memory command check (zero extra LLM calls)
-    const isExplicitMemoryCommand = /(yaad\s*(rakh|rakhna|kar\s*lo|karo)|remember\s*(this|that|to)|note\s*this|save\s*in\s*memory)/i.test(promptMessage);
+    // Comprehensive Memory Command & Intent Check:
+    // Matches: "yaad rakh", "yaad rakhna", "remember this", "save in memory", "memory me update/store/rakh",
+    // "store akrdo memory me" (typos), "store/save ... memory me", "memory me ... store/save", "track rakho", etc.
+    const isExplicitMemoryCommand = /(?:yaad\s*(?:rakh|rakhna|kar\s*lo|karo)|remember\s*(?:this|that|to)?|note\s*(?:this|down)?|save\s*in\s*memory|memory\s*me\s*(?:update|add|save|rakh|daal|store|kr|kar)|(?:store|save|rakh|daal)\s*\w*\s*memory\s*me|memory\s*me\s*\w*\s*(?:store|save|rakh|daal|kr|kar)|track\s*(?:rakh|rakho|karo|karte\s*chalo)|(?:store|save)\s*(?:kar\s*(?:do|lo|dena)|[a-z]*do|[a-z]*lo)\s*memory|memory\s*(?:update|mein|me))/i.test(promptMessage);
     if (isExplicitMemoryCommand) {
-      const cleanFact = promptMessage
-        .replace(/^(bob|bhai|hey|please)?\s*(yaad\s*(rakh|rakhna|kar\s*lo|karo)|remember\s*(this|that|to)|note\s*this|save\s*in\s*memory)\s*(ki|that|:|,)?\s*/i, '')
+      let cleanFact = promptMessage
+        .replace(/^(?:bob|bhai|hey|please|bro|sun|suno)?[\s,:!-]*/i, '')
+        .replace(/(?:ye|yeh|isko|isse|apni|meri)?\s*memory\s*me\s*(?:update\s*karte\s*chalo|update\s*karo|save\s*kar\s*lo|add\s*karo|store\s*karo|rakho)\s*(?:ki|that|:|,)?\s*/i, '')
+        .replace(/(?:yaad\s*(?:rakh|rakhna|kar\s*lo|karo)|remember\s*(?:this|that|to)?|note\s*(?:this|down)?|save\s*in\s*memory)\s*(?:ki|that|:|,)?\s*/i, '')
         .trim();
-      if (cleanFact.length > 3) {
+
+      if (!cleanFact || cleanFact.length < 3) {
+        cleanFact = promptMessage.trim();
+      }
+
+      if (cleanFact.length >= 3) {
         await memory.addFactUnique(req.userId, cleanFact, null, {
           sourceTitle: sessionTitle,
           sourceType: 'chat',
           sessionId,
-        });
+        }).catch(err => console.error('[Memory] addFactUnique explicit error:', err.message));
       }
     }
 
@@ -637,7 +646,23 @@ router.post('/', requireAuth, async (req, res) => {
 ━━━ 🎨 OUTPUT STYLE & FORMATTING ━━━
 - Structured & clean: short opening line → clear bullet points/sections → concise takeaway.
 - Use bold sparingly (**key terms**). Use \`backticks\` for code, formulas, and filenames.
-- Lists for steps; Markdown tables for comparisons. Keep spacing clean (no unbroken text walls).`
+- Lists for steps; Markdown tables for comparisons. Keep spacing clean (no unbroken text walls).
+
+━━━ 🧠 PERSISTENT MEMORY PROTOCOL ━━━
+When Master Nikhil shares important personal info, asks you to remember/track progress (like solved questions, goals, habits, preferences, tech rules, decisions), YOU MUST capture and save it permanently into his Memory database.
+
+TRIGGER PHRASES (always save when you detect these — even with typos):
+- "yaad rakh", "yaad rakhna", "remember this", "memory me store", "store karo memory me"
+- "store akrdo memory me", "store kardo", "save karo", "track rakho"
+- ANY message asking you to note/save/remember facts about the user's progress
+
+To save a memory fact, output a clean memory block at the END of your response:
+\`\`\`memory
+{ "fact": "Nikhil ne 3 LeetCode problems solve ki hain: Two Sum, Remove Element, Contains Duplicate", "category": "main" }
+\`\`\`
+Categories: "habits" (habits/personal bio), "main" (core progress/stats/facts), "builder" (tech stack/architecture), "hackathons" (hackathon details).
+You can output one or more \`\`\`memory ... \`\`\` blocks whenever new milestones or facts need to be saved.
+RULE: If you say "I've updated my memory" or "Got it, I'll remember", you MUST emit a \`\`\`memory block — no exceptions.`
     ];
 
     // 2. FILE GENERATOR MODULE (~250 tokens — only if explicit file creation requested)
@@ -750,7 +775,31 @@ Auto-extracted media data is provided in context below. Read full transcript/cap
       text = sanitizedText + prebuiltRepoSection;
     }
 
-    // 6. Save assistant's reply
+    // 6. Parse and extract any ```memory blocks from Bob's reply, then save them to memory database
+    const memoryBlockRegex = /```memory\s*\n([\s\S]*?)```/g;
+    let memMatch;
+    while ((memMatch = memoryBlockRegex.exec(text)) !== null) {
+      try {
+        const memData = JSON.parse(memMatch[1].trim());
+        const factText = memData.fact || memData.text;
+        const factCat = memData.category || null;
+        if (factText && factText.trim().length > 2) {
+          await memory.addFactUnique(req.userId, factText.trim(), factCat, {
+            sourceTitle: sessionTitle,
+            sourceType: 'chat',
+            sessionId,
+          });
+          console.log(`[Chat] Auto-saved memory fact from Bob: "${factText.trim()}"`);
+        }
+      } catch (memErr) {
+        console.warn('[Chat] Failed to parse memory block:', memErr.message);
+      }
+    }
+
+    // Strip ```memory blocks from assistant text so Master gets clean readable response
+    text = text.replace(/```memory\s*\n[\s\S]*?```\n?/g, '').trim();
+
+    // Save assistant's reply
     await memory.addMessage(req.userId, sessionId, 'assistant', text);
 
 
@@ -814,6 +863,15 @@ Auto-extracted media data is provided in context below. Read full transcript/cap
         await memory.updateSessionTitle(req.userId, sessionId, updatedTitle);
         await memory.syncSessionFactTitles(req.userId, sessionId, updatedTitle);
       }
+    }
+
+    // 9. Background Memory Summarizer:
+    // Periodically and automatically rolls up long conversations into compact weekly summaries
+    // Runs in the background (non-blocking) so user response is never delayed.
+    if (recent && recent.length >= 8) {
+      memoryManager.runWeeklyRollingSummarizer(req.userId).catch((sumErr) => {
+        console.warn('[Memory] Background rolling summarizer notice:', sumErr.message);
+      });
     }
 
     res.json({

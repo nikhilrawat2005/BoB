@@ -106,6 +106,15 @@ function tickAuth(req, res, next) {
 router.post('/tick', tickAuth, async (req, res) => {
   try {
     const result = await scheduler.tick();
+
+    // Trigger weekly rolling summarizer & stale month auto-finalization during tick
+    const memoryManager = require('../services/memoryManager');
+    const targetUserId = req.userId || process.env.PRIMARY_USER_ID;
+    if (targetUserId) {
+      memoryManager.runWeeklyRollingSummarizer(targetUserId).catch(e => console.warn('[Scheduler tick] summarizer:', e.message));
+      memoryManager.finalizeStaleMonths(targetUserId).catch(e => console.warn('[Scheduler tick] finalizeMonths:', e.message));
+    }
+
     res.json({ ok: true, ...result, timestamp: new Date().toISOString() });
   } catch (err) {
     res.status(500).json({ error: err.message });

@@ -3121,6 +3121,15 @@ function renderCategoryFactsList() {
     });
   }
 
+  // Build a lookup map: sessionId -> pageMap key (for fast sessionId-based fact assignment)
+  const sessionIdToKey = new Map();
+  if (activeMemoryCat === 'main') {
+    cachedSessions.forEach(s => {
+      const title = s.title || `Chat ${s.id.slice(-5)}`;
+      sessionIdToKey.set(s.id, title.toLowerCase());
+    });
+  }
+
   items.forEach(f => {
     const fCat = f.category || 'main';
     const rawTitle = (f.sourceTitle || '').trim();
@@ -3130,7 +3139,14 @@ function renderCategoryFactsList() {
       pageTitle = 'General Profile & Background';
     }
 
-    const key = pageTitle.toLowerCase();
+    let key = pageTitle.toLowerCase();
+
+    // ── FIX: If we're in 'main' category and the fact has a sessionId,
+    // always attach it to that session's page (even if sourceTitle changed/mismatches)
+    if (activeMemoryCat === 'main' && f.sessionId && sessionIdToKey.has(f.sessionId)) {
+      key = sessionIdToKey.get(f.sessionId);
+    }
+
     if (!pageMap.has(key)) {
       pageMap.set(key, {
         title: pageTitle,
@@ -3143,7 +3159,13 @@ function renderCategoryFactsList() {
     pageMap.get(key).facts.push(f);
   });
 
-  const pages = Array.from(pageMap.values());
+  // For 'main' category, hide sessions that have no facts saved (reduces clutter)
+  let pages = Array.from(pageMap.values());
+  if (activeMemoryCat === 'main') {
+    // Always show pages with facts; show empty pages only if there are no other pages with facts
+    const pagesWithFacts = pages.filter(p => p.facts.length > 0);
+    pages = pagesWithFacts.length > 0 ? pagesWithFacts : pages;
+  }
 
   if (!pages.length) {
     list.innerHTML = `<div class="empty-msg">No chats or memory pages found. Add a point above to start!</div>`;
