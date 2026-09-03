@@ -430,18 +430,22 @@
           </div>
         </section>
 
-        <!-- Live pulse -->
+        <!-- Live pulse (Hackathon Radar Hub) -->
         <section class="view" id="view-live">
           <div class="view-header">
             <div>
-              <h2 class="view-title">📈 Live Pulse</h2>
-              <p class="view-sub">Weather · News · Stocks — real-time, no API keys needed.</p>
+              <h2 class="view-title">⚡ Hackathon Radar</h2>
+              <p class="view-sub">Autonomous CSE Hackathons Hub — 4-day auto-scan across Devpost, Unstop & Devfolio.</p>
             </div>
-            <button class="view-close icon-btn" title="Close (back to chat)">✕</button>
+            <div class="view-header-actions" style="display: flex; gap: 8px; align-items: center;">
+              <button id="live-toggle-btn" class="btn-small" style="background: rgba(245, 158, 11, 0.15); color: #f59e0b; border: 1px solid #f59e0b;">⏸ Pause</button>
+              <button id="live-scan-btn" class="btn-small btn-primary">🔍 Scan Now</button>
+              <button class="view-close icon-btn" title="Close (back to chat)">✕</button>
+            </div>
           </div>
           <div class="view-body">
-            <div class="live-grid" id="live-body">
-              <div class="live-card"></div>
+            <div id="live-body" style="padding: 16px 0;">
+              <div class="empty-msg">Loading Hackathon Radar…</div>
             </div>
           </div>
         </section>

@@ -7,11 +7,12 @@ const routines = require('../services/routineService');
 const memory = require('../services/memoryService');
 const memoryManager = require('../services/memoryManager');
 const selfEdit = require('../services/selfEditService');
+const discovery = require('../services/hackathonDiscoveryService');
 
 // GET /api/hq/summary — aggregate dashboard data for the Bob HQ home page.
 router.get('/summary', requireAuth, async (req, res) => {
   try {
-    const [hackathons, profiles, routineList, notifications, facts, months, files, edits] = await Promise.all([
+    const [hackathons, profiles, routineList, notifications, facts, months, files, edits, discoveryItems, discoveryMeta] = await Promise.all([
       hacks.listHackathons(req.userId),
       stalk.listProfiles(req.userId),
       routines.listRoutines(req.userId),
@@ -20,6 +21,8 @@ router.get('/summary', requireAuth, async (req, res) => {
       memory.listMonthMemory(req.userId, 6),
       memory.listMonthlyFiles(req.userId, 6),
       selfEdit.listEdits(req.userId, 10),
+      discovery.listDiscovery(req.userId).catch(() => []),
+      discovery.getDiscoveryMeta(req.userId).catch(() => ({})),
     ]);
 
     const cards = {
@@ -67,6 +70,19 @@ router.get('/summary', requireAuth, async (req, res) => {
         pending: edits.filter(e => e.status === 'pending').length,
         applied: edits.filter(e => e.status === 'applied').length,
         items: edits.slice(0, 5).map(e => ({ id: e.id, title: e.title, file: e.file, status: e.status, type: e.type, createdAt: e.createdAt })),
+      },
+      discovery: {
+        count: discoveryItems.length,
+        enabled: discoveryMeta.enabled !== false,
+        nextRunAt: discoveryMeta.nextRunAt || null,
+        lastRunAt: discoveryMeta.lastRunAt || null,
+        items: discoveryItems.slice(0, 3).map(d => ({
+          id: d.id,
+          title: d.title,
+          platform: d.platform,
+          prize: d.prize,
+          deadline: d.registrationDeadline,
+        })),
       },
     };
 

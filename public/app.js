@@ -4355,6 +4355,10 @@ function renderHQ(data) {
   const files = c.files || [];
   const months = c.months || [];
 
+  const disc = c.discovery || {};
+  const nextScanText = disc.nextRunAt ? (disc.nextRunAt > Date.now() ? `in ${Math.ceil((disc.nextRunAt - Date.now()) / (3600000 * 24))}d` : 'ready') : '4-day cycle';
+  const discMeta = disc.enabled === false ? 'auto-scan: paused' : `auto-scan: ${nextScanText} · 4-day cycle`;
+
   const cards = [
     hqCard({ id: 'keys', icon: '🔑', title: 'Keys Limit', color: 'amber', badge: 'OpenRouter', meta: 'key health · auto-refresh', items: [], action: 'Open Keys Management' }),
     hqCard({ id: 'hackathons', icon: '🏆', title: 'Hackathons', color: (hacks.active || 0) > 0 ? 'green' : 'amber', badge: `${hacks.count || 0}`, meta: `active ${hacks.active || 0} · tracking ${hacks.tracking || 0} · 🟢 ${hacks.participating || 0}`, items: (hacks.items || []).slice(0, 3).map(h => ({ text: h.title, sub: `${h.status} · ${fmtDate(h.endDate)}`, dot: h.statusColor })), action: 'Open Hackathon Workspace' }),
@@ -4363,7 +4367,7 @@ function renderHQ(data) {
     hqCard({ id: 'vault', icon: '🔒', title: 'Secret Vault', color: 'amber', badge: 'private', meta: 'PIN protected · spacious workspace', items: [], action: 'Open Secret Vault' }),
     hqCard({ id: 'memory', icon: '🧠', title: 'Memory', color: 'green', badge: `${facts.length} facts`, meta: `months ${months.length}`, items: facts.slice(0, 3).map(f => ({ text: f.text, sub: '', dot: 'green' })), action: 'Open Memory Workspace' }),
     hqCard({ id: 'files', icon: '📁', title: 'Files', color: 'grey', badge: `${files.length}`, meta: 'uploaded files', items: files.slice(0, 3).map(f => ({ text: f.filename || f.id, sub: '', dot: 'grey' })), action: 'Open Files Workspace' }),
-    hqCard({ id: 'live', icon: '📈', title: 'Live Pulse', color: 'green', badge: 'live', meta: 'weather · news · stocks', items: [], action: 'Open Live' }),
+    hqCard({ id: 'live', icon: '⚡', title: 'Hackathon Radar', color: disc.enabled === false ? 'amber' : 'green', badge: `${disc.count || 0} discovered`, meta: discMeta, items: (disc.items || []).map(d => ({ text: d.title, sub: `${d.platform} · ${d.prize || 'open'}`, dot: 'green' })), action: 'Open Hackathon Radar' }),
     hqCard({ id: 'resume_builder', icon: '📄', title: 'Resume Builder', color: 'blue', badge: 'Workspace', meta: 'AI Resume Architect & ATS Scanner', items: [], action: 'Open Resume Builder' }),
   ];
 
@@ -6270,13 +6274,139 @@ document.getElementById('add-routine-btn').addEventListener('click', () => {
 });
 
 // ═══════════════════════════════════════════════════════
-// LIVE PULSE
+// HACKATHON RADAR (Live Pulse Hub)
 // ═══════════════════════════════════════════════════════
+
+let liveDiscoveryCache = [];
+let liveDiscoveryMeta = {};
 
 async function loadLive() {
   const body = document.getElementById('live-body');
-  body.innerHTML = '<div class="live-card"></div>';
+  body.innerHTML = '<div class="empty-msg">Scanning Hackathon Radar…</div>';
+
+  try {
+    const data = await apiFetch('/api/live/pulse');
+    liveDiscoveryCache = data.hackathons || [];
+    liveDiscoveryMeta = data.meta || {};
+
+    const toggleBtn = document.getElementById('live-toggle-btn');
+    if (toggleBtn) {
+      const isPaused = liveDiscoveryMeta.enabled === false;
+      toggleBtn.textContent = isPaused ? '▶ Resume Auto-Scan' : '⏸ Pause Auto-Scan';
+      toggleBtn.style.background = isPaused ? 'rgba(74, 222, 128, 0.15)' : 'rgba(245, 158, 11, 0.15)';
+      toggleBtn.style.color = isPaused ? '#4ade80' : '#f59e0b';
+      toggleBtn.style.border = isPaused ? '1px solid #4ade80' : '1px solid #f59e0b';
+    }
+
+    renderLiveRadar();
+  } catch (err) {
+    body.innerHTML = `<div class="empty-msg">⚠️ Radar fetch failed: ${escHtml(err.message)}</div>`;
+  }
 }
+
+function renderLiveRadar() {
+  const body = document.getElementById('live-body');
+  if (!liveDiscoveryCache.length) {
+    body.innerHTML = `
+      <div class="empty-msg" style="padding: 40px 20px; text-align: center;">
+        <div style="font-size: 32px; margin-bottom: 8px;">🏆</div>
+        <div style="font-weight: 700; color: var(--text);">No Hackathons Discovered Yet</div>
+        <div style="font-size: 12px; color: var(--text3); margin-top: 4px;">Click "🔍 Scan Now" above to crawl Devpost, Unstop & Devfolio for CSE events.</div>
+      </div>
+    `;
+    return;
+  }
+
+  const cardsHtml = liveDiscoveryCache.map(h => {
+    const platformColors = {
+      devpost: '#003E54',
+      unstop: '#6c2bd9',
+      devfolio: '#3770FF'
+    };
+    const pColor = platformColors[h.platform] || '#38bdf8';
+    const deadline = h.registrationDeadline ? new Date(h.registrationDeadline).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' }) : 'Open';
+    const tags = (h.tags || []).slice(0, 3).map(t => `<span style="font-size:10px; padding:2px 6px; border-radius:4px; background:rgba(56,189,248,0.12); color:#38bdf8;">${escHtml(t)}</span>`).join(' ');
+
+    return `
+      <div class="hack-card" style="background:var(--surface); border:1px solid rgba(139, 92, 246, 0.2); border-radius:12px; padding:16px; margin-bottom:12px; transition:border-color 0.2s;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+          <span style="font-size:10px; font-weight:800; padding:2px 8px; border-radius:4px; background:${pColor}30; color:${pColor}; text-transform:uppercase;">${escHtml(h.platform || 'CSE')}</span>
+          <span style="font-size:11px; font-weight:700; color:#f59e0b;">⏱ ${escHtml(deadline)}</span>
+        </div>
+        <h3 style="font-size:16px; font-weight:800; color:var(--text); margin-bottom:6px; line-height:1.3;">${escHtml(h.title)}</h3>
+        <p style="font-size:13px; color:var(--text2); line-height:1.5; margin-bottom:10px;">${escHtml(h.summary || '')}</p>
+        <div style="display:flex; gap:6px; flex-wrap:wrap; margin-bottom:12px;">
+          ${tags}
+        </div>
+        <div style="display:flex; justify-content:space-between; align-items:center; padding-top:12px; border-top:1px solid rgba(255,255,255,0.06);">
+          <div style="font-weight:800; font-size:13px; color:#facc15;">💰 ${escHtml(h.prize || 'Prizes & Swags')}</div>
+          <div style="display:flex; gap:8px;">
+            <a href="${escHtml(h.link)}" target="_blank" rel="noopener noreferrer" class="btn-small" style="text-decoration:none; background:rgba(56,189,248,0.15); color:#38bdf8; border:1px solid rgba(56,189,248,0.3);">🔗 Register</a>
+            <button class="btn-small btn-primary" data-live-save="${h.id}" title="Transfer to Hackathons Workspace">📌 Save</button>
+            <button class="btn-small" data-live-del="${h.id}" style="background:rgba(244,63,94,0.15); color:#f43f5e; border:1px solid rgba(244,63,94,0.3);">✕ Dismiss</button>
+          </div>
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  body.innerHTML = `<div style="max-width:800px; margin:0 auto;">${cardsHtml}</div>`;
+
+  body.querySelectorAll('[data-live-save]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const id = btn.dataset.liveSave;
+      btn.disabled = true; btn.textContent = 'Saving…';
+      try {
+        await apiFetch(`/api/live/hackathon-discovery/${id}/save`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ participating: false }) });
+        liveDiscoveryCache = liveDiscoveryCache.filter(x => String(x.id) !== String(id));
+        renderLiveRadar();
+        alert('✅ Hackathons Workspace me add ho gaya!');
+      } catch (e) { alert(e.message); btn.disabled = false; btn.textContent = '📌 Save'; }
+    });
+  });
+
+  body.querySelectorAll('[data-live-del]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const id = btn.dataset.liveDel;
+      try {
+        await apiFetch(`/api/live/hackathon-discovery/${id}/dismiss`, { method: 'POST' });
+        liveDiscoveryCache = liveDiscoveryCache.filter(x => String(x.id) !== String(id));
+        renderLiveRadar();
+      } catch (e) { alert(e.message); }
+    });
+  });
+}
+
+document.getElementById('live-scan-btn')?.addEventListener('click', async (e) => {
+  const btn = e.target;
+  btn.disabled = true; btn.textContent = 'Scanning…';
+  try {
+    const res = await apiFetch('/api/live/hackathon-discovery/run', { method: 'POST' });
+    if (res.skipped) {
+      alert(`Scan scheduled soon. 4-day interval cycle active.`);
+    } else {
+      alert(`✅ Scan complete! Found ${res.added || 0} new hackathons.`);
+    }
+    await loadLive();
+  } catch (err) { alert('Scan failed: ' + err.message); }
+  finally { btn.disabled = false; btn.textContent = '🔍 Scan Now'; }
+});
+
+document.getElementById('live-toggle-btn')?.addEventListener('click', async (e) => {
+  const btn = e.target;
+  const isPaused = liveDiscoveryMeta.enabled === false;
+  btn.disabled = true;
+  try {
+    await apiFetch('/api/live/hackathon-discovery/toggle', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ enable: isPaused }) });
+    liveDiscoveryMeta.enabled = isPaused;
+    btn.textContent = isPaused ? '⏸ Pause Auto-Scan' : '▶ Resume Auto-Scan';
+    btn.style.background = isPaused ? 'rgba(245, 158, 11, 0.15)' : 'rgba(74, 222, 128, 0.15)';
+    btn.style.color = isPaused ? '#f59e0b' : '#4ade80';
+    btn.style.border = isPaused ? '1px solid #f59e0b' : '1px solid #4ade80';
+    alert(isPaused ? '▶ Auto-scan resumed! Har 4 din me naye hackathons aayenge.' : '⏸ Auto-scan paused!');
+  } catch (err) { alert(err.message); }
+  finally { btn.disabled = false; }
+});
 
 // ── Shared workspace chat helpers ─────────────────────
 function renderWsChat(el, messages, tag) {
