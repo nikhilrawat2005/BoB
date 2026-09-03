@@ -654,4 +654,5 @@ module.exports = {
   createHackathon, getHackathon, listHackathons, updateHackathon, deleteHackathon,
   refreshKnowledge, refreshKnowledgeFromText, chatSend, chatList,
   ensureAutoRoutine, autoExpireAndRemind, statusFromDates, parseFromText,
+  ensureChatSession,
 };
