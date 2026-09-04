@@ -5091,7 +5091,8 @@ function renderSeoAudit(site) {
   el.innerHTML = `
     <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px;">
       ${opTab('dash', true, '📊 Dashboard')}
-      ${opTab('issues', false, '⚠️ Problems (' + ((a.issues || []).length) + ')')}
+      ${opTab('problems', false, '🚨 Problems (' + ((a.issues || []).length + (a.crawledPages || []).filter(p => (p.status && p.status !== 200) || p.isOrphan).length) + ')')}
+      ${opTab('issues', false, '⚠️ Issues (' + ((a.issues || []).length) + ')')}
       ${opTab('strengths', false, '✅ Strengths')}
       ${opTab('topics', false, '🗺 16-Topics')}
       ${opTab('pages', false, '🗂️ Pages (' + ((a.crawledPages || []).length) + ')')}
@@ -5108,7 +5109,7 @@ function renderSeoAudit(site) {
           <span style="font-weight:700;font-size:12px;color:var(--text1);">✨ Bob AI Master Plan</span>
           ${(a.aiActionPlan) ? '<span style="font-size:10px;color:var(--green);font-weight:700;padding:2px 6px;border-radius:4px;background:rgba(52,211,153,0.12);">✓ Ready in Chat</span>' : ''}
         </div>
-<div style="font-size:11px;color:var(--text2);margin:6px 0 10px;line-height:1.45;">
+        <div style="font-size:11px;color:var(--text2);margin:6px 0 10px;line-height:1.45;">
           ${(a.aiActionPlan) 
             ? 'Pura roadmap niche preview hai — chat section mein bhi available. Re-generate for fresh plan.' 
             : 'Master Bob website ke 50+ pages, Core Web Vitals aur vulnerabilities ko analyze karke action plan dega.'}
@@ -5116,10 +5117,10 @@ function renderSeoAudit(site) {
         ${(a.aiActionPlan && a.aiActionPlan.text)
           ? `<div class="md-content" style="max-height:230px;overflow-y:auto;margin-bottom:10px;font-size:11.5px;color:var(--text1);line-height:1.55;background:rgba(0,0,0,0.28);border:1px solid rgba(var(--accent-rgb),0.2);border-radius:6px;padding:10px 12px;">${renderTextContent(a.aiActionPlan.text)}</div>`
           : ''}
-        <button class="btn-small" id="seo-generate-ai-plan" style="width:100%;padding:7px 0;font-weight:700;background:var(--accent);color:#fff;border:none;border-radius:6px;cursor:pointer;">
+        <button class="btn-small btn-primary" id="seo-generate-ai-plan" style="width:100%;font-weight:700;box-shadow: 0 2px 10px rgba(var(--accent-rgb),0.35);">
           ${(a.aiActionPlan) ? '💬 View / Re-Generate in Chat' : '✨ Generate AI Action Plan in Chat'}
         </button>
-</div>
+      </div>
 
       <!-- Level 3: Google SERP emulator + Core Web Vitals -->
       <div class="ws-kb-block"><div class="ws-kb-label">🔍 Google Search Preview</div>
@@ -5172,12 +5173,14 @@ function renderSeoAudit(site) {
         <button class="btn-small" id="re-audit-seo" style="width:100%;margin-top:8px;padding:6px 0;font-weight:700;">↻ Re-Audit Website</button>
       </div>
     </div>
+    <div class="seo-op-pane" data-seopath="problems" hidden id="seo-op-problems"></div>
     <div class="seo-op-pane" data-seopath="issues" hidden id="seo-op-issues"></div>
     <div class="seo-op-pane" data-seopath="strengths" hidden id="seo-op-strengths"></div>
     <div class="seo-op-pane" data-seopath="topics" hidden id="seo-op-topics"></div>
     <div class="seo-op-pane" data-seopath="pages" hidden id="seo-op-pages"></div>
   `;
 
+  renderSeoProblems(site);
   renderSeoIssues(site);
   renderSeoStrengths(site);
   renderSeoTopics(site);
@@ -5317,6 +5320,156 @@ function switchSeoOpTab(name) {
   document.querySelectorAll('#seo-audit .seo-op-pane').forEach(p => {
     p.hidden = p.dataset.seopath !== name;
   });
+}
+
+function renderSeoProblems(site) {
+  const el = document.getElementById('seo-op-problems');
+  if (!el) return;
+
+  const a = site.audit || {};
+  const issues = a.issues || [];
+  const pages = a.crawledPages || [];
+  const signals = a.signals || {};
+  const ps = a.pageSpeed || {};
+  const keywords = site.keywords || [];
+
+  const compiled = [];
+
+  // 1. Audit Crawler Issues
+  issues.forEach(i => {
+    compiled.push({
+      source: 'Crawl Issue',
+      severity: i.severity || 'medium',
+      title: i.text,
+      desc: `Category: ${(i.category || 'general').toUpperCase()}. Found during full HTML parsing.`,
+      impact: i.severity === 'high' ? 'High bounce risk and organic ranking drop.' : 'Sub-optimal indexing factor.',
+      fix: i.fix || 'Apply standard SEO fixes to head or body markup.'
+    });
+  });
+
+  // 2. Core Web Vitals
+  if (ps.lcp != null && Number(ps.lcp) > 2.5) {
+    compiled.push({
+      source: 'Core Web Vitals',
+      severity: Number(ps.lcp) > 4.0 ? 'high' : 'medium',
+      title: `Slow LCP (${ps.lcp}s > 2.5s goal)`,
+      desc: 'Largest content element render hone mein 2.5s se zyada time le raha hai.',
+      impact: 'Mobile users bounce ho jate hain aur Google PSI score girta hai.',
+      fix: 'Compress images into WebP/AVIF, preload hero fonts aur server TTFB fast karein.'
+    });
+  }
+  if (ps.cls != null && Number(ps.cls) > 0.1) {
+    compiled.push({
+      source: 'Core Web Vitals',
+      severity: 'medium',
+      title: `Layout Shift CLS (${ps.cls} > 0.1 goal)`,
+      desc: 'Page load hote waqt content achanak jump karta hai.',
+      impact: 'Accidental taps and poor visual experience.',
+      fix: 'Images aur ads containers par explicit width & height attribute set karein.'
+    });
+  }
+  if (ps.tbt != null && Number(ps.tbt) > 200) {
+    compiled.push({
+      source: 'Core Web Vitals',
+      severity: 'medium',
+      title: `High TBT Blocking (${ps.tbt}ms > 200ms goal)`,
+      desc: 'Main JavaScript thread zyada der tak busy rehta hai.',
+      impact: 'Buttons and scroll inputs freeze for a few moments after landing.',
+      fix: 'Split heavy JS bundles aur non-critical scripts defer karein.'
+    });
+  }
+
+  // 3. Technical & Security Signals
+  if (signals.hsts === false || signals.hsts === 'missing') {
+    compiled.push({
+      source: 'Security Header',
+      severity: 'medium',
+      title: 'Missing HSTS Header',
+      desc: 'Strict-Transport-Security header server response mein missing hai.',
+      impact: 'HTTPS downgrade attack risk and security compliance flag.',
+      fix: 'Add header: Strict-Transport-Security: max-age=31536000; includeSubDomains'
+    });
+  }
+  if (signals.hasSchema === false) {
+    compiled.push({
+      source: 'Rich Snippets',
+      severity: 'medium',
+      title: 'No JSON-LD Schema Found',
+      desc: 'Structured data markup head section mein nahi mila.',
+      impact: 'Google Search results mein FAQ, review stars aur breadcrumb snippets nahi dikhte.',
+      fix: 'Head tag mein JSON-LD Organization ya WebSite schema inject karein.'
+    });
+  }
+  if (signals.robotsExists === false) {
+    compiled.push({
+      source: 'Crawler Bot',
+      severity: 'high',
+      title: 'robots.txt Missing or 404',
+      desc: 'Search bots ko domain crawling guidelines nahi mil rahi.',
+      impact: 'Crawl budget waste hota hai.',
+      fix: 'Website root par valid robots.txt upload karein with sitemap link.'
+    });
+  }
+
+  // 4. Crawled Pages (Broken, Orphans, Thin Content)
+  pages.forEach(p => {
+    if (p.status && p.status !== 200) {
+      compiled.push({
+        source: 'Page Architecture',
+        severity: 'high',
+        title: `Broken Page (${p.status}): ${p.path || p.url}`,
+        desc: `Crawler ko internal page par ${p.status} error mila.`,
+        impact: 'Users get broken links, leading to immediate bounce.',
+        fix: 'Fix the route or setup 301 permanent redirect.'
+      });
+    }
+    if (p.isOrphan) {
+      compiled.push({
+        source: 'Page Architecture',
+        severity: 'medium',
+        title: `Orphan Page: ${p.path || p.url}`,
+        desc: 'Website ke kisi bhi page se is page ka internal link nahi hai.',
+        impact: 'Search engines is page ko discover aur rank nahi kar paate.',
+        fix: 'Header navigation, footer ya parent articles se internal link add karein.'
+      });
+    }
+  });
+
+  const cardsHtml = compiled.map(prob => {
+    const sevColor = prob.severity === 'high' ? '#ef4444' : prob.severity === 'medium' ? '#f59e0b' : '#38bdf8';
+    return `
+      <div style="background:var(--surface);border:1px solid rgba(255,255,255,0.08);border-left:4px solid ${sevColor};border-radius:10px;padding:12px;margin-bottom:10px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;gap:6px;flex-wrap:wrap;">
+          <div style="display:flex;align-items:center;gap:6px;">
+            <span style="font-size:9.5px;font-weight:900;padding:2px 7px;border-radius:4px;background:${sevColor}22;color:${sevColor};text-transform:uppercase;">${escHtml(prob.severity)}</span>
+            <span style="font-size:9.5px;font-weight:700;padding:2px 7px;border-radius:4px;background:rgba(255,255,255,0.06);color:var(--text2);">${escHtml(prob.source)}</span>
+          </div>
+        </div>
+        <div style="font-size:13px;font-weight:800;color:var(--text);margin-bottom:4px;">${escHtml(prob.title)}</div>
+        <div style="font-size:11.5px;color:var(--text2);line-height:1.5;margin-bottom:8px;">${escHtml(prob.desc)}</div>
+        
+        <div style="background:rgba(239,68,68,0.06);border:1px solid rgba(239,68,68,0.15);border-radius:6px;padding:6px 8px;margin-bottom:6px;font-size:11px;color:#fecaca;">
+          <strong style="color:#f87171;">⚠️ Why It Matters:</strong> ${escHtml(prob.impact)}
+        </div>
+
+        <div style="background:rgba(16,185,129,0.06);border:1px solid rgba(16,185,129,0.18);border-radius:6px;padding:6px 8px;font-size:11px;color:#a7f3d0;">
+          <strong style="color:#34d399;">💡 How to Fix:</strong> ${escHtml(prob.fix)}
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  el.innerHTML = `
+    <div class="ws-kb-block" style="margin-bottom:12px;border:1px solid rgba(239,68,68,0.25);background:rgba(239,68,68,0.05);">
+      <div style="display:flex;justify-content:space-between;align-items:center;">
+        <div class="ws-kb-label" style="color:#f87171;">🚨 All Compiled Problems & Gaps (${compiled.length})</div>
+      </div>
+      <div style="font-size:11.5px;color:var(--text2);margin-top:4px;line-height:1.45;">
+        Crawl errors, performance bottlenecks, broken links, orphan pages aur missing signals sab ek clean explanatory list mein compiled hain.
+      </div>
+    </div>
+    <div>${cardsHtml || '<div style="font-size:12px;color:var(--green);text-align:center;padding:24px 0;">🎉 Zero Problems Detected! Website is clean.</div>'}</div>
+  `;
 }
 
 function renderSeoIssues(site) {
