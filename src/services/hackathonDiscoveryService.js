@@ -389,41 +389,74 @@ Reply with ONLY a JSON array of numbers representing the indices (1-based) of ha
   }
 }
 
+// ── Helper to scrape readable text snippet from individual hackathon page ──
+async function fetchPageSnippet(url) {
+  if (!url || !url.startsWith('http')) return '';
+  try {
+    const html = await safeFetch(url, 9000);
+    const $ = cheerio.load(html);
+    $('script, style, nav, footer, header, noscript, svg').remove();
+
+    // Prefer main content areas (Devpost: #challenge-overview, .content, main)
+    let content = $('#challenge-overview, #challenge-body, .challenge-content, article, main').text().replace(/\s+/g, ' ').trim();
+    if (!content || content.length < 200) {
+      content = $('body').text().replace(/\s+/g, ' ').trim();
+    }
+    // Truncate to first 3500 chars to fit in LLM prompt nicely
+    return content.slice(0, 3500);
+  } catch (e) {
+    return '';
+  }
+}
+
 // ── LLM Summarizer ────────────────────────────────────────
 /**
- * For each filtered item, generate a proper summary + extract structured data
+ * For each filtered item, fetch real page content, generate deep build details + prize basis
  */
 async function enrichItem(item) {
   const todayStr = new Date().toISOString().slice(0, 10);
   const cleanRawPrize = stripHtml(item.prize || '');
+  
+  // 1. Fetch real page content from hackathon link
+  const pageSnippet = await fetchPageSnippet(item.link);
+
   try {
     const res = await callLLM({
       role: 'review',
       messages: [
         {
           role: 'system',
-          content: `You are an expert tech hackathon advisor for CS engineering students. Extract clean, accurate information from the hackathon data. Reply ONLY clean JSON (no markdown code blocks, no backticks).
-TODAY: ${todayStr}. Prioritize active/upcoming details.`,
+          content: `You are an elite technical hackathon advisor for computer engineering students. 
+Analyze the provided hackathon details and webpage content. Extract accurate, deep, and actionable facts. 
+Reply ONLY clean JSON (no markdown fences, no backticks).
+TODAY: ${todayStr}.`,
         },
         {
           role: 'user',
-          content: `Hackathon: "${item.title}" from platform: ${item.platform}
-Tags/Themes: ${item.tags.join(', ') || 'CSE, Software'}
-Prize info: ${cleanRawPrize || 'Free / Not specified'}
-Deadline info: ${item.deadlineText || 'Check registration'}
-Link: ${item.link || ''}
+          content: `HACKATHON: "${item.title}" (${item.platform})
+URL: ${item.link}
+Tags: ${item.tags.join(', ') || 'CSE, Software'}
+Prize text: ${cleanRawPrize}
+Deadline: ${item.deadlineText}
+
+REAL WEBPAGE CONTENT EXTRACT:
+${pageSnippet || 'Webpage content could not be retrieved directly; use hackathon title, tags, and your verified knowledge base.'}
 
 Generate JSON with these exact fields:
 {
-  "summary": "2-3 crisp sentences: what project/theme to build, tech domain focus, and key challenge highlights. Be informative and specific, avoid generic phrases.",
-  "prize": "Clean prize string (e.g. '$50,000 USD' or '₹2,50,000' or 'Certificates & Swags'). Never include HTML tags.",
-  "fee": "Free or registration fee amount if any (e.g. 'Free Entry')",
+  "summary": "1-2 sentences giving high-level hook: what this hackathon is and the main challenge goal.",
+  "whatToBuild": "3-4 concise lines describing EXPLICITLY what participants need to build (e.g. project type, tech stack, APIs or SDKs to use, submission deliverables like working demo/video/GitHub PR).",
+  "prize": "Clean prize string (e.g. '$10,000 USD' or '₹2,50,000' or 'Swags & Mentorship'). Clean all HTML tags.",
+  "prizeBasis": "How prizes are awarded / judging criteria (e.g. 'Judged on Technical Implementation, Innovation, Practical Impact, and Working Demo Video').",
+  "hasCertificates": true,
+  "certificatesInfo": "Yes (Participation certificate for all valid submissions) OR No / Cash & Swags only",
+  "fee": "Free Entry or registration fee amount",
   "mode": "online | offline | hybrid",
-  "location": "City/venue name if offline or hybrid, or 'Virtual / Global' if online",
+  "location": "City/venue name if offline, or 'Virtual / Global' if online",
   "seatsStatus": "Open | Filling Fast | Limited",
-  "tags": ["2-4 specific tech tags like Web Dev, AI/ML, Full Stack, DSA, Mobile App"],
-  "teamSize": "e.g. 1-4 Members, Solo or Team, etc.",
-  "eligibility": "1 concise sentence on who can participate (e.g. Students & developers globally, Undergrads, etc.)",
+  "tags": ["2-4 specific tech tags like AI/ML, Web Dev, Mobile App, DSA"],
+  "teamSize": "e.g. 1-4 Members, Solo or Team",
+  "eligibility": "1 concise sentence: who can participate (e.g. Students & developers worldwide)",
   "registrationDeadline": "YYYY-MM-DD or null",
   "startDate": "YYYY-MM-DD or null",
   "endDate": "YYYY-MM-DD or null"
@@ -431,14 +464,18 @@ Generate JSON with these exact fields:
         },
       ],
       temperature: 0.2,
-      max_tokens: 500,
+      max_tokens: 700,
     });
 
     const parsed = JSON.parse(res.text.replace(/```json|```/g, '').trim());
     return {
       ...item,
       summary: parsed.summary || `${item.title} — CSE hackathon hosted on ${item.platform}.`,
-      prize: stripHtml(parsed.prize || cleanRawPrize || 'Prize & Mentorship'),
+      whatToBuild: parsed.whatToBuild || `Build and submit a working software project focusing on ${item.tags.join(', ') || 'technology and innovation'}.`,
+      prize: stripHtml(parsed.prize || cleanRawPrize || 'Prizes & Recognition'),
+      prizeBasis: parsed.prizeBasis || 'Evaluated on Innovation, Technical Depth, Usability, and Final Presentation.',
+      hasCertificates: parsed.hasCertificates !== false,
+      certificatesInfo: parsed.certificatesInfo || 'Certificate of Participation provided for valid project submissions.',
       fee: parsed.fee || 'Free Entry',
       mode: parsed.mode || 'online',
       location: parsed.location || (parsed.mode === 'offline' ? 'In-Person Venue' : 'Virtual / Online'),
@@ -454,8 +491,12 @@ Generate JSON with these exact fields:
     console.warn(`[HackDiscovery] Enrich failed for "${item.title}":`, e.message);
     return {
       ...item,
-      summary: `${item.title} — Software engineering & hackathon challenge on ${item.platform}. Build and submit innovative CSE projects.`,
+      summary: `${item.title} — Software engineering & hackathon challenge on ${item.platform}.`,
+      whatToBuild: `Build and deploy an innovative software application or tool related to ${item.tags.join(', ') || 'CSE'}.`,
       prize: cleanRawPrize || 'Prizes & Recognition',
+      prizeBasis: 'Evaluated on innovation, working implementation, and demo quality.',
+      hasCertificates: true,
+      certificatesInfo: 'Participation certificate usually provided upon verified submission.',
       fee: 'Free Entry',
       mode: 'online',
       location: 'Virtual / Online',
@@ -551,7 +592,11 @@ async function runDiscovery(userId, force = false) {
       platform: item.platform,
       link: item.link,
       summary: item.summary,
+      whatToBuild: item.whatToBuild || '',
       prize: item.prize || '',
+      prizeBasis: item.prizeBasis || '',
+      hasCertificates: item.hasCertificates !== false,
+      certificatesInfo: item.certificatesInfo || 'Certificate provided for valid submissions',
       fee: item.fee || 'Free Entry',
       mode: item.mode || 'online',
       location: item.location || 'Virtual / Online',

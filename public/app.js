@@ -6436,12 +6436,30 @@ function renderLiveRadar() {
         <h3 style="font-size:17px; font-weight:900; color:var(--text); margin-bottom:8px; line-height:1.35;">${escHtml(h.title)}</h3>
         <p style="font-size:13px; color:var(--text2); line-height:1.6; margin-bottom:12px;">${escHtml(h.summary || '')}</p>
 
+        <!-- What to Build highlight block -->
+        ${h.whatToBuild ? `
+        <div style="background:rgba(139, 92, 246, 0.08); border-left:3px solid #8b5cf6; border-radius:0 8px 8px 0; padding:10px 14px; margin-bottom:12px;">
+          <div style="font-size:11px; font-weight:800; color:#c084fc; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:4px; display:flex; align-items:center; gap:5px;">
+            <span>🛠️ What to Build</span>
+          </div>
+          <div style="font-size:12px; color:var(--text); line-height:1.5;">${escHtml(h.whatToBuild)}</div>
+        </div>
+        ` : ''}
+
         <!-- Hackathon Key Facts Quick Bar -->
-        <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap:8px; background:rgba(0,0,0,0.25); border:1px solid rgba(255,255,255,0.05); padding:8px 12px; border-radius:8px; margin-bottom:12px; font-size:11px;">
+        <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap:8px; background:rgba(0,0,0,0.25); border:1px solid rgba(255,255,255,0.05); padding:10px 12px; border-radius:8px; margin-bottom:12px; font-size:11px;">
           <div><span style="color:var(--text2);">👥 Team:</span> <strong style="color:var(--text);">${escHtml(h.teamSize || '1-4 Members')}</strong></div>
           <div><span style="color:var(--text2);">📍 Location:</span> <strong style="color:var(--text);">${escHtml(location)}</strong></div>
+          <div><span style="color:var(--text2);">📜 Certificates:</span> <strong style="color:${h.hasCertificates !== false ? '#4ade80' : '#94a3b8'};">${escHtml(h.certificatesInfo || (h.hasCertificates !== false ? 'Yes (All Valid)' : 'No'))}</strong></div>
           <div><span style="color:var(--text2);">🎟 Status:</span> <strong style="color:#4ade80;">${escHtml(seats)}</strong></div>
         </div>
+
+        ${h.prizeBasis ? `
+        <div style="font-size:11px; color:var(--text2); margin-bottom:12px; display:flex; align-items:flex-start; gap:6px; background:rgba(250, 204, 21, 0.05); border:1px solid rgba(250, 204, 21, 0.15); border-radius:6px; padding:6px 10px;">
+          <span style="color:#facc15;">⚖️</span>
+          <div><strong style="color:#facc15;">Judging & Prize Basis:</strong> <span style="color:var(--text);">${escHtml(h.prizeBasis)}</span></div>
+        </div>
+        ` : ''}
 
         <div style="display:flex; gap:6px; flex-wrap:wrap; margin-bottom:14px;">
           ${tags}
