@@ -6347,14 +6347,55 @@ async function loadLive() {
 
 function renderLiveRadar() {
   const body = document.getElementById('live-body');
+  const isPaused = liveDiscoveryMeta.enabled === false;
+  
+  // Dynamic Hero Control Bar visible inside page body
+  const heroBarHtml = `
+    <div style="background: rgba(139, 92, 246, 0.08); border: 1px solid rgba(139, 92, 246, 0.25); border-radius: 12px; padding: 14px 18px; margin-bottom: 20px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px;">
+      <div>
+        <div style="font-weight: 800; font-size: 15px; color: #c084fc; display: flex; align-items: center; gap: 8px;">
+          <span>⚡ Autonomous Crawler Radar</span>
+          <span style="font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 10px; background: ${isPaused ? 'rgba(245, 158, 11, 0.2)' : 'rgba(74, 222, 128, 0.2)'}; color: ${isPaused ? '#f59e0b' : '#4ade80'};">
+            ${isPaused ? '⏸ PAUSED' : '🟢 ACTIVE (4-Day Interval)'}
+          </span>
+        </div>
+        <div style="font-size: 12px; color: var(--text2); margin-top: 3px;">
+          Scrapes real CSE hackathons from <strong>Devpost</strong>, <strong>Unstop</strong> & <strong>Devfolio</strong>.
+        </div>
+      </div>
+      <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+        <button id="live-hero-to-ws" class="btn-small btn-secondary" title="Switch to Tracked Hackathons Workspace">🏆 My Hackathons</button>
+        <button id="live-hero-toggle" class="btn-small" style="background: ${isPaused ? 'rgba(74, 222, 128, 0.15)' : 'rgba(245, 158, 11, 0.15)'}; color: ${isPaused ? '#4ade80' : '#f59e0b'}; border: 1px solid ${isPaused ? '#4ade80' : '#f59e0b'};">
+          ${isPaused ? '▶ Resume Auto-Scan' : '⏸ Pause'}
+        </button>
+        <button id="live-hero-scan" class="btn-small btn-primary" style="font-weight: 700; box-shadow: 0 2px 10px rgba(56, 189, 248, 0.3);">
+          🔍 Scan Now
+        </button>
+      </div>
+    </div>
+  `;
+
   if (!liveDiscoveryCache.length) {
     body.innerHTML = `
-      <div class="empty-msg" style="padding: 40px 20px; text-align: center;">
-        <div style="font-size: 32px; margin-bottom: 8px;">🏆</div>
-        <div style="font-weight: 700; color: var(--text);">No Hackathons Discovered Yet</div>
-        <div style="font-size: 12px; color: var(--text3); margin-top: 4px;">Click "🔍 Scan Now" above to crawl Devpost, Unstop & Devfolio for CSE events.</div>
+      <div style="max-width:800px; margin:0 auto;">
+        ${heroBarHtml}
+        <div class="empty-msg" style="padding: 50px 20px; text-align: center; background: var(--surface); border: 1px dashed rgba(139, 92, 246, 0.3); border-radius: 16px;">
+          <div style="font-size: 40px; margin-bottom: 12px;">🛰️</div>
+          <div style="font-weight: 800; font-size: 18px; color: var(--text);">No Hackathons in Discovery Radar</div>
+          <div style="font-size: 13px; color: var(--text2); max-width: 460px; margin: 8px auto 20px; line-height: 1.5;">
+            Bob automatically crawls Devpost, Unstop and Devfolio every 4 days. Click below to trigger an immediate live scan right now!
+          </div>
+          <button id="live-empty-scan-btn" class="btn-primary" style="padding: 10px 24px; font-size: 14px; font-weight: 800; box-shadow: 0 4px 15px rgba(56, 189, 248, 0.35);">
+            🔍 Scan Hackathons Now
+          </button>
+        </div>
       </div>
     `;
+
+    document.getElementById('live-empty-scan-btn')?.addEventListener('click', triggerLiveScan);
+    document.getElementById('live-hero-scan')?.addEventListener('click', triggerLiveScan);
+    document.getElementById('live-hero-toggle')?.addEventListener('click', toggleLiveScan);
+    document.getElementById('live-hero-to-ws')?.addEventListener('click', () => { showView('hackathons'); loadHackathons(); });
     return;
   }
 
@@ -6383,7 +6424,7 @@ function renderLiveRadar() {
           <div style="font-weight:800; font-size:13px; color:#facc15;">💰 ${escHtml(h.prize || 'Prizes & Swags')}</div>
           <div style="display:flex; gap:8px;">
             <a href="${escHtml(h.link)}" target="_blank" rel="noopener noreferrer" class="btn-small" style="text-decoration:none; background:rgba(56,189,248,0.15); color:#38bdf8; border:1px solid rgba(56,189,248,0.3);">🔗 Register</a>
-            <button class="btn-small btn-primary" data-live-save="${h.id}" title="Transfer to Hackathons Workspace">📌 Save</button>
+            <button class="btn-small btn-primary" data-live-save="${h.id}" title="Transfer to Hackathons Workspace">📌 Save to Workspace</button>
             <button class="btn-small" data-live-del="${h.id}" style="background:rgba(244,63,94,0.15); color:#f43f5e; border:1px solid rgba(244,63,94,0.3);">✕ Dismiss</button>
           </div>
         </div>
@@ -6391,7 +6432,11 @@ function renderLiveRadar() {
     `;
   }).join('');
 
-  body.innerHTML = `<div style="max-width:800px; margin:0 auto;">${cardsHtml}</div>`;
+  body.innerHTML = `<div style="max-width:800px; margin:0 auto;">${heroBarHtml}${cardsHtml}</div>`;
+
+  document.getElementById('live-hero-scan')?.addEventListener('click', triggerLiveScan);
+  document.getElementById('live-hero-toggle')?.addEventListener('click', toggleLiveScan);
+  document.getElementById('live-hero-to-ws')?.addEventListener('click', () => { showView('hackathons'); loadHackathons(); });
 
   body.querySelectorAll('[data-live-save]').forEach(btn => {
     btn.addEventListener('click', async () => {
@@ -6401,8 +6446,8 @@ function renderLiveRadar() {
         await apiFetch(`/api/live/hackathon-discovery/${id}/save`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ participating: false }) });
         liveDiscoveryCache = liveDiscoveryCache.filter(x => String(x.id) !== String(id));
         renderLiveRadar();
-        alert('✅ Hackathons Workspace me add ho gaya!');
-      } catch (e) { alert(e.message); btn.disabled = false; btn.textContent = '📌 Save'; }
+        alert('✅ Hackathons Workspace me transfer ho gaya! Click "🏆 My Hackathons" to view.');
+      } catch (e) { alert(e.message); btn.disabled = false; btn.textContent = '📌 Save to Workspace'; }
     });
   });
 
@@ -6416,6 +6461,39 @@ function renderLiveRadar() {
       } catch (e) { alert(e.message); }
     });
   });
+}
+
+async function triggerLiveScan() {
+  const scanBtns = [document.getElementById('live-scan-btn'), document.getElementById('live-hero-scan'), document.getElementById('live-empty-scan-btn')].filter(Boolean);
+  scanBtns.forEach(b => { b.disabled = true; b.textContent = 'Scanning…'; });
+
+  try {
+    const res = await apiFetch('/api/live/hackathon-discovery/run', { method: 'POST' });
+    if (res.skipped) {
+      alert('Scan already scheduled soon. 4-day interval cycle is running.');
+    } else {
+      alert(`✅ Live scan complete! Discovered ${res.added || 0} new hackathons across Devpost, Unstop & Devfolio.`);
+    }
+    await loadLive();
+  } catch (err) {
+    alert('Scan failed: ' + err.message);
+  } finally {
+    scanBtns.forEach(b => { b.disabled = false; b.textContent = '🔍 Scan Now'; });
+  }
+}
+
+async function toggleLiveScan() {
+  const isPaused = liveDiscoveryMeta.enabled === false;
+  try {
+    await apiFetch('/api/live/hackathon-discovery/toggle', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ enabled: isPaused })
+    });
+    await loadLive();
+  } catch (e) {
+    alert(e.message);
+  }
 }
 
 document.getElementById('live-scan-btn')?.addEventListener('click', async (e) => {
