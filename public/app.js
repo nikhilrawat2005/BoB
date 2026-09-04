@@ -5085,14 +5085,15 @@ function renderSeoAudit(site) {
   const serpTitle = String(site.title || site.domain || '');
   const serpSnippet = String(signals.metaDescription || a.summary || 'No meta description — Google koi bhi random snippet utha lega.').slice(0, 160);
 
+  const allIssues = compileAllSeoIssues(site);
+
   const opTab = (id, active, label) =>
     `<button class="seo-op-tab${active ? ' seo-op-tab-on' : ''}" data-seop="${id}" style="padding:6px 12px;border-radius:8px;background:#00000033;color:var(--text2);font-size:11px;font-weight:700;border:1px solid #ffffff18;${active ? 'background:#00000055;color:var(--text1);box-shadow:inset 0 0 0 1px #ffffff33;' : ''}">${label}</button>`;
 
   el.innerHTML = `
     <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px;">
       ${opTab('dash', true, '📊 Dashboard')}
-      ${opTab('problems', false, '🚨 Problems (' + ((a.issues || []).length + (a.crawledPages || []).filter(p => (p.status && p.status !== 200) || p.isOrphan).length) + ')')}
-      ${opTab('issues', false, '⚠️ Issues (' + ((a.issues || []).length) + ')')}
+      ${opTab('issues', false, '⚠️ Issues (' + allIssues.length + ')')}
       ${opTab('strengths', false, '✅ Strengths')}
       ${opTab('topics', false, '🗺 16-Topics')}
       ${opTab('pages', false, '🗂️ Pages (' + ((a.crawledPages || []).length) + ')')}
@@ -5109,7 +5110,7 @@ function renderSeoAudit(site) {
           <span style="font-weight:700;font-size:12px;color:var(--text1);">✨ Bob AI Master Plan</span>
           ${(a.aiActionPlan) ? '<span style="font-size:10px;color:var(--green);font-weight:700;padding:2px 6px;border-radius:4px;background:rgba(52,211,153,0.12);">✓ Ready in Chat</span>' : ''}
         </div>
-        <div style="font-size:11px;color:var(--text2);margin:6px 0 10px;line-height:1.45;">
+        <div style="font-size:11px;color:var(--text2);margin-zero:6px 0 10px;line-height:1.45;">
           ${(a.aiActionPlan) 
             ? 'Pura roadmap niche preview hai — chat section mein bhi available. Re-generate for fresh plan.' 
             : 'Master Bob website ke 50+ pages, Core Web Vitals aur vulnerabilities ko analyze karke action plan dega.'}
@@ -5173,14 +5174,12 @@ function renderSeoAudit(site) {
         <button class="btn-small" id="re-audit-seo" style="width:100%;margin-top:8px;padding:6px 0;font-weight:700;">↻ Re-Audit Website</button>
       </div>
     </div>
-    <div class="seo-op-pane" data-seopath="problems" hidden id="seo-op-problems"></div>
     <div class="seo-op-pane" data-seopath="issues" hidden id="seo-op-issues"></div>
     <div class="seo-op-pane" data-seopath="strengths" hidden id="seo-op-strengths"></div>
     <div class="seo-op-pane" data-seopath="topics" hidden id="seo-op-topics"></div>
     <div class="seo-op-pane" data-seopath="pages" hidden id="seo-op-pages"></div>
   `;
 
-  renderSeoProblems(site);
   renderSeoIssues(site);
   renderSeoStrengths(site);
   renderSeoTopics(site);
@@ -5322,163 +5321,264 @@ function switchSeoOpTab(name) {
   });
 }
 
-function renderSeoProblems(site) {
-  const el = document.getElementById('seo-op-problems');
-  if (!el) return;
-
+function compileAllSeoIssues(site) {
   const a = site.audit || {};
   const issues = a.issues || [];
   const pages = a.crawledPages || [];
   const signals = a.signals || {};
   const ps = a.pageSpeed || {};
-  const keywords = site.keywords || [];
 
   const compiled = [];
 
   // 1. Audit Crawler Issues
   issues.forEach(i => {
     compiled.push({
-      source: 'Crawl Issue',
-      severity: i.severity || 'medium',
       title: i.text,
-      desc: `Category: ${(i.category || 'general').toUpperCase()}. Found during full HTML parsing.`,
-      impact: i.severity === 'high' ? 'High bounce risk and organic ranking drop.' : 'Sub-optimal indexing factor.',
-      fix: i.fix || 'Apply standard SEO fixes to head or body markup.'
+      category: i.category || 'crawl',
+      severity: i.severity || 'medium',
+      problem: `Found during crawler analysis (${i.category || 'on-page'}). Directly affects page crawlability and user experience.`,
+      impact: i.severity === 'high' ? 'High bounce risk, organic ranking penalty, and crawler indexing failure.' : 'Sub-optimal indexing factor and minor SEO friction.'
     });
   });
 
-  // 2. Core Web Vitals
+  // 2. 16-Topics Failures & Warnings
+  const tops = typeof seoTopicsOf === 'function' ? seoTopicsOf(site) : [];
+  tops.forEach(t => {
+    const st = (t.status || '').toLowerCase();
+    if (st === 'fail' || st === 'warn') {
+      // Avoid duplicate if crawler issue text is very similar
+      const exists = compiled.some(c => c.title.toLowerCase().includes(t.title.toLowerCase()));
+      if (!exists) {
+        compiled.push({
+          title: `${t.title}: ${t.finding}`,
+          category: (t.group || 'technical').toLowerCase(),
+          severity: st === 'fail' ? 'high' : 'medium',
+          problem: t.problem || t.finding,
+          impact: st === 'fail' ? 'Significant search ranking impairment and technical non-compliance.' : 'Advisory warning that reduces organic discovery performance.'
+        });
+      }
+    }
+  });
+
+  // 3. Core Web Vitals & Performance Gaps (Dashboard)
   if (ps.lcp != null && Number(ps.lcp) > 2.5) {
-    compiled.push({
-      source: 'Core Web Vitals',
-      severity: Number(ps.lcp) > 4.0 ? 'high' : 'medium',
-      title: `Slow LCP (${ps.lcp}s > 2.5s goal)`,
-      desc: 'Largest content element render hone mein 2.5s se zyada time le raha hai.',
-      impact: 'Mobile users bounce ho jate hain aur Google PSI score girta hai.',
-      fix: 'Compress images into WebP/AVIF, preload hero fonts aur server TTFB fast karein.'
-    });
+    if (!compiled.some(c => c.title.toLowerCase().includes('lcp'))) {
+      compiled.push({
+        title: `Slow LCP (${ps.lcp}s > 2.5s goal)`,
+        category: 'performance',
+        severity: Number(ps.lcp) > 4.0 ? 'high' : 'medium',
+        problem: 'Largest content element render hone mein 2.5s se zyada time le raha hai.',
+        impact: 'Mobile users bounce ho jaate hain aur Google PageSpeed ranking gir sakti hai.'
+      });
+    }
   }
   if (ps.cls != null && Number(ps.cls) > 0.1) {
-    compiled.push({
-      source: 'Core Web Vitals',
-      severity: 'medium',
-      title: `Layout Shift CLS (${ps.cls} > 0.1 goal)`,
-      desc: 'Page load hote waqt content achanak jump karta hai.',
-      impact: 'Accidental taps and poor visual experience.',
-      fix: 'Images aur ads containers par explicit width & height attribute set karein.'
-    });
+    if (!compiled.some(c => c.title.toLowerCase().includes('cls'))) {
+      compiled.push({
+        title: `Layout Shift CLS (${ps.cls} > 0.1 goal)`,
+        category: 'performance',
+        severity: 'medium',
+        problem: 'Page load hote waqt visual content achanak jump karta hai.',
+        impact: 'Accidental taps, high frustration, aur poor Core Web Vitals score.'
+      });
+    }
   }
   if (ps.tbt != null && Number(ps.tbt) > 200) {
-    compiled.push({
-      source: 'Core Web Vitals',
-      severity: 'medium',
-      title: `High TBT Blocking (${ps.tbt}ms > 200ms goal)`,
-      desc: 'Main JavaScript thread zyada der tak busy rehta hai.',
-      impact: 'Buttons and scroll inputs freeze for a few moments after landing.',
-      fix: 'Split heavy JS bundles aur non-critical scripts defer karein.'
-    });
+    if (!compiled.some(c => c.title.toLowerCase().includes('tbt'))) {
+      compiled.push({
+        title: `High TBT Thread Blocking (${ps.tbt}ms > 200ms goal)`,
+        category: 'performance',
+        severity: 'medium',
+        problem: 'Main JavaScript thread heavy scripts execute karne mein busy rehta hai.',
+        impact: 'Buttons and user inputs feel unresponsive during initial load.'
+      });
+    }
   }
 
-  // 3. Technical & Security Signals
+  // 4. Technical Security & Bot Signals (Dashboard)
   if (signals.hsts === false || signals.hsts === 'missing') {
-    compiled.push({
-      source: 'Security Header',
-      severity: 'medium',
-      title: 'Missing HSTS Header',
-      desc: 'Strict-Transport-Security header server response mein missing hai.',
-      impact: 'HTTPS downgrade attack risk and security compliance flag.',
-      fix: 'Add header: Strict-Transport-Security: max-age=31536000; includeSubDomains'
-    });
-  }
-  if (signals.hasSchema === false) {
-    compiled.push({
-      source: 'Rich Snippets',
-      severity: 'medium',
-      title: 'No JSON-LD Schema Found',
-      desc: 'Structured data markup head section mein nahi mila.',
-      impact: 'Google Search results mein FAQ, review stars aur breadcrumb snippets nahi dikhte.',
-      fix: 'Head tag mein JSON-LD Organization ya WebSite schema inject karein.'
-    });
+    if (!compiled.some(c => c.title.toLowerCase().includes('hsts'))) {
+      compiled.push({
+        title: 'Missing HSTS (Strict-Transport-Security) Header',
+        category: 'security',
+        severity: 'medium',
+        problem: 'Server response me Strict-Transport-Security header configured nahi hai.',
+        impact: 'Insecure downgrade attacks ka risk rehta hai aur browser SSL security rating drop hoti hai.'
+      });
+    }
   }
   if (signals.robotsExists === false) {
-    compiled.push({
-      source: 'Crawler Bot',
-      severity: 'high',
-      title: 'robots.txt Missing or 404',
-      desc: 'Search bots ko domain crawling guidelines nahi mil rahi.',
-      impact: 'Crawl budget waste hota hai.',
-      fix: 'Website root par valid robots.txt upload karein with sitemap link.'
-    });
+    if (!compiled.some(c => c.title.toLowerCase().includes('robots.txt'))) {
+      compiled.push({
+        title: 'robots.txt Missing or 404',
+        category: 'crawler',
+        severity: 'high',
+        problem: 'Search engine bots ko crawl rules aur directive boundaries nahi mil pa rahi hain.',
+        impact: 'Crawl budget waste hota hai aur non-public URLs accidental index ho sakti hain.'
+      });
+    }
   }
 
-  // 4. Crawled Pages (Broken, Orphans, Thin Content)
+  // 5. Crawled Pages Architecture (Broken, Orphans, Thin Content, Missing H1)
   pages.forEach(p => {
+    const pageUrl = p.path || p.url || '';
     if (p.status && p.status !== 200) {
       compiled.push({
-        source: 'Page Architecture',
+        title: `Broken Page (${p.status} Error): ${pageUrl}`,
+        category: 'pages',
         severity: 'high',
-        title: `Broken Page (${p.status}): ${p.path || p.url}`,
-        desc: `Crawler ko internal page par ${p.status} error mila.`,
-        impact: 'Users get broken links, leading to immediate bounce.',
-        fix: 'Fix the route or setup 301 permanent redirect.'
+        problem: `Internal page load par HTTP ${p.status} status return hua. Dead link detect hui.`,
+        impact: 'Users encounter broken links leading to immediate bounce and negative user journey.'
       });
     }
     if (p.isOrphan) {
       compiled.push({
-        source: 'Page Architecture',
+        title: `Orphan Internal Page: ${pageUrl}`,
+        category: 'pages',
         severity: 'medium',
-        title: `Orphan Page: ${p.path || p.url}`,
-        desc: 'Website ke kisi bhi page se is page ka internal link nahi hai.',
-        impact: 'Search engines is page ko discover aur rank nahi kar paate.',
-        fix: 'Header navigation, footer ya parent articles se internal link add karein.'
+        problem: 'Website ke kisi bhi parent ya child navigation se is page ka internal incoming link nahi hai.',
+        impact: 'Search crawlers is page ko easily discover ya rank nahi kar paate.'
+      });
+    }
+    if (!p.h1) {
+      compiled.push({
+        title: `Missing H1 Heading on Page: ${pageUrl}`,
+        category: 'pages',
+        severity: 'low',
+        problem: 'Page structure me primary H1 heading element absent hai.',
+        impact: 'Search engines ko primary topic clarity nahi milti.'
+      });
+    }
+    if (p.wordCount > 0 && p.wordCount < 120) {
+      compiled.push({
+        title: `Thin Content (${p.wordCount} words): ${pageUrl}`,
+        category: 'pages',
+        severity: 'medium',
+        problem: `Page par sirf ${p.wordCount} words detected hue jo content depth guidelines (< 120 words) se kam hain.`,
+        impact: 'Google thin content pages ko low-quality / auto-generated samajh kar de-index kar sakta hai.'
       });
     }
   });
 
-  const cardsHtml = compiled.map(prob => {
-    const sevColor = prob.severity === 'high' ? '#ef4444' : prob.severity === 'medium' ? '#f59e0b' : '#38bdf8';
-    return `
-      <div style="background:var(--surface);border:1px solid rgba(255,255,255,0.08);border-left:4px solid ${sevColor};border-radius:10px;padding:12px;margin-bottom:10px;">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;gap:6px;flex-wrap:wrap;">
-          <div style="display:flex;align-items:center;gap:6px;">
-            <span style="font-size:9.5px;font-weight:900;padding:2px 7px;border-radius:4px;background:${sevColor}22;color:${sevColor};text-transform:uppercase;">${escHtml(prob.severity)}</span>
-            <span style="font-size:9.5px;font-weight:700;padding:2px 7px;border-radius:4px;background:rgba(255,255,255,0.06);color:var(--text2);">${escHtml(prob.source)}</span>
-          </div>
-        </div>
-        <div style="font-size:13px;font-weight:800;color:var(--text);margin-bottom:4px;">${escHtml(prob.title)}</div>
-        <div style="font-size:11.5px;color:var(--text2);line-height:1.5;margin-bottom:8px;">${escHtml(prob.desc)}</div>
-        
-        <div style="background:rgba(239,68,68,0.06);border:1px solid rgba(239,68,68,0.15);border-radius:6px;padding:6px 8px;margin-bottom:6px;font-size:11px;color:#fecaca;">
-          <strong style="color:#f87171;">⚠️ Why It Matters:</strong> ${escHtml(prob.impact)}
-        </div>
+  return compiled;
+}
 
-        <div style="background:rgba(16,185,129,0.06);border:1px solid rgba(16,185,129,0.18);border-radius:6px;padding:6px 8px;font-size:11px;color:#a7f3d0;">
-          <strong style="color:#34d399;">💡 How to Fix:</strong> ${escHtml(prob.fix)}
+function copyAllSeoIssuesText(site, items) {
+  const domain = site.domain || site.url || 'Website';
+  let text = `========================================\n`;
+  text += `🚨 SEO ISSUES & BUGS REPORT: ${domain}\n`;
+  text += `Audited on: ${new Date().toLocaleString('en-IN')}\n`;
+  text += `Total Issues Detected: ${items.length}\n`;
+  text += `========================================\n\n`;
+
+  items.forEach((item, idx) => {
+    text += `[${idx + 1}] ${item.title}\n`;
+    text += `Severity: ${(item.severity || 'medium').toUpperCase()} | Category: ${(item.category || 'general').toUpperCase()}\n`;
+    text += `Problem Detail: ${item.problem}\n`;
+    text += `Impact: ${item.impact}\n`;
+    text += `----------------------------------------\n\n`;
+  });
+
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(() => {
+      alert(`✅ Saare ${items.length} issues clipboard me copy ho gaye!`);
+    }).catch(() => {
+      fallbackCopyText(text);
+    });
+  } else {
+    fallbackCopyText(text);
+  }
+}
+
+function fallbackCopyText(text) {
+  const ta = document.createElement('textarea');
+  ta.value = text;
+  ta.style.position = 'fixed';
+  ta.style.opacity = '0';
+  document.body.appendChild(ta);
+  ta.select();
+  try {
+    document.execCommand('copy');
+    alert('✅ Saare issues clipboard me copy ho gaye!');
+  } catch (e) {
+    alert('Copy failed, please copy manually.');
+  }
+  document.body.removeChild(ta);
+}
+
+function downloadSeoIssuesPdf(site, items) {
+  const domain = site.domain || site.url || 'website';
+  const rows = items.map((item, idx) => {
+    const sevColor = item.severity === 'high' ? '#dc2626' : item.severity === 'medium' ? '#d97706' : '#2563eb';
+    const sevBg = item.severity === 'high' ? '#fee2e2' : item.severity === 'medium' ? '#fef3c7' : '#dbeafe';
+    return `
+      <div style="page-break-inside:avoid;border:1px solid #e2e8f0;border-left:5px solid ${sevColor};border-radius:8px;padding:12px;margin-bottom:12px;background:#ffffff;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+          <span style="font-size:11px;font-weight:bold;background:${sevBg};color:${sevColor};padding:3px 8px;border-radius:4px;text-transform:uppercase;">${escHtml(item.severity)}</span>
+          <span style="font-size:11px;color:#64748b;font-weight:600;text-transform:uppercase;">${escHtml(item.category)}</span>
+        </div>
+        <div style="font-size:14px;font-weight:bold;color:#0f172a;margin-bottom:6px;">#${idx + 1}. ${escHtml(item.title)}</div>
+        <div style="font-size:12px;color:#334155;line-height:1.5;margin-bottom:8px;">
+          <strong style="color:#0f172a;">Problem:</strong> ${escHtml(item.problem)}
+        </div>
+        <div style="font-size:11.5px;color:#b91c1c;background:#fef2f2;padding:8px 10px;border-radius:6px;line-height:1.45;border:1px solid #fecaca;">
+          <strong>Impact:</strong> ${escHtml(item.impact)}
         </div>
       </div>
     `;
   }).join('');
 
-  el.innerHTML = `
-    <div class="ws-kb-block" style="margin-bottom:12px;border:1px solid rgba(239,68,68,0.25);background:rgba(239,68,68,0.05);">
-      <div style="display:flex;justify-content:space-between;align-items:center;">
-        <div class="ws-kb-label" style="color:#f87171;">🚨 All Compiled Problems & Gaps (${compiled.length})</div>
-      </div>
-      <div style="font-size:11.5px;color:var(--text2);margin-top:4px;line-height:1.45;">
-        Crawl errors, performance bottlenecks, broken links, orphan pages aur missing signals sab ek clean explanatory list mein compiled hain.
-      </div>
+  const html = `<!doctype html>
+  <html>
+  <head>
+    <meta charset="utf-8">
+    <title>SEO Issues & Bugs - ${escHtml(domain)}</title>
+    <style>
+      body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background: #f8fafc; color: #0f172a; padding: 24px; margin: 0; }
+      .header { background: #0f172a; color: #ffffff; padding: 18px 24px; border-radius: 8px; margin-bottom: 20px; }
+      .header h1 { margin: 0 0 6px 0; font-size: 20px; }
+      .header p { margin: 0; font-size: 12px; color: #94a3b8; }
+      @media print {
+        body { padding: 0; background: #ffffff; }
+        .header { border-radius: 0; }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="header">
+      <h1>🚨 Comprehensive SEO Issues & Defects Report</h1>
+      <p>Target: <strong>${escHtml(domain)}</strong> · Total Issues: <strong>${items.length}</strong> · Generated on: ${new Date().toLocaleString('en-IN')}</p>
+      <p style="margin-top:4px;font-size:11px;color:#cbd5e1;">(Note: This report contains pure problem and vulnerability impact diagnostics without solution recommendations.)</p>
     </div>
-    <div>${cardsHtml || '<div style="font-size:12px;color:var(--green);text-align:center;padding:24px 0;">🎉 Zero Problems Detected! Website is clean.</div>'}</div>
-  `;
+    <div>${rows || '<p>No issues found.</p>'}</div>
+  </body>
+  </html>`;
+
+  const f = document.createElement('iframe');
+  f.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0;';
+  f.srcdoc = html;
+  document.body.appendChild(f);
+  f.addEventListener('load', () => {
+    setTimeout(() => {
+      try {
+        f.contentWindow.focus();
+        f.contentWindow.print();
+      } catch (e) {
+        alert('PDF dialog failed to open.');
+      }
+    }, 100);
+  });
 }
 
 function renderSeoIssues(site) {
   const el = document.getElementById('seo-op-issues');
   if (!el) return;
-  const issues = (site.audit && site.audit.issues) || [];
-  const cats = [...new Set(issues.map(i => i.category || 'misc'))];
+
+  const allCompiled = compileAllSeoIssues(site);
+  const cats = [...new Set(allCompiled.map(i => i.category || 'general'))];
   const sevOrder = { high: 3, medium: 2, low: 1 };
-  const filtered = issues.filter(i =>
+
+  const filtered = allCompiled.filter(i =>
     (seoIssueSev === 'all' || i.severity === seoIssueSev) &&
     (seoIssueCat === 'all' || i.category === seoIssueCat)
   ).sort((x, y) => (sevOrder[y.severity] || 0) - (sevOrder[x.severity] || 0));
@@ -5486,51 +5586,65 @@ function renderSeoIssues(site) {
   const pill = (kind, val, label, active) =>
     `<button class="seo-pill${active ? ' active' : ''}" data-kind="${kind}" data-val="${val}">${label}</button>`;
   
-  const sevPills = pill('sev', 'all', 'All', seoIssueSev === 'all') +
-    ['high', 'medium', 'low'].map(s => pill('sev', s, s, seoIssueSev === s)).join('');
+  const sevPills = pill('sev', 'all', 'All (' + allCompiled.length + ')', seoIssueSev === 'all') +
+    ['high', 'medium', 'low'].map(s => pill('sev', s, `${s.toUpperCase()} (${allCompiled.filter(i => i.severity === s).length})`, seoIssueSev === s)).join('');
+  
   const catPills = pill('cat', 'all', 'All', seoIssueCat === 'all') +
-    cats.map(c => pill('cat', c, c, seoIssueCat === c)).join('');
+    cats.map(c => pill('cat', c, c.toUpperCase(), seoIssueCat === c)).join('');
 
   const counts = {
-    high: issues.filter(i => i.severity === 'high').length,
-    medium: issues.filter(i => i.severity === 'medium').length,
-    low: issues.filter(i => i.severity === 'low').length
+    high: allCompiled.filter(i => i.severity === 'high').length,
+    medium: allCompiled.filter(i => i.severity === 'medium').length,
+    low: allCompiled.filter(i => i.severity === 'low').length
   };
 
-  const list = filtered.length ? filtered.map(i => {
+  const list = filtered.length ? filtered.map((i, idx) => {
     const sevClass = i.severity === 'high' ? 'sev-high' : i.severity === 'medium' ? 'sev-medium' : 'sev-low';
     return `
-      <div class="seo-diag-card ${sevClass}">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+      <div class="seo-diag-card ${sevClass}" style="margin-bottom:10px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
           <div style="display:flex;gap:6px;align-items:center;">
             <span class="seo-badge-tag ${i.severity}">● ${i.severity.toUpperCase()}</span>
             <span class="seo-badge-tag category">${escHtml(i.category || 'general')}</span>
           </div>
+          <span style="font-size:10px;color:var(--text3);font-weight:700;">#${idx + 1}</span>
         </div>
-        <div class="md-content" style="font-size:12.5px;font-weight:600;color:var(--text1);line-height:1.45;">${renderTextContent(i.text)}</div>
-        <div style="font-size:11px;color:var(--text3);margin-top:8px;padding-top:6px;border-top:1px dashed var(--border2);line-height:1.4;">
-          <span style="color:var(--text2);font-weight:600;">Impact:</span> Crawler indexing, page load performance aur user search ranking affect ho sakti hai.
+        <div class="md-content" style="font-size:13px;font-weight:700;color:var(--text1);line-height:1.45;margin-bottom:6px;">${renderTextContent(i.title)}</div>
+        <div style="font-size:11.5px;color:var(--text2);line-height:1.45;margin-bottom:6px;">
+          <strong style="color:var(--text1);">Problem:</strong> ${escHtml(i.problem)}
+        </div>
+        <div style="background:rgba(239,68,68,0.06);border:1px solid rgba(239,68,68,0.18);border-radius:6px;padding:6px 8px;font-size:11px;color:#fecaca;line-height:1.4;">
+          <strong style="color:#f87171;">⚠️ Why It Matters (Impact):</strong> ${escHtml(i.impact)}
         </div>
       </div>`;
   }).join('') : `<div style="font-size:12px;color:var(--text3);padding:20px 0;text-align:center;">Is filter mein koi issue nahi mila — All clean! 🎉</div>`;
 
   el.innerHTML = `
     <div class="ws-kb-block" style="margin-bottom:12px;">
-      <div class="ws-kb-label">⚠️ Negative Points & Vulnerabilities</div>
-      <div style="font-size:11.5px;color:var(--text3);margin-top:2px;">
-        ${issues.length} total issues flagged — 
-        <span style="color:#f87171;font-weight:700;">${counts.high} high</span> · 
-        <span style="color:#fbbf24;font-weight:700;">${counts.medium} med</span> · 
-        <span style="color:var(--text3);">${counts.low} low</span>
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;flex-wrap:wrap;">
+        <div>
+          <div class="ws-kb-label" style="font-size:13px;">⚠️ Complete Negative Points & System Defects</div>
+          <div style="font-size:11.5px;color:var(--text3);margin-top:2px;">
+            ${allCompiled.length} total issues compiled across Crawl, Topics, Dashboard & Pages — 
+            <span style="color:#f87171;font-weight:700;">${counts.high} high</span> · 
+            <span style="color:#fbbf24;font-weight:700;">${counts.medium} med</span> · 
+            <span style="color:#38bdf8;font-weight:700;">${counts.low} low</span>
+          </div>
+        </div>
+        <!-- 1-Click Copy & PDF Actions -->
+        <div style="display:flex;gap:6px;">
+          <button class="btn-small" id="seo-copy-issues-btn" title="Copy all issues without solutions" style="font-size:11px;font-weight:700;padding:5px 10px;background:#3b82f622;color:#60a5fa;border:1px solid #3b82f644;">📋 Copy Issues</button>
+          <button class="btn-small" id="seo-pdf-issues-btn" title="Download clean PDF report without solutions" style="font-size:11px;font-weight:700;padding:5px 10px;background:#ef444422;color:#f87171;border:1px solid #ef444444;">⤓ Download PDF</button>
+        </div>
       </div>
     </div>
     <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:12px;">
-      <div style="display:flex;align-items:center;gap:8px;">
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
         <span style="font-size:11px;color:var(--text3);font-weight:600;min-width:55px;">Severity:</span>
         <div class="seo-pill-group">${sevPills}</div>
       </div>
       ${cats.length > 1 ? `
-      <div style="display:flex;align-items:center;gap:8px;">
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
         <span style="font-size:11px;color:var(--text3);font-weight:600;min-width:55px;">Category:</span>
         <div class="seo-pill-group">${catPills}</div>
       </div>` : ''}
@@ -5538,11 +5652,26 @@ function renderSeoIssues(site) {
     ${list}
   `;
 
+  // Attach event handlers
   el.querySelectorAll('.seo-pill').forEach(btn => btn.addEventListener('click', () => {
     if (btn.dataset.kind === 'sev') seoIssueSev = btn.dataset.val;
     else seoIssueCat = btn.dataset.val;
     renderSeoIssues(site);
   }));
+
+  const copyBtn = document.getElementById('seo-copy-issues-btn');
+  if (copyBtn) {
+    copyBtn.addEventListener('click', () => {
+      copyAllSeoIssuesText(site, filtered.length ? filtered : allCompiled);
+    });
+  }
+
+  const pdfBtn = document.getElementById('seo-pdf-issues-btn');
+  if (pdfBtn) {
+    pdfBtn.addEventListener('click', () => {
+      downloadSeoIssuesPdf(site, filtered.length ? filtered : allCompiled);
+    });
+  }
 }
 
 function renderSeoStrengths(site) {
