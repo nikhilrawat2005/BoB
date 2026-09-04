@@ -47,6 +47,22 @@ const CSE_EXCLUDE = [
   'pharmacy', 'medical', 'finance only', 'marketing only', 'business only',
 ];
 
+
+// ── HTML stripper (fixes scraped prize like "$<span>10,000</span>") ──────
+function stripHtml(str) {
+  if (!str) return '';
+  return str
+    .replace(/<[^>]*>/g, '')    // remove all HTML tags
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#039;/g, "'")
+    .replace(/&nbsp;/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 // ── Firestore helpers ─────────────────────────────────────
 function discoveryColl(userId) {
   return db.collection('users').doc(userId).collection('hackathonDiscovery');
@@ -118,7 +134,7 @@ async function scrapeDevpost() {
           items.push({
             title: h.title,
             link: h.url,
-            prize: h.prize_amount ? String(h.prize_amount) : '',
+            prize: h.prize_amount ? stripHtml(String(h.prize_amount)) : '',
             deadlineText: h.submission_period_dates || '',
             tags: (h.themes || []).map(t => t.name || t).filter(Boolean),
             platform: 'devpost',
@@ -140,7 +156,8 @@ async function scrapeDevpost() {
         try {
           const title = $(el).find('h2, h3, .title, .challenge-title').first().text().trim();
           const link = $(el).find('a').first().attr('href') || '';
-          const prize = $(el).find('.prize-amount, .prize, .prizes').first().text().trim();
+          const rawPrize = $(el).find('.prize-amount, .prize, .prizes').first().html() || $(el).find('.prize-amount, .prize, .prizes').first().text();
+          const prize = stripHtml(rawPrize || '');
           const deadline = $(el).find('.submission-period, .deadline, .date').first().text().trim();
           const tags = [];
           $(el).find('.theme-label, .challenge-label, .tag, .category').each((_, t) => {
@@ -378,48 +395,57 @@ Reply with ONLY a JSON array of numbers representing the indices (1-based) of ha
  */
 async function enrichItem(item) {
   const todayStr = new Date().toISOString().slice(0, 10);
+  const cleanRawPrize = stripHtml(item.prize || '');
   try {
     const res = await callLLM({
       role: 'review',
       messages: [
         {
           role: 'system',
-          content: `You extract structured hackathon info. Reply ONLY clean JSON (no markdown fences).
-TODAY: ${todayStr}. Prefer upcoming/future dates.`,
+          content: `You are an expert tech hackathon advisor for CS engineering students. Extract clean, accurate information from the hackathon data. Reply ONLY clean JSON (no markdown code blocks, no backticks).
+TODAY: ${todayStr}. Prioritize active/upcoming details.`,
         },
         {
           role: 'user',
-          content: `Hackathon: "${item.title}" from ${item.platform}
-Tags: ${item.tags.join(', ') || 'none'}
-Prize: ${item.prize || 'unknown'}
-Deadline text: ${item.deadlineText || 'unknown'}
+          content: `Hackathon: "${item.title}" from platform: ${item.platform}
+Tags/Themes: ${item.tags.join(', ') || 'CSE, Software'}
+Prize info: ${cleanRawPrize || 'Free / Not specified'}
+Deadline info: ${item.deadlineText || 'Check registration'}
+Link: ${item.link || ''}
 
-Generate JSON: {
-  "summary": "3-4 sentence description of what this hackathon is about, who should participate, and what to build",
-  "prize": "cleaned prize string or empty",
-  "mode": "online|offline|hybrid|unknown",
-  "tags": ["array of 2-4 relevant tech tags like AI/ML, Web Dev, DSA"],
-  "teamSize": "e.g. 1-4 or Solo or unknown",
-  "eligibility": "who can participate",
+Generate JSON with these exact fields:
+{
+  "summary": "2-3 crisp sentences: what project/theme to build, tech domain focus, and key challenge highlights. Be informative and specific, avoid generic phrases.",
+  "prize": "Clean prize string (e.g. '$50,000 USD' or '₹2,50,000' or 'Certificates & Swags'). Never include HTML tags.",
+  "fee": "Free or registration fee amount if any (e.g. 'Free Entry')",
+  "mode": "online | offline | hybrid",
+  "location": "City/venue name if offline or hybrid, or 'Virtual / Global' if online",
+  "seatsStatus": "Open | Filling Fast | Limited",
+  "tags": ["2-4 specific tech tags like Web Dev, AI/ML, Full Stack, DSA, Mobile App"],
+  "teamSize": "e.g. 1-4 Members, Solo or Team, etc.",
+  "eligibility": "1 concise sentence on who can participate (e.g. Students & developers globally, Undergrads, etc.)",
   "registrationDeadline": "YYYY-MM-DD or null",
   "startDate": "YYYY-MM-DD or null",
   "endDate": "YYYY-MM-DD or null"
 }`,
         },
       ],
-      temperature: 0.3,
-      max_tokens: 400,
+      temperature: 0.2,
+      max_tokens: 500,
     });
 
     const parsed = JSON.parse(res.text.replace(/```json|```/g, '').trim());
     return {
       ...item,
-      summary: parsed.summary || `${item.title} — hackathon from ${item.platform}.`,
-      prize: parsed.prize || item.prize || '',
+      summary: parsed.summary || `${item.title} — CSE hackathon hosted on ${item.platform}.`,
+      prize: stripHtml(parsed.prize || cleanRawPrize || 'Prize & Mentorship'),
+      fee: parsed.fee || 'Free Entry',
       mode: parsed.mode || 'online',
-      tags: parsed.tags || item.tags.slice(0, 4),
-      teamSize: parsed.teamSize || 'unknown',
-      eligibility: parsed.eligibility || '',
+      location: parsed.location || (parsed.mode === 'offline' ? 'In-Person Venue' : 'Virtual / Online'),
+      seatsStatus: parsed.seatsStatus || 'Open',
+      tags: (parsed.tags && parsed.tags.length) ? parsed.tags : item.tags.slice(0, 4),
+      teamSize: parsed.teamSize || '1-4 Members',
+      eligibility: parsed.eligibility || 'Open to all developers & students',
       registrationDeadline: parsed.registrationDeadline ? new Date(parsed.registrationDeadline).getTime() : null,
       startDate: parsed.startDate ? new Date(parsed.startDate).getTime() : null,
       endDate: parsed.endDate ? new Date(parsed.endDate).getTime() : null,
@@ -428,11 +454,15 @@ Generate JSON: {
     console.warn(`[HackDiscovery] Enrich failed for "${item.title}":`, e.message);
     return {
       ...item,
-      summary: `${item.title} — a hackathon from ${item.platform}.`,
+      summary: `${item.title} — Software engineering & hackathon challenge on ${item.platform}. Build and submit innovative CSE projects.`,
+      prize: cleanRawPrize || 'Prizes & Recognition',
+      fee: 'Free Entry',
       mode: 'online',
-      tags: item.tags.slice(0, 4),
-      teamSize: 'unknown',
-      eligibility: '',
+      location: 'Virtual / Online',
+      seatsStatus: 'Open',
+      tags: item.tags.length ? item.tags.slice(0, 4) : ['Web Dev', 'AI/ML'],
+      teamSize: '1-4 Members',
+      eligibility: 'Open to developers & students',
       registrationDeadline: null,
       startDate: null,
       endDate: null,
@@ -522,10 +552,13 @@ async function runDiscovery(userId, force = false) {
       link: item.link,
       summary: item.summary,
       prize: item.prize || '',
+      fee: item.fee || 'Free Entry',
       mode: item.mode || 'online',
+      location: item.location || 'Virtual / Online',
+      seatsStatus: item.seatsStatus || 'Open',
       tags: item.tags || [],
-      teamSize: item.teamSize || 'unknown',
-      eligibility: item.eligibility || '',
+      teamSize: item.teamSize || '1-4 Members',
+      eligibility: item.eligibility || 'Open to developers & students',
       registrationDeadline: item.registrationDeadline || null,
       startDate: item.startDate || null,
       endDate: item.endDate || null,

@@ -6401,30 +6401,57 @@ function renderLiveRadar() {
 
   const cardsHtml = liveDiscoveryCache.map(h => {
     const platformColors = {
-      devpost: '#003E54',
-      unstop: '#6c2bd9',
-      devfolio: '#3770FF'
+      devpost: '#00a8cc',
+      unstop: '#8b5cf6',
+      devfolio: '#3b82f6'
     };
     const pColor = platformColors[h.platform] || '#38bdf8';
     const deadline = h.registrationDeadline ? new Date(h.registrationDeadline).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' }) : 'Open';
-    const tags = (h.tags || []).slice(0, 3).map(t => `<span style="font-size:10px; padding:2px 6px; border-radius:4px; background:rgba(56,189,248,0.12); color:#38bdf8;">${escHtml(t)}</span>`).join(' ');
+    const tags = (h.tags || []).slice(0, 3).map(t => `<span style="font-size:10px; font-weight:700; padding:3px 7px; border-radius:6px; background:rgba(56,189,248,0.12); color:#38bdf8;">#${escHtml(t)}</span>`).join(' ');
+    
+    // Clean any residual HTML from prize
+    const cleanPrize = (h.prize || 'Prizes & Swags').replace(/<[^>]*>/g, '').trim();
+    const feeText = h.fee || 'Free Entry';
+    const isFree = feeText.toLowerCase().includes('free');
+    const mode = h.mode || 'online';
+    const isOnline = mode.toLowerCase() === 'online';
+    const location = h.location || (isOnline ? 'Online / Virtual' : 'In-Person Venue');
+    const seats = h.seatsStatus || 'Open';
 
     return `
-      <div class="hack-card" style="background:var(--surface); border:1px solid rgba(139, 92, 246, 0.2); border-radius:12px; padding:16px; margin-bottom:12px; transition:border-color 0.2s;">
-        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
-          <span style="font-size:10px; font-weight:800; padding:2px 8px; border-radius:4px; background:${pColor}30; color:${pColor}; text-transform:uppercase;">${escHtml(h.platform || 'CSE')}</span>
-          <span style="font-size:11px; font-weight:700; color:#f59e0b;">⏱ ${escHtml(deadline)}</span>
+      <div class="hack-card" style="background:var(--surface); border:1px solid rgba(139, 92, 246, 0.25); border-radius:14px; padding:18px; margin-bottom:16px; box-shadow:0 4px 18px rgba(0,0,0,0.25);">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; gap:8px; flex-wrap:wrap;">
+          <div style="display:flex; align-items:center; gap:8px;">
+            <span style="font-size:10px; font-weight:900; padding:3px 9px; border-radius:6px; background:${pColor}25; color:${pColor}; border:1px solid ${pColor}50; text-transform:uppercase; letter-spacing:0.5px;">${escHtml(h.platform || 'CSE')}</span>
+            <span style="font-size:10px; font-weight:800; padding:2px 8px; border-radius:6px; background:${isFree ? 'rgba(74, 222, 128, 0.15)' : 'rgba(245, 158, 11, 0.15)'}; color:${isFree ? '#4ade80' : '#f59e0b'}; border:1px solid ${isFree ? 'rgba(74,222,128,0.3)' : 'rgba(245,158,11,0.3)'};">
+              ${isFree ? '🟢 FREE ENTRY' : '💳 ' + escHtml(feeText.toUpperCase())}
+            </span>
+            <span style="font-size:10px; font-weight:700; padding:2px 8px; border-radius:6px; background:${isOnline ? 'rgba(56, 189, 248, 0.12)' : 'rgba(168, 85, 247, 0.12)'}; color:${isOnline ? '#38bdf8' : '#c084fc'};">
+              ${isOnline ? '🌐 Online' : '📍 ' + escHtml(location)}
+            </span>
+          </div>
+          <span style="font-size:11px; font-weight:800; color:#f59e0b; background:rgba(245, 158, 11, 0.1); padding:2px 8px; border-radius:6px;">⏱ ${escHtml(deadline)}</span>
         </div>
-        <h3 style="font-size:16px; font-weight:800; color:var(--text); margin-bottom:6px; line-height:1.3;">${escHtml(h.title)}</h3>
-        <p style="font-size:13px; color:var(--text2); line-height:1.5; margin-bottom:10px;">${escHtml(h.summary || '')}</p>
-        <div style="display:flex; gap:6px; flex-wrap:wrap; margin-bottom:12px;">
+
+        <h3 style="font-size:17px; font-weight:900; color:var(--text); margin-bottom:8px; line-height:1.35;">${escHtml(h.title)}</h3>
+        <p style="font-size:13px; color:var(--text2); line-height:1.6; margin-bottom:12px;">${escHtml(h.summary || '')}</p>
+
+        <!-- Hackathon Key Facts Quick Bar -->
+        <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap:8px; background:rgba(0,0,0,0.25); border:1px solid rgba(255,255,255,0.05); padding:8px 12px; border-radius:8px; margin-bottom:12px; font-size:11px;">
+          <div><span style="color:var(--text2);">👥 Team:</span> <strong style="color:var(--text);">${escHtml(h.teamSize || '1-4 Members')}</strong></div>
+          <div><span style="color:var(--text2);">📍 Location:</span> <strong style="color:var(--text);">${escHtml(location)}</strong></div>
+          <div><span style="color:var(--text2);">🎟 Status:</span> <strong style="color:#4ade80;">${escHtml(seats)}</strong></div>
+        </div>
+
+        <div style="display:flex; gap:6px; flex-wrap:wrap; margin-bottom:14px;">
           ${tags}
         </div>
-        <div style="display:flex; justify-content:space-between; align-items:center; padding-top:12px; border-top:1px solid rgba(255,255,255,0.06);">
-          <div style="font-weight:800; font-size:13px; color:#facc15;">💰 ${escHtml(h.prize || 'Prizes & Swags')}</div>
-          <div style="display:flex; gap:8px;">
-            <a href="${escHtml(h.link)}" target="_blank" rel="noopener noreferrer" class="btn-small" style="text-decoration:none; background:rgba(56,189,248,0.15); color:#38bdf8; border:1px solid rgba(56,189,248,0.3);">🔗 Register</a>
-            <button class="btn-small btn-primary" data-live-save="${h.id}" title="Transfer to Hackathons Workspace">📌 Save to Workspace</button>
+
+        <div style="display:flex; justify-content:space-between; align-items:center; padding-top:12px; border-top:1px solid rgba(255,255,255,0.06); flex-wrap:wrap; gap:10px;">
+          <div style="font-weight:900; font-size:14px; color:#facc15;">💰 ${escHtml(cleanPrize)}</div>
+          <div style="display:flex; gap:8px; flex-wrap:wrap;">
+            <a href="${escHtml(h.link)}" target="_blank" rel="noopener noreferrer" class="btn-small" style="text-decoration:none; background:rgba(56,189,248,0.15); color:#38bdf8; border:1px solid rgba(56,189,248,0.3); font-weight:700;">🔗 Register</a>
+            <button class="btn-small btn-primary" data-live-save="${h.id}" title="Transfer to Hackathons Workspace" style="font-weight:700;">📌 Save to Workspace</button>
             <button class="btn-small" data-live-del="${h.id}" style="background:rgba(244,63,94,0.15); color:#f43f5e; border:1px solid rgba(244,63,94,0.3);">✕ Dismiss</button>
           </div>
         </div>
