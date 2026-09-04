@@ -6348,19 +6348,36 @@ async function loadLive() {
 function renderLiveRadar() {
   const body = document.getElementById('live-body');
   const isPaused = liveDiscoveryMeta.enabled === false;
+  const nextRunAt = liveDiscoveryMeta.nextRunAt || 0;
   
+  function getCountdownText(ts) {
+    if (!ts || isPaused) return isPaused ? '⏸ Paused' : 'Ready to scan';
+    const diff = ts - Date.now();
+    if (diff <= 0) return '⚡ Due for auto-scan now';
+    const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+    const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+    const mins = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+    if (days > 0) return `⏳ Next auto-scan in ${days}d ${hours}h`;
+    return `⏳ Next auto-scan in ${hours}h ${mins}m`;
+  }
+
+  const countdownStr = getCountdownText(nextRunAt);
+
   // Dynamic Hero Control Bar visible inside page body
   const heroBarHtml = `
     <div style="background: rgba(139, 92, 246, 0.08); border: 1px solid rgba(139, 92, 246, 0.25); border-radius: 12px; padding: 14px 18px; margin-bottom: 20px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px;">
       <div>
-        <div style="font-weight: 800; font-size: 15px; color: #c084fc; display: flex; align-items: center; gap: 8px;">
+        <div style="font-weight: 800; font-size: 15px; color: #c084fc; display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
           <span>⚡ Autonomous Crawler Radar</span>
           <span style="font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 10px; background: ${isPaused ? 'rgba(245, 158, 11, 0.2)' : 'rgba(74, 222, 128, 0.2)'}; color: ${isPaused ? '#f59e0b' : '#4ade80'};">
-            ${isPaused ? '⏸ PAUSED' : '🟢 ACTIVE (4-Day Interval)'}
+            ${isPaused ? '⏸ PAUSED' : '🟢 ACTIVE (4-Day Auto Cycle)'}
+          </span>
+          <span id="live-countdown-badge" style="font-size: 11px; font-weight: 800; padding: 2px 9px; border-radius: 10px; background: rgba(139, 92, 246, 0.2); color: #c084fc; border: 1px solid rgba(139, 92, 246, 0.35);">
+            ${countdownStr}
           </span>
         </div>
-        <div style="font-size: 12px; color: var(--text2); margin-top: 3px;">
-          Scrapes real CSE hackathons from <strong>Devpost</strong>, <strong>Unstop</strong> & <strong>Devfolio</strong>.
+        <div style="font-size: 12px; color: var(--text2); margin-top: 4px;">
+          Scrapes real CSE hackathons from <strong>Devpost</strong>, <strong>Unstop</strong> & <strong>Devfolio</strong> with permanent link de-duplication (no repeated hackathons).
         </div>
       </div>
       <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
