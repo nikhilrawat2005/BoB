@@ -19,7 +19,7 @@ CANDIDATE MASTER PROFILE:
 ${JSON.stringify(profile, null, 2)}
 
 CRITICAL RULES:
-1. LINKS INTEGRITY: ONLY include links that the candidate ACTUALLY has provided in their master profile or base resume (e.g. GitHub, LinkedIn, LeetCode, CodeChef). Do NOT hallucinate or insert links like Codeforces or Portfolio if the user has NOT provided them!
+1. LINKS INTEGRITY: ONLY include links that the candidate ACTUALLY has provided in their master profile, smartLinks array, or base resume (e.g. GitHub, LinkedIn, LeetCode, CodeChef, Portfolios). Do NOT hallucinate or insert links if the user has NOT provided them! Ensure link labels are clean and accurate.
 2. PROJECT SELECTION & HIRATION CAUSE-EFFECT BULLETS:
    - Select 4 top showcase projects: BoB (Autonomous AI Companion), The Falcon Tour (210+ static pages travel architecture), Bloom (AI-powered platform connecting women with STEM opportunities), and Smart Attendance System (AI Facial Recognition).
    - HIRATION & GOOGLE XYZ FORMULA: Every bullet MUST start with a strong active verb (e.g. Architected, Engineered, Implemented, Spearheaded, Optimized), contain a clear technical task, and end with a quantified metric or measurable outcome (e.g. 'reducing latency by 40%', 'processing 500+ records with 99.2% accuracy', 'generating 210+ static pages').

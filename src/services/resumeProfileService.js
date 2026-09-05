@@ -189,6 +189,34 @@ async function syncDeveloperProfiles(handles = {}) {
 }
 
 /**
+ * Sync custom smart links (portfolio, coding platforms, personal blogs, etc.)
+ */
+async function syncSmartLinks(userId, links = [], profileId = 'master') {
+  const result = await developerPlatforms.fetchSmartLinks(links);
+  const profile = await getMasterProfile(userId, profileId);
+
+  // Preserve existing developer platforms and merge new data
+  profile.developerPlatforms = {
+    ...(profile.developerPlatforms || {}),
+    ...(result.platforms || {})
+  };
+
+  profile.smartLinks = (links || []).map(l => ({
+    label: (l.label || '').trim(),
+    url: (l.url || '').trim()
+  })).filter(l => l.url);
+
+  profile.smartLinksResult = result.items || [];
+
+  await saveMasterProfile(userId, profile, profileId);
+  return {
+    smartLinks: profile.smartLinks,
+    smartLinksResult: profile.smartLinksResult,
+    developerPlatforms: profile.developerPlatforms
+  };
+}
+
+/**
  * Parse an uploaded Resume PDF and return structured profile hints
  */
 async function parseResumePdf(buffer) {
@@ -206,5 +234,7 @@ module.exports = {
   deleteCandidateProfile,
   syncGitHubProjects,
   syncDeveloperProfiles,
+  syncSmartLinks,
   parseResumePdf
 };
+

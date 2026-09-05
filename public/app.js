@@ -7119,20 +7119,20 @@ async function loadResumeProfile(profileId = activeCandidateProfileId) {
   try {
     const res = await apiFetch(`/api/resume/profile?profileId=${encodeURIComponent(activeCandidateProfileId)}`);
     if (res && res.profile) {
-      currentResumeProfile = res.profile;
       const handles = res.profile.savedHandles || {};
       if (ghInput && res.profile.githubUsername) {
         ghInput.value = res.profile.githubUsername;
       }
-      if (lcInput && (handles.leetcode || res.profile.developerPlatforms?.leetcode?.username)) {
-        lcInput.value = handles.leetcode || res.profile.developerPlatforms.leetcode.username;
-      }
-      if (ccInput && (handles.codechef || res.profile.developerPlatforms?.codechef?.username)) {
-        ccInput.value = handles.codechef || res.profile.developerPlatforms.codechef.username;
-      }
-      if (cfInput && (handles.codeforces || res.profile.developerPlatforms?.codeforces?.username)) {
-        cfInput.value = handles.codeforces || res.profile.developerPlatforms.codeforces.username;
-      }
+      // Smart Links Rendering & Fallback to legacy handles
+      const savedSmartLinks = Array.isArray(res.profile.smartLinks) && res.profile.smartLinks.length > 0
+        ? res.profile.smartLinks
+        : [
+            { label: 'LeetCode', url: handles.leetcode ? `https://leetcode.com/u/${handles.leetcode}` : (res.profile.developerPlatforms?.leetcode?.profileUrl || '') },
+            { label: 'CodeChef', url: handles.codechef ? `https://codechef.com/users/${handles.codechef}` : (res.profile.developerPlatforms?.codechef?.profileUrl || '') }
+          ].filter(l => l.url);
+
+      renderSmartLinksUI(savedSmartLinks);
+      renderSmartLinksBadges(res.profile.smartLinksResult || [], res.profile.developerPlatforms || {});
 
       if (baseStatus) {
         if (res.profile.baseResume?.url) {
@@ -7288,17 +7288,97 @@ function extractCleanHandle(input) {
     if (str.startsWith('http://') || str.startsWith('https://')) {
       const u = new URL(str);
       const parts = u.pathname.split('/').filter(Boolean);
-      // handles URLs like /u/username, /users/username, /profile/username or just /username
       if (['u', 'users', 'profile', 'in'].includes(parts[0]) && parts[1]) {
         return parts[1];
       }
       return parts[parts.length - 1] || '';
     }
   } catch (e) {}
-  // Strip trailing slashes or domain prefixes if entered without protocol
   str = str.replace(/^(?:https?:\/\/)?(?:www\.)?(?:github\.com|leetcode\.com|codechef\.com|codeforces\.com)\/(?:u\/|users\/|profile\/)?/i, '');
   return str.replace(/\/+$/, '').trim();
 }
+
+// Global Smart Links Array for Active Profile
+let activeCandidateSmartLinks = [];
+
+function renderSmartLinksUI(links = []) {
+  activeCandidateSmartLinks = Array.isArray(links) && links.length > 0 ? links : [
+    { label: 'LeetCode', url: '' },
+    { label: 'CodeChef', url: '' }
+  ];
+
+  const listEl = document.getElementById('resume-smart-links-list');
+  if (!listEl) return;
+
+  listEl.innerHTML = activeCandidateSmartLinks.map((item, idx) => `
+    <div class="smart-link-row" data-idx="${idx}" style="display: flex; gap: 6px; align-items: center;">
+      <input type="text" class="smart-link-label" value="${escapeHtml(item.label || '')}" placeholder="Label (e.g. Portfolio)" style="width: 100px; padding: 6px 8px; font-size: 11px; border-radius: 4px; border: 1px solid var(--border); background: var(--surface2); color: var(--text);" />
+      <input type="text" class="smart-link-url" value="${escapeHtml(item.url || '')}" placeholder="https://... (LeetCode, Portfolio, Kaggle, Blog)" style="flex: 1; padding: 6px 8px; font-size: 11px; border-radius: 4px; border: 1px solid var(--border); background: var(--surface2); color: var(--text);" />
+      <button type="button" class="smart-link-del-btn" data-idx="${idx}" style="background: none; border: none; color: var(--text3); font-size: 14px; cursor: pointer; padding: 0 4px;" title="Remove link">✕</button>
+    </div>
+  `).join('');
+
+  // Bind input changes to keep state fresh
+  listEl.querySelectorAll('.smart-link-row').forEach(row => {
+    const idx = parseInt(row.getAttribute('data-idx'), 10);
+    row.querySelector('.smart-link-label')?.addEventListener('input', (e) => {
+      if (activeCandidateSmartLinks[idx]) activeCandidateSmartLinks[idx].label = e.target.value;
+    });
+    row.querySelector('.smart-link-url')?.addEventListener('input', (e) => {
+      if (activeCandidateSmartLinks[idx]) activeCandidateSmartLinks[idx].url = e.target.value;
+    });
+    row.querySelector('.smart-link-del-btn')?.addEventListener('click', () => {
+      activeCandidateSmartLinks.splice(idx, 1);
+      renderSmartLinksUI(activeCandidateSmartLinks);
+    });
+  });
+}
+
+function renderSmartLinksBadges(items = [], platforms = {}) {
+  const container = document.getElementById('resume-smart-links-summary');
+  const badgesBox = document.getElementById('resume-smart-links-badges');
+  if (!container || !badgesBox) return;
+
+  const validItems = Array.isArray(items) && items.length > 0 ? items : [];
+  if (validItems.length === 0 && Object.keys(platforms || {}).length === 0) {
+    container.style.display = 'none';
+    return;
+  }
+
+  container.style.display = 'block';
+  const badges = [];
+
+  // LeetCode badge
+  if (platforms.leetcode) {
+    badges.push(`<span style="font-size:10px; padding:2px 8px; border-radius:12px; background:#FFA11622; color:#FFA116; border:1px solid #FFA11655;">LeetCode: ${platforms.leetcode.solvedTotal || 0} Solved (Rank: #${platforms.leetcode.ranking || 'N/A'})</span>`);
+  }
+  // CodeChef badge
+  if (platforms.codechef) {
+    badges.push(`<span style="font-size:10px; padding:2px 8px; border-radius:12px; background:#5B463822; color:#d97706; border:1px solid #d9770655;">CodeChef: ${platforms.codechef.rating || 'N/A'}★ (${platforms.codechef.stars || ''})</span>`);
+  }
+  // Codeforces badge
+  if (platforms.codeforces) {
+    badges.push(`<span style="font-size:10px; padding:2px 8px; border-radius:12px; background:#318CE722; color:#318CE7; border:1px solid #318CE755;">Codeforces: ${platforms.codeforces.rating || 'N/A'} (${platforms.codeforces.rank || ''})</span>`);
+  }
+
+  // Generic items / portfolios
+  validItems.forEach(it => {
+    if (it.category === 'portfolio' && it.data) {
+      const skillsCount = (it.data.skills || []).length;
+      badges.push(`<span style="font-size:10px; padding:2px 8px; border-radius:12px; background:#10B98122; color:#10B981; border:1px solid #10B98155;">🌐 ${escapeHtml(it.label || 'Portfolio')}: ${skillsCount > 0 ? skillsCount + ' skills analyzed' : 'Scraped'}</span>`);
+    } else if (it.category === 'blog' && it.data) {
+      badges.push(`<span style="font-size:10px; padding:2px 8px; border-radius:12px; background:#8B5CF622; color:#8B5CF6; border:1px solid #8B5CF655;">✍️ DEV.to: ${it.data.articleCount || 0} Articles</span>`);
+    }
+  });
+
+  badgesBox.innerHTML = badges.length > 0 ? badges.join('') : '<span style="font-size:10px; color:var(--text3);">No live stats extracted yet. Click Sync.</span>';
+}
+
+// Add Smart Link Button Handler
+document.getElementById('resume-add-link-btn')?.addEventListener('click', () => {
+  activeCandidateSmartLinks.push({ label: '', url: '' });
+  renderSmartLinksUI(activeCandidateSmartLinks);
+});
 
 // GitHub Sync
 document.getElementById('resume-sync-github-btn')?.addEventListener('click', async () => {
@@ -7321,23 +7401,30 @@ document.getElementById('resume-sync-github-btn')?.addEventListener('click', asy
   }
 });
 
-// Coding Stats Sync
+// Smart Links & Coding Stats Sync
 document.getElementById('resume-sync-coding-btn')?.addEventListener('click', async () => {
-  const leetcode = extractCleanHandle(document.getElementById('resume-leetcode-username')?.value);
-  const codechef = extractCleanHandle(document.getElementById('resume-codechef-username')?.value);
-  const codeforces = extractCleanHandle(document.getElementById('resume-codeforces-username')?.value);
   const statusEl = document.getElementById('resume-sync-status');
+  const validLinks = activeCandidateSmartLinks.filter(l => l.url && l.url.trim().length > 0);
 
-  statusEl.textContent = '⏳ Syncing coding platform statistics...';
+  if (validLinks.length === 0) {
+    alert('Please enter at least one URL (LeetCode, CodeChef, Portfolio, etc.) to sync.');
+    return;
+  }
+
+  statusEl.textContent = `⏳ Crawling & analyzing ${validLinks.length} link(s)...`;
   try {
     const res = await apiFetch(`/api/resume/sync/coding?profileId=${encodeURIComponent(activeCandidateProfileId)}`, {
       method: 'POST',
-      body: JSON.stringify({ handles: { leetcode, codechef, codeforces }, profileId: activeCandidateProfileId })
+      body: JSON.stringify({ links: validLinks, profileId: activeCandidateProfileId })
     });
-    statusEl.textContent = `✅ Coding statistics updated!`;
+
+    const count = (res.items || []).filter(i => i.success).length;
+    statusEl.textContent = `✅ Successfully fetched intelligence from ${count}/${validLinks.length} link(s)!`;
+
+    renderSmartLinksBadges(res.items || [], res.stats || {});
     await loadResumeProfile(activeCandidateProfileId);
   } catch (err) {
-    statusEl.textContent = `❌ Failed to sync coding stats: ${err.message}`;
+    statusEl.textContent = `❌ Failed to sync links: ${err.message}`;
   }
 });
 

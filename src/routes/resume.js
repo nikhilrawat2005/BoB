@@ -125,15 +125,26 @@ router.delete('/project/:title', requireAuth, async (req, res) => {
 });
 
 /**
- * 4. POST /api/resume/sync/coding — Sync LeetCode, Codeforces, HackerRank stats
+ * 4. POST /api/resume/sync/coding — Sync Smart Links (LeetCode, CodeChef, Portfolios, Dev blogs, etc.)
  */
 router.post('/sync/coding', requireAuth, async (req, res) => {
   try {
     const profileId = req.query.profileId || req.body.profileId || 'master';
-    const { handles } = req.body; // { leetcode, codechef, codeforces, hackerrank }
+    const { links, handles } = req.body;
+
+    if (Array.isArray(links)) {
+      // Smart Links Flow
+      const result = await resumeProfile.syncSmartLinks(req.userId, links, profileId);
+      return res.json({
+        success: true,
+        smartLinks: result.smartLinks,
+        items: result.smartLinksResult,
+        stats: result.developerPlatforms
+      });
+    }
+
+    // Legacy handles flow fallback
     const stats = await resumeProfile.syncDeveloperProfiles(handles || {});
-    
-    // Save handles & stats permanently to candidate profile
     const profile = await resumeProfile.getMasterProfile(req.userId, profileId);
     profile.developerPlatforms = {
       ...(profile.developerPlatforms || {}),
@@ -147,7 +158,26 @@ router.post('/sync/coding', requireAuth, async (req, res) => {
 
     res.json({ success: true, stats, savedHandles: profile.savedHandles });
   } catch (err) {
-    console.error('[ResumeAPI] Sync Coding Error:', err);
+    console.error('[ResumeAPI] Sync Coding/Links Error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * 4b. GET /api/resume/smart-links — Fetch saved smart links and sync history
+ */
+router.get('/smart-links', requireAuth, async (req, res) => {
+  try {
+    const profileId = req.query.profileId || 'master';
+    const profile = await resumeProfile.getMasterProfile(req.userId, profileId);
+    res.json({
+      success: true,
+      smartLinks: profile.smartLinks || [],
+      items: profile.smartLinksResult || [],
+      developerPlatforms: profile.developerPlatforms || {}
+    });
+  } catch (err) {
+    console.error('[ResumeAPI] Get Smart Links Error:', err);
     res.status(500).json({ error: err.message });
   }
 });
