@@ -71,9 +71,22 @@ router.post('/sync/github', requireAuth, async (req, res) => {
  */
 router.post('/sync/coding', requireAuth, async (req, res) => {
   try {
-    const { handles } = req.body; // { leetcode, codeforces, hackerrank }
+    const { handles } = req.body; // { leetcode, codechef, codeforces, hackerrank }
     const stats = await resumeProfile.syncDeveloperProfiles(handles || {});
-    res.json({ success: true, stats });
+    
+    // Save handles & stats permanently to master profile
+    const profile = await resumeProfile.getMasterProfile(req.userId);
+    profile.developerPlatforms = {
+      ...(profile.developerPlatforms || {}),
+      ...stats
+    };
+    profile.savedHandles = {
+      ...(profile.savedHandles || {}),
+      ...(handles || {})
+    };
+    await resumeProfile.saveMasterProfile(req.userId, profile);
+
+    res.json({ success: true, stats, savedHandles: profile.savedHandles });
   } catch (err) {
     console.error('[ResumeAPI] Sync Coding Error:', err);
     res.status(500).json({ error: err.message });
@@ -180,15 +193,46 @@ router.post(['/upload/certificate', '/upload/documents'], requireAuth, upload.ar
  */
 router.post('/generate', requireAuth, async (req, res) => {
   try {
-    const { jobDescription, customPrompt, templateName } = req.body;
+    const { jobDescription, customPrompt, templateName, targetJobDescription } = req.body;
+    const finalJD = jobDescription || targetJobDescription || '';
 
     // Fetch user's full context
-    const profile = await resumeProfile.getMasterProfile(req.userId);
+    let profile = await resumeProfile.getMasterProfile(req.userId);
+
+    // Auto-re-scrape fresh projects from GitHub if username is saved
+    if (profile.githubUsername) {
+      try {
+        const freshProjects = await resumeProfile.syncGitHubProjects(profile.githubUsername);
+        if (freshProjects && freshProjects.length > 0) {
+          profile.githubProjects = freshProjects;
+        }
+      } catch (ghErr) {
+        console.warn('[ResumeAPI] Auto re-scrape GitHub skip:', ghErr.message);
+      }
+    }
+
+    // Auto-re-scrape coding stats if handles are saved
+    if (profile.savedHandles && Object.keys(profile.savedHandles).length > 0) {
+      try {
+        const freshStats = await resumeProfile.syncDeveloperProfiles(profile.savedHandles);
+        if (freshStats && Object.keys(freshStats).length > 0) {
+          profile.developerPlatforms = {
+            ...(profile.developerPlatforms || {}),
+            ...freshStats
+          };
+        }
+      } catch (codeErr) {
+        console.warn('[ResumeAPI] Auto re-scrape Coding skip:', codeErr.message);
+      }
+    }
+
+    // Save updated fresh state back to profile
+    await resumeProfile.saveMasterProfile(req.userId, profile);
 
     // Generate tailored LaTeX code
     const genResult = await latexService.generateLatexResume({
       profile,
-      jobDescription,
+      jobDescription: finalJD,
       templateName: templateName || 'jake'
     });
 

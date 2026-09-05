@@ -7082,17 +7082,18 @@ async function loadResumeProfile() {
     const res = await apiFetch('/api/resume/profile');
     if (res && res.profile) {
       currentResumeProfile = res.profile;
+      const handles = res.profile.savedHandles || {};
       if (ghInput && res.profile.githubUsername && !ghInput.value) {
         ghInput.value = res.profile.githubUsername;
       }
-      if (lcInput && res.profile.developerPlatforms?.leetcode?.username && !lcInput.value) {
-        lcInput.value = res.profile.developerPlatforms.leetcode.username;
+      if (lcInput && (handles.leetcode || res.profile.developerPlatforms?.leetcode?.username) && !lcInput.value) {
+        lcInput.value = handles.leetcode || res.profile.developerPlatforms.leetcode.username;
       }
-      if (ccInput && res.profile.developerPlatforms?.codechef?.username && !ccInput.value) {
-        ccInput.value = res.profile.developerPlatforms.codechef.username;
+      if (ccInput && (handles.codechef || res.profile.developerPlatforms?.codechef?.username) && !ccInput.value) {
+        ccInput.value = handles.codechef || res.profile.developerPlatforms.codechef.username;
       }
-      if (cfInput && res.profile.developerPlatforms?.codeforces?.username && !cfInput.value) {
-        cfInput.value = res.profile.developerPlatforms.codeforces.username;
+      if (cfInput && (handles.codeforces || res.profile.developerPlatforms?.codeforces?.username) && !cfInput.value) {
+        cfInput.value = handles.codeforces || res.profile.developerPlatforms.codeforces.username;
       }
 
       if (baseStatus) {
