@@ -194,7 +194,7 @@ function buildDirectPdfBuffer(resumeData) {
 
       // --- Helper: Title row with an optional right-aligned note (cannot overlap) ---
       // Left text wraps inside its reserved width; right text is measured & truncated.
-      function drawTitleLine(left, right, rightColor = secondaryColor) {
+      function drawTitleLine(left, right, rightColor = secondaryColor, rightUrl = null) {
         const y = doc.y;
         let rightText = '';
         let rightWidth = 0;
@@ -213,7 +213,12 @@ function buildDirectPdfBuffer(resumeData) {
         }
         if (rightText) {
           doc.font('Helvetica-Oblique').fontSize(8.5).fillColor(rightColor);
-          doc.text(rightText, doc.page.margins.left + leftWidth + gap, y, { width: rightWidth, lineBreak: false });
+          const rightX = doc.page.margins.left + leftWidth + gap;
+          doc.text(rightText, rightX, y, { lineBreak: false });
+          if (rightUrl) {
+            doc.strokeColor(accentColor).lineWidth(0.5).moveTo(rightX, y + 9.3).lineTo(rightX + rightWidth, y + 9.3).stroke();
+            doc.link(rightX, y, rightWidth, 11, rightUrl);
+          }
           endY = Math.max(endY, doc.y);
         }
         doc.y = endY;
@@ -227,6 +232,108 @@ function buildDirectPdfBuffer(resumeData) {
         doc.x = doc.page.margins.left;
         doc.font('Helvetica').fontSize(8.8).fillColor(secondaryColor);
         doc.text(`•  ${b}`, { indent: 10, lineGap: 1.2 });
+      }
+
+      // --- Helper: Normalize a link label to a clean, recruiter-friendly name ---
+      function normalizeLinkLabel(label, url) {
+        const nameMap = {
+          leetcode: 'LeetCode',
+          codechef: 'CodeChef',
+          codeforces: 'Codeforces',
+          hackerrank: 'HackerRank',
+          geeksforgeeks: 'GeeksforGeeks',
+          github: 'GitHub',
+          linkedin: 'LinkedIn',
+          kaggle: 'Kaggle',
+          medium: 'Medium',
+          'dev.to': 'DEV.to',
+          portfolio: 'Portfolio',
+          resume: 'Portfolio',
+          blog: 'Blog'
+        };
+        const l = String(label || '').trim();
+        const looksLikeUrl = /^https?:\/\//i.test(l) || /^www\./i.test(l) || /\.(com|to|org|io|me|in)\//i.test(l + '/');
+        if (!l || looksLikeUrl) {
+          const u = String(url || '').toLowerCase();
+          if (u.includes('leetcode.com')) return 'LeetCode';
+          if (u.includes('codechef.com')) return 'CodeChef';
+          if (u.includes('codeforces.com')) return 'Codeforces';
+          if (u.includes('hackerrank.com')) return 'HackerRank';
+          if (u.includes('geeksforgeeks.org')) return 'GeeksforGeeks';
+          if (u.includes('dev.to')) return 'DEV.to';
+          if (u.includes('medium.com')) return 'Medium';
+          if (u.includes('github.com')) return 'GitHub';
+          if (u.includes('linkedin.com')) return 'LinkedIn';
+          if (u.includes('kaggle.com')) return 'Kaggle';
+          if (u.includes('blogspot.com') || u.includes('wordpress.com') || u.includes('hashnode.com')) return 'Blog';
+          if (u.includes('portfolio') || u.includes('resume')) return 'Portfolio';
+          return 'Link';
+        }
+        if (nameMap[l.toLowerCase()]) return nameMap[l.toLowerCase()];
+        return l.replace(/_+/g, ' ').replace(/\s+/g, ' ').trim().replace(/\b\w/g, c => c.toUpperCase());
+      }
+
+      // --- Helper: Keep just the bare host path for display ---
+      function shortLinkUrl(url) {
+        return String(url || '')
+          .replace(/^https?:\/\//i, '')
+          .replace(/^www\./, '')
+          .replace(/\/$/, '');
+      }
+
+      // --- Helper: Centered, wrapping row of clickable link segments ---
+      function drawCenteredLinks(links) {
+        const linkedFont = 'Helvetica';
+        const fontSize = 8.5;
+        const sep = '   |   ';
+        const lineH = 12;
+
+        doc.font(linkedFont).fontSize(fontSize);
+        const sepLen = doc.widthOfString(sep);
+        const segs = links.map(l => ({
+          text: `${normalizeLinkLabel(l.label, l.url)}: ${shortLinkUrl(l.url)}`,
+          url: String(l.url || '').trim()
+        }));
+
+        // Pack segments into centered lines that fit the width
+        const lines = [];
+        let cur = [];
+        let curLen = 0;
+        segs.forEach(s => {
+          const w = doc.widthOfString(s.text);
+          const need = (cur.length ? sepLen : 0) + w;
+          if (cur.length && curLen + need > pageWidth) {
+            lines.push(cur);
+            cur = [s];
+            curLen = w;
+          } else {
+            cur.push(s);
+            curLen += need;
+          }
+        });
+        if (cur.length) lines.push(cur);
+
+        ensureSpace(lines.length * lineH);
+        lines.forEach(line => {
+          const totalW = line.reduce((acc, s, i) => acc + (i ? sepLen : 0) + doc.widthOfString(s.text), 0);
+          let x = doc.page.margins.left + (pageWidth - totalW) / 2;
+          const y = doc.y;
+          line.forEach((s, i) => {
+            if (i > 0) {
+              doc.font(linkedFont).fontSize(fontSize).fillColor('#6b7280');
+              doc.text(sep, x, y, { lineBreak: false });
+              x += sepLen;
+            }
+            const w = doc.widthOfString(s.text);
+            doc.font(linkedFont).fontSize(fontSize).fillColor(accentColor);
+            doc.text(s.text, x, y, { lineBreak: false });
+            doc.strokeColor(accentColor).lineWidth(0.5).moveTo(x, y + 9.3).lineTo(x + w, y + 9.3).stroke();
+            doc.link(x, y, w, 11, s.url);
+            x += w;
+          });
+          doc.y = y + lineH;
+          doc.x = doc.page.margins.left;
+        });
       }
 
       // --- 1. HEADER / BASICS ---
@@ -259,15 +366,11 @@ function buildDirectPdfBuffer(resumeData) {
            .text(contactItems.join('  •  '), { align: 'center' });
       }
 
-      // Profile Links bar (shortened labels, single clean line per link pair)
-      const links = (basics?.links || []).filter(l => l && l.label && l.url);
+      // Profile Links bar (clean labeled, clickable hyperlinks)
+      const links = (basics?.links || []).filter(l => l && l.url && String(l.url).trim().length > 0);
       if (links.length > 0) {
         doc.moveDown(0.15);
-        const linkParts = links.map(l => `${l.label}: ${l.url.replace(/^https?:\/\//, '').replace(/\/$/, '')}`);
-        doc.font('Helvetica')
-           .fontSize(8.5)
-           .fillColor(accentColor)
-           .text(linkParts.join('   |   '), { align: 'center', lineGap: 1 });
+        drawCenteredLinks(links);
       }
 
       // --- 2. SUMMARY (If available) ---
@@ -318,7 +421,7 @@ function buildDirectPdfBuffer(resumeData) {
             .replace(/^https?:\/\//, '')
             .replace(/\/$/, '')
             .replace(/^www\./, '');
-          drawTitleLine(p.title || 'Project', cleanLink || null, accentColor);
+          drawTitleLine(p.title || 'Project', cleanLink || null, accentColor, p.link || null);
 
           if (p.techStack && p.techStack.length > 0) {
             doc.font('Helvetica-Oblique')
