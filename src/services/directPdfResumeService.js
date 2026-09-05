@@ -189,6 +189,7 @@ function buildDirectPdfBuffer(resumeData) {
            .stroke();
 
         doc.y = y + 4;
+        doc.x = doc.page.margins.left;
       }
 
       // --- Helper: Title row with an optional right-aligned note (cannot overlap) ---
@@ -216,12 +217,14 @@ function buildDirectPdfBuffer(resumeData) {
           endY = Math.max(endY, doc.y);
         }
         doc.y = endY;
+        doc.x = doc.page.margins.left;
       }
 
       // --- Helper: Bullet point that never exits the printable area ---
       function drawBullet(text) {
         const b = String(text).trim().replace(/\.+$/, '');
         ensureSpace(14);
+        doc.x = doc.page.margins.left;
         doc.font('Helvetica').fontSize(8.8).fillColor(secondaryColor);
         doc.text(`•  ${b}`, { indent: 10, lineGap: 1.2 });
       }
