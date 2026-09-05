@@ -7511,3 +7511,241 @@ document.getElementById('resume-refresh-btn')?.addEventListener('click', () => {
   loadResumeProfile();
 });
 
+// ═══════════════════════════════════════════════════════
+// ATS RESUME ANALYZER CONTROLLERS & RENDERING
+// ═══════════════════════════════════════════════════════
+let selectedAnalyzerFile = null;
+
+// File input selection
+document.getElementById('resume-analyzer-file-input')?.addEventListener('change', (e) => {
+  const file = e.target.files?.[0];
+  const fileLabel = document.getElementById('resume-analyzer-selected-file');
+  if (file) {
+    selectedAnalyzerFile = file;
+    if (fileLabel) {
+      fileLabel.textContent = `📎 Selected: ${file.name} (${(file.size / 1024).toFixed(1)} KB)`;
+      fileLabel.style.display = 'block';
+    }
+  }
+});
+
+// 1-Click Audit on the freshly generated resume
+document.getElementById('resume-audit-generated-btn')?.addEventListener('click', async () => {
+  if (!latestGeneratedResumeData) {
+    alert('Please generate a resume first before running audit.');
+    return;
+  }
+
+  const btn = document.getElementById('resume-audit-generated-btn');
+  const originalText = btn.innerHTML;
+  btn.innerHTML = '⏳ Auditing...';
+  btn.disabled = true;
+
+  const spinner = document.getElementById('resume-analyzer-spinner');
+  if (spinner) spinner.style.display = 'block';
+
+  try {
+    const jd = document.getElementById('resume-jd-input')?.value.trim();
+    const res = await apiFetch('/api/resume/analyze-generated', {
+      method: 'POST',
+      body: JSON.stringify({
+        resumeData: latestGeneratedResumeData,
+        targetJobDescription: jd
+      })
+    });
+
+    if (res.audit) {
+      renderAtsAuditResults(res.audit, res.fileName || 'Generated Resume');
+      // Smooth scroll down to audit results
+      document.getElementById('resume-audit-results')?.scrollIntoView({ behavior: 'smooth' });
+    }
+  } catch (err) {
+    console.error('Audit generated resume error:', err);
+    alert(`Audit Error: ${err.message}`);
+  } finally {
+    btn.innerHTML = originalText;
+    btn.disabled = false;
+    if (spinner) spinner.style.display = 'none';
+  }
+});
+
+// Run audit on uploaded file (or fallback to base resume)
+document.getElementById('resume-analyzer-run-btn')?.addEventListener('click', async () => {
+  const btn = document.getElementById('resume-analyzer-run-btn');
+  const originalText = btn.innerHTML;
+  const spinner = document.getElementById('resume-analyzer-spinner');
+
+  btn.innerHTML = '⏳ Auditing...';
+  btn.disabled = true;
+  if (spinner) spinner.style.display = 'block';
+
+  try {
+    const token = await auth.currentUser.getIdToken();
+    const jd = document.getElementById('resume-jd-input')?.value.trim() || '';
+    const formData = new FormData();
+    if (selectedAnalyzerFile) {
+      formData.append('file', selectedAnalyzerFile);
+    }
+    formData.append('targetJobDescription', jd);
+
+    const res = await fetch(API + '/api/resume/analyze', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`
+      },
+      body: formData
+    });
+
+    const data = await res.json();
+    if (!res.ok || !data.success) {
+      throw new Error(data.error || 'Failed to analyze resume');
+    }
+
+    renderAtsAuditResults(data.audit, data.fileName || selectedAnalyzerFile?.name || 'Resume Document');
+    document.getElementById('resume-audit-results')?.scrollIntoView({ behavior: 'smooth' });
+  } catch (err) {
+    console.error('Run audit error:', err);
+    alert(`Audit Error: ${err.message}`);
+  } finally {
+    btn.innerHTML = originalText;
+    btn.disabled = false;
+    if (spinner) spinner.style.display = 'none';
+  }
+});
+
+// Render the detailed ATS Audit visual report
+function renderAtsAuditResults(audit, fileName = 'Resume') {
+  if (!audit) return;
+  const container = document.getElementById('resume-audit-results');
+  if (!container) return;
+
+  container.style.display = 'block';
+
+  // Overall Score & Verdict
+  const scoreVal = document.getElementById('audit-score-val');
+  const verdictVal = document.getElementById('audit-verdict-val');
+  const score = Math.round(audit.atsScore || 70);
+
+  if (scoreVal) {
+    scoreVal.textContent = `${score}%`;
+    if (score >= 85) {
+      scoreVal.style.color = '#10b981'; // Green
+    } else if (score >= 70) {
+      scoreVal.style.color = '#f59e0b'; // Amber
+    } else {
+      scoreVal.style.color = '#ef4444'; // Red
+    }
+  }
+
+  if (verdictVal) {
+    verdictVal.textContent = audit.verdict || (score >= 80 ? 'Tier-1 Ready' : 'Needs Optimization');
+    if (score >= 85) {
+      verdictVal.style.background = 'rgba(16, 185, 129, 0.15)';
+      verdictVal.style.color = '#10b981';
+    } else if (score >= 70) {
+      verdictVal.style.background = 'rgba(245, 158, 11, 0.15)';
+      verdictVal.style.color = '#f59e0b';
+    } else {
+      verdictVal.style.background = 'rgba(239, 68, 68, 0.15)';
+      verdictVal.style.color = '#ef4444';
+    }
+  }
+
+  // Dimension Bars
+  const dimensionsContainer = document.getElementById('audit-dimensions-bars');
+  if (dimensionsContainer && audit.breakdown) {
+    const dimensionLabels = {
+      impactAndMetrics: 'Impact & Quantified Metrics',
+      skillsRelevance: 'Skills & Tech Relevance',
+      actionVerbs: 'Action Verbs & Power Words',
+      formattingAndClarity: 'ATS Formatting & Clarity',
+      experienceDepth: 'Project & Experience Depth'
+    };
+
+    dimensionsContainer.innerHTML = Object.entries(audit.breakdown).map(([k, v]) => {
+      const label = dimensionLabels[k] || k;
+      const numVal = Math.min(100, Math.max(0, Math.round(v || 0)));
+      const barColor = numVal >= 80 ? '#10b981' : numVal >= 65 ? '#f59e0b' : '#ef4444';
+      return `
+        <div style="display: flex; flex-direction: column; gap: 2px;">
+          <div style="display: flex; justify-content: space-between; color: var(--text2);">
+            <span>${label}</span>
+            <span style="font-weight: 600;">${numVal}%</span>
+          </div>
+          <div style="background: var(--surface2); height: 6px; border-radius: 3px; overflow: hidden; width: 100%;">
+            <div style="background: ${barColor}; width: ${numVal}%; height: 100%; border-radius: 3px; transition: width 0.4s ease;"></div>
+          </div>
+        </div>
+      `;
+    }).join('');
+  }
+
+  // Executive Summary
+  const execSummary = document.getElementById('audit-executive-summary');
+  if (execSummary) {
+    execSummary.textContent = audit.executiveSummary || 'Resume evaluated against modern ATS industry screening standards.';
+  }
+
+  // Strengths
+  const strengthsList = document.getElementById('audit-strengths-list');
+  if (strengthsList) {
+    const strengths = audit.strengths || [];
+    strengthsList.innerHTML = strengths.length
+      ? strengths.map(s => `<li style="margin-bottom: 4px;">${s}</li>`).join('')
+      : '<li>Solid foundational experience provided.</li>';
+  }
+
+  // Red Flags / Critical Negatives
+  const negativesList = document.getElementById('audit-negatives-list');
+  if (negativesList) {
+    const negs = audit.criticalNegatives || [];
+    negativesList.innerHTML = negs.length
+      ? negs.map(n => `<li style="margin-bottom: 4px;">${n}</li>`).join('')
+      : '<li>No severe blocking red flags detected.</li>';
+  }
+
+  // Keywords Found
+  const matchedContainer = document.getElementById('audit-keywords-matched');
+  if (matchedContainer) {
+    const found = audit.atsKeywordsFound || [];
+    matchedContainer.innerHTML = found.length
+      ? found.map(kw => `<span style="background: rgba(16, 185, 129, 0.12); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.3); border-radius: 12px; padding: 2px 8px; font-size: 11px;">✓ ${kw}</span>`).join('')
+      : '<span style="font-size: 11px; color: var(--text3);">No explicit high-frequency keywords found.</span>';
+  }
+
+  // Missing Recommended Keywords
+  const missingContainer = document.getElementById('audit-keywords-missing');
+  if (missingContainer) {
+    const missing = audit.missingRecommendedKeywords || [];
+    missingContainer.innerHTML = missing.length
+      ? missing.map(kw => `<span style="background: rgba(245, 158, 11, 0.12); color: #f59e0b; border: 1px solid rgba(245, 158, 11, 0.3); border-radius: 12px; padding: 2px 8px; font-size: 11px;">+ ${kw}</span>`).join('')
+      : '<span style="font-size: 11px; color: var(--text3);">All major target keywords covered!</span>';
+  }
+
+  // Bullet Points Upgrades (STAR / Google XYZ Formula)
+  const bulletBox = document.getElementById('audit-bullet-upgrades');
+  if (bulletBox) {
+    const bullets = audit.bulletImprovements || [];
+    if (bullets.length) {
+      bulletBox.innerHTML = bullets.map(b => `
+        <div style="background: var(--surface2); border: 1px solid var(--border2); border-radius: 6px; padding: 10px; font-size: 12px;">
+          <div style="color: #ef4444; margin-bottom: 4px;"><span style="font-weight: 600;">❌ Original:</span> ${b.original}</div>
+          <div style="color: #10b981;"><span style="font-weight: 600;">✨ ATS Power Upgrade (Google XYZ):</span> ${b.improved}</div>
+        </div>
+      `).join('');
+    } else {
+      bulletBox.innerHTML = '<div style="font-size: 12px; color: var(--text3);">Current bullet points are well structured with impact and verbs.</div>';
+    }
+  }
+
+  // Priority Action Plan
+  const actionPlanList = document.getElementById('audit-action-plan');
+  if (actionPlanList) {
+    const plan = audit.actionPlan || [];
+    actionPlanList.innerHTML = plan.length
+      ? plan.map(item => `<li style="margin-bottom: 4px;">${item}</li>`).join('')
+      : '<li>Resume is ready to submit.</li>';
+  }
+}
+
+

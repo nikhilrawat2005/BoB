@@ -5,6 +5,7 @@ const { requireAuth } = require('../middleware/auth');
 const resumeProfile = require('../services/resumeProfileService');
 const latexService = require('../services/latexResumeService');
 const directPdfService = require('../services/directPdfResumeService');
+const resumeAnalyzer = require('../services/resumeAnalyzerService');
 const fileService = require('../services/fileService');
 
 const upload = multer({
@@ -305,6 +306,83 @@ router.post('/download-direct-pdf', requireAuth, async (req, res) => {
     res.end(pdfBuffer);
   } catch (err) {
     console.error('[ResumeAPI] Direct PDF Download Error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * 9. POST /api/resume/analyze — Analyze any uploaded PDF / DOCX resume
+ */
+router.post('/analyze', requireAuth, upload.single('file'), async (req, res) => {
+  try {
+    const { targetJobDescription } = req.body || {};
+    let fileBuffer = req.file ? req.file.buffer : null;
+    let fileName = req.file ? req.file.originalname : 'resume.pdf';
+
+    // If no file uploaded in this request, check if user provided raw text or has a stored baseResume
+    if (!fileBuffer) {
+      const { resumeText } = req.body || {};
+      if (resumeText && resumeText.trim().length > 50) {
+        const audit = await resumeAnalyzer.auditResume({
+          resumeText,
+          targetJobDescription
+        });
+        return res.json({ success: true, audit, fileName: 'Pasted Resume Text' });
+      }
+
+      const profile = await resumeProfile.getMasterProfile(req.userId);
+      if (profile.baseResume?.rawText) {
+        const audit = await resumeAnalyzer.auditResume({
+          resumeText: profile.baseResume.rawText,
+          targetJobDescription
+        });
+        return res.json({ success: true, audit, fileName: profile.baseResume.originalName || 'Base Resume' });
+      }
+
+      return res.status(400).json({ error: 'Please upload a PDF/DOCX resume or provide resume text to analyze.' });
+    }
+
+    const result = await resumeAnalyzer.auditResumeBuffer(fileBuffer, fileName, targetJobDescription);
+    res.json({
+      success: true,
+      audit: result.analysis,
+      fileName: result.fileName,
+      charCount: result.charCount,
+      pageCount: result.pageCount
+    });
+  } catch (err) {
+    console.error('[ResumeAPI] Analyze Resume Error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * 10. POST /api/resume/analyze-generated — Analyze currently generated resume data
+ */
+router.post('/analyze-generated', requireAuth, async (req, res) => {
+  try {
+    const { resumeData, targetJobDescription } = req.body || {};
+    let data = resumeData;
+
+    if (!data) {
+      const profile = await resumeProfile.getMasterProfile(req.userId);
+      data = profile.latestResumeData;
+    }
+
+    if (!data) {
+      return res.status(400).json({ error: 'No generated resume data found to analyze. Please build one first.' });
+    }
+
+    // Convert structured JSON to readable text for deep evaluation
+    const resumeText = JSON.stringify(data, null, 2);
+    const audit = await resumeAnalyzer.auditResume({
+      resumeText,
+      targetJobDescription: targetJobDescription || ''
+    });
+
+    res.json({ success: true, audit, fileName: `${data.basics?.name || 'Candidate'}_Generated_Resume` });
+  } catch (err) {
+    console.error('[ResumeAPI] Analyze Generated Resume Error:', err);
     res.status(500).json({ error: err.message });
   }
 });

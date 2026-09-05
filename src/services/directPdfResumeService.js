@@ -21,7 +21,13 @@ ${JSON.stringify(profile, null, 2)}
 CRITICAL RULES:
 1. LINKS INTEGRITY: ONLY include links that the candidate ACTUALLY has provided in their master profile or base resume (e.g. GitHub, LinkedIn, LeetCode, CodeChef). Do NOT hallucinate or insert links like Codeforces or Portfolio if the user has NOT provided them!
 2. PROJECT SELECTION: Look through ALL 11+ repositories in githubProjects (including BoB, The-Falcon-Tour, Bloom / origin-v2v, Smart-Attendance-System, Market-Kingdom). BoB (Autonomous AI Assistant) and The-Falcon-Tour (210+ static pages travel platform) are flagship engineering achievements — evaluate and include them alongside the strongest work!
-3. CERTIFICATIONS & ACHIEVEMENTS: Inspect the profile.certifications list (e.g. ABTalks-ViCoDathon, CodeChefBadge, VIBE-2-VISION) AND any baseResume achievements (e.g. AWS Academy Graduate). ALWAYS include a "certifications" array with these real verified items.
+3. CERTIFICATIONS & ACHIEVEMENTS: 
+   - NEVER include 10th/12th marksheets or school grade records in the "certifications" section (they belong only under Education).
+   - Clean up filenames into polished professional titles! Example:
+     • "ABTalks-ViCoDathon-2026-Nikhil-Rawat-ABT-HK-ACET7" -> "ViCoDathon 2026 Hackathon Finalist — ABTalks"
+     • "VIBE-2-VISION_Participation_Certificate" -> "Vibe-2-Vision Hackathon — Certified Participant"
+     • "CodeChefBadge" -> "CodeChef Problem Solving Milestone Badge"
+     • "AWS Academy Graduate – Cloud Foundations" -> "AWS Academy Graduate – Cloud Foundations — Amazon Web Services"
 4. HONEST & GROUNDED: Never invent tools, links, or metrics the user never provided.
 
 ${isTargeted ? `TARGET JOB VACANCY / JD:
