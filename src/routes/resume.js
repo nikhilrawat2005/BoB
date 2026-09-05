@@ -109,37 +109,61 @@ router.post('/upload/base', requireAuth, upload.single('file'), async (req, res)
 });
 
 /**
- * 6. POST /api/resume/upload/certificate — Upload Certificate to Cloudinary & add to profile
+ * 6. POST /api/resume/upload/certificate & /upload/documents
+ * Supports uploading multiple certificates, 10th/12th marksheets, degrees, etc. in one go.
  */
-router.post('/upload/certificate', requireAuth, upload.single('file'), async (req, res) => {
+router.post(['/upload/certificate', '/upload/documents'], requireAuth, upload.array('files', 15), async (req, res) => {
   try {
-    if (!req.file) return res.status(400).json({ error: 'No certificate file uploaded' });
+    const uploadedFiles = req.files || (req.file ? [req.file] : []);
+    if (!uploadedFiles || uploadedFiles.length === 0) {
+      return res.status(400).json({ error: 'No documents/certificates uploaded' });
+    }
 
-    const { title, issuer, issueDate } = req.body;
-
-    // Upload to Cloudinary
-    const storedFile = await fileService.uploadFile(req.userId, req.file);
-
-    const certificateRecord = {
-      id: storedFile.id,
-      title: title || req.file.originalname,
-      issuer: issuer || 'Verified Issuer',
-      issueDate: issueDate || new Date().toISOString().slice(0, 7),
-      url: storedFile.url,
-      createdAt: Date.now()
-    };
-
-    // Update master profile certifications list
     const profile = await resumeProfile.getMasterProfile(req.userId);
-    const certs = profile.certifications || [];
-    certs.push(certificateRecord);
-    profile.certifications = certs;
+    const existingCerts = profile.certifications || [];
+    const addedRecords = [];
 
+    for (const file of uploadedFiles) {
+      // 1. Upload to Cloudinary with SHA-256 deduplication
+      const storedFile = await fileService.uploadFile(req.userId, file);
+
+      // 2. Identify category based on filename (Marksheet, Degree, Certificate)
+      const cleanTitle = file.originalname.replace(/\.[^/.]+$/, '').trim();
+      let category = 'Certificate';
+      if (/10th|12th|marksheet|grade|transcript|report|cbse|icse/i.test(cleanTitle)) {
+        category = 'Marksheet / Academic Record';
+      } else if (/degree|diploma|btech|b\.tech|bca|mca|bsc/i.test(cleanTitle)) {
+        category = 'Degree / Diploma';
+      }
+
+      const docRecord = {
+        id: storedFile.id,
+        title: cleanTitle,
+        category,
+        issuer: req.body.issuer || 'Verified Academic/Cert Authority',
+        url: storedFile.url,
+        createdAt: Date.now()
+      };
+
+      // Check if already in profile list
+      const exists = existingCerts.some(c => c.id === storedFile.id || (c.title === cleanTitle && c.url === storedFile.url));
+      if (!exists) {
+        existingCerts.push(docRecord);
+      }
+      addedRecords.push(docRecord);
+    }
+
+    profile.certifications = existingCerts;
     await resumeProfile.saveMasterProfile(req.userId, profile);
 
-    res.json({ success: true, certificate: certificateRecord });
+    res.json({
+      success: true,
+      added: addedRecords,
+      totalCount: existingCerts.length,
+      certifications: existingCerts
+    });
   } catch (err) {
-    console.error('[ResumeAPI] Upload Certificate Error:', err);
+    console.error('[ResumeAPI] Upload Documents/Certificates Error:', err);
     res.status(500).json({ error: err.message });
   }
 });

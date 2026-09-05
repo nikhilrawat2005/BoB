@@ -7105,7 +7105,22 @@ async function loadResumeProfile() {
 
       if (certCount) {
         const total = (res.profile.certifications || []).length;
-        certCount.textContent = `${total} Certificate${total === 1 ? '' : 's'} stored`;
+        certCount.textContent = `${total} Document${total === 1 ? '' : 's'} stored`;
+      }
+
+      const docsList = document.getElementById('resume-docs-list');
+      if (docsList) {
+        const certs = res.profile.certifications || [];
+        if (certs.length === 0) {
+          docsList.innerHTML = '<span style="font-size:11px; color:var(--text3);">No extra certificates or marksheets added yet.</span>';
+        } else {
+          docsList.innerHTML = certs.map(c => `
+            <a href="${c.url}" target="_blank" style="display:inline-flex; align-items:center; gap:4px; padding:3px 8px; border-radius:4px; background:var(--surface2); border:1px solid var(--border2); font-size:11px; color:var(--text); text-decoration:none;" title="${c.category || 'Document'}">
+              <span>📄</span>
+              <span style="max-width:140px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${c.title}</span>
+            </a>
+          `).join('');
+        }
       }
     }
   } catch (err) {
@@ -7200,29 +7215,31 @@ document.getElementById('resume-base-input')?.addEventListener('change', async (
   }
 });
 
-// Certificate Upload
+// Certificates & Academic Marksheets Batch Upload
 document.getElementById('resume-cert-input')?.addEventListener('change', async (e) => {
-  const file = e.target.files[0];
-  if (!file) return;
+  const files = Array.from(e.target.files || []);
+  if (files.length === 0) return;
   const countEl = document.getElementById('resume-cert-count');
-  countEl.textContent = '⏳ Uploading certificate...';
+  countEl.textContent = `⏳ Uploading ${files.length} document(s)...`;
 
   const formData = new FormData();
-  formData.append('file', file);
-  formData.append('title', file.name.replace(/\.[^/.]+$/, ''));
+  files.forEach(f => formData.append('files', f));
 
   try {
     const token = await auth.currentUser.getIdToken();
-    const res = await fetch(API + '/api/resume/upload/certificate', {
+    const res = await fetch(API + '/api/resume/upload/documents', {
       method: 'POST',
       headers: { Authorization: `Bearer ${token}` },
       body: formData
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || 'Upload failed');
+    countEl.textContent = `✅ Uploaded ${data.added?.length || files.length} document(s)!`;
     await loadResumeProfile();
   } catch (err) {
     countEl.textContent = `❌ Error: ${err.message}`;
+  } finally {
+    e.target.value = ''; // Reset input to allow re-uploading if needed
   }
 });
 
