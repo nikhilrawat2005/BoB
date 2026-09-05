@@ -1,32 +1,35 @@
 {
   "version": 2,
-  "functions": {
-    "src/server.js": {
-      "maxDuration": 60
-    }
-  },
-  "headers": [
+  "builds": [
     {
-      "source": "/app.js",
-      "headers": [
-        { "key": "Cache-Control", "value": "no-cache, no-store, must-revalidate" }
-      ]
-    },
-    {
-      "source": "/style.css",
-      "headers": [
-        { "key": "Cache-Control", "value": "no-cache, no-store, must-revalidate" }
-      ]
-    },
-    {
-      "source": "/index.html",
-      "headers": [
-        { "key": "Cache-Control", "value": "no-cache, no-store, must-revalidate" }
-      ]
+      "src": "src/server.js",
+      "use": "@vercel/node",
+      "config": { "maxLambdaSize": "50mb" }
     }
   ],
-  "rewrites": [
-    { "source": "/api/(.*)", "destination": "/src/server.js" },
-    { "source": "/(.*)",     "destination": "/public/$1" }
+  "routes": [
+    {
+      "src": "/api/(.*)",
+      "dest": "/src/server.js"
+    },
+    {
+      "src": "/app.js",
+      "headers": { "Cache-Control": "no-cache, no-store, must-revalidate" },
+      "dest": "/public/app.js"
+    },
+    {
+      "src": "/style.css",
+      "headers": { "Cache-Control": "no-cache, no-store, must-revalidate" },
+      "dest": "/public/style.css"
+    },
+    {
+      "src": "/index.html",
+      "headers": { "Cache-Control": "no-cache, no-store, must-revalidate" },
+      "dest": "/public/index.html"
+    },
+    {
+      "src": "/(.*)",
+      "dest": "/public/$1"
+    }
   ]
 }
