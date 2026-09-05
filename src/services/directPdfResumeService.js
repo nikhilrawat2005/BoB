@@ -23,12 +23,13 @@ ${isTargeted ? `TARGET JOB VACANCY / JD:
 ${jobDescription}
 """
 TAILORING RULES:
-1. Emphasize projects, tech stack, and experience matching this specific JD.
-2. Select the top 3-4 most relevant projects.
-3. Write strong STAR-method bullet points with quantifiable results.
-` : `GENERAL ATS RULES:
-1. Highlight top technical achievements, high-impact projects, and problem-solving stats.
-2. Ensure bullet points follow Google's XYZ formula: "Accomplished [X] as measured by [Y], by doing [Z]".
+1. Deeply analyze ALL available repositories, base resume experiences, and credentials.
+2. Autonomously evaluate which 3-4 projects demonstrate the strongest engineering complexity, architecture, real-world utility, and tech stack alignment (e.g. large platforms, 200+ static page architectures, live Firebase databases, AI systems, full-stack tools).
+3. Write high-impact STAR-method bullet points with quantifiable engineering outcomes (Google XYZ formula).
+` : `GENERAL ATS MASTER RULES:
+1. Autonomously inspect ALL repositories in the candidate profile (README snippets, tech stacks, live links).
+2. Rank and select the candidate's absolute most impressive, showcase-worthy technical projects based on architectural scale, depth of implementation, and production-readiness (e.g. platforms with real traffic/pages, full-stack state management, AI/CV systems, or published innovation).
+3. Frame bullets strictly around: "Accomplished [X] as measured by [Y], by doing [Z]" — highlighting technical decisions, architecture, and metrics.
 `}
 
 RETURN ONLY A VALID JSON OBJECT (no markdown around it, no backticks, no comments, raw JSON only) matching this exact schema:

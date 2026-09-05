@@ -95,11 +95,11 @@ async function syncGitHubProjects(username) {
           const readmeData = await readmeRes.json();
           if (readmeData.content) {
             const rawReadme = Buffer.from(readmeData.content, 'base64').toString('utf8');
-            // Clean markdown headings & keep concise first 600 chars
+            // Clean markdown links and preserve rich feature descriptions up to 1800 chars
             readmeSummary = rawReadme
               .replace(/#+\s+/g, '')
               .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
-              .slice(0, 500)
+              .slice(0, 1800)
               .trim();
           }
         }
