@@ -7071,6 +7071,7 @@ async function loadResumeProfile() {
   const certCount = document.getElementById('resume-cert-count');
   const ghInput = document.getElementById('resume-github-username');
   const lcInput = document.getElementById('resume-leetcode-username');
+  const ccInput = document.getElementById('resume-codechef-username');
   const cfInput = document.getElementById('resume-codeforces-username');
 
   try {
@@ -7082,6 +7083,9 @@ async function loadResumeProfile() {
       }
       if (lcInput && res.profile.developerPlatforms?.leetcode?.username && !lcInput.value) {
         lcInput.value = res.profile.developerPlatforms.leetcode.username;
+      }
+      if (ccInput && res.profile.developerPlatforms?.codechef?.username && !ccInput.value) {
+        ccInput.value = res.profile.developerPlatforms.codechef.username;
       }
       if (cfInput && res.profile.developerPlatforms?.codeforces?.username && !cfInput.value) {
         cfInput.value = res.profile.developerPlatforms.codeforces.username;
@@ -7128,6 +7132,7 @@ document.getElementById('resume-sync-github-btn')?.addEventListener('click', asy
 // Coding Stats Sync
 document.getElementById('resume-sync-coding-btn')?.addEventListener('click', async () => {
   const leetcode = document.getElementById('resume-leetcode-username')?.value.trim();
+  const codechef = document.getElementById('resume-codechef-username')?.value.trim();
   const codeforces = document.getElementById('resume-codeforces-username')?.value.trim();
   const statusEl = document.getElementById('resume-sync-status');
 
@@ -7135,7 +7140,7 @@ document.getElementById('resume-sync-coding-btn')?.addEventListener('click', asy
   try {
     const res = await apiFetch('/api/resume/sync/coding', {
       method: 'POST',
-      body: JSON.stringify({ handles: { leetcode, codeforces } })
+      body: JSON.stringify({ handles: { leetcode, codechef, codeforces } })
     });
     statusEl.textContent = `✅ Coding statistics updated!`;
     await loadResumeProfile();

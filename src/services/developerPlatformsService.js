@@ -148,13 +148,51 @@ async function getDevToArticles(username) {
 }
 
 /**
- * 5. Master Aggregator: Fetch all developer profiles in parallel
+ * 5. CodeChef Public Profile Scraper
+ */
+const cheerio = require('cheerio');
+
+async function getCodeChefStats(username) {
+  if (!username) return null;
+  try {
+    const res = await fetch(`https://www.codechef.com/users/${username}`, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+      },
+      timeout: 5000
+    });
+    if (!res.ok) return null;
+    const html = await res.text();
+    const doc = cheerio.load(html);
+
+    const ratingRaw = doc('.rating-number').first().text().trim();
+    const rating = parseInt(ratingRaw, 10) || 0;
+    const stars = doc('.rating-star').first().text().trim() || 'Unrated';
+    const globalRank = doc('.rating-ranks strong').first().text().trim() || 'N/A';
+
+    return {
+      platform: 'CodeChef',
+      username,
+      profileUrl: `https://www.codechef.com/users/${username}`,
+      rating,
+      stars,
+      globalRank
+    };
+  } catch (err) {
+    console.error(`[DeveloperPlatforms] CodeChef fetch error for ${username}:`, err.message);
+    return null;
+  }
+}
+
+/**
+ * 6. Master Aggregator: Fetch all developer profiles in parallel
  */
 async function fetchAllDeveloperProfiles(handles = {}) {
   const tasks = [];
 
   if (handles.leetcode) tasks.push(getLeetCodeStats(handles.leetcode));
   if (handles.codeforces) tasks.push(getCodeforcesStats(handles.codeforces));
+  if (handles.codechef) tasks.push(getCodeChefStats(handles.codechef));
   if (handles.hackerrank) tasks.push(getHackerRankStats(handles.hackerrank));
   if (handles.devto) tasks.push(getDevToArticles(handles.devto));
 
@@ -173,6 +211,7 @@ async function fetchAllDeveloperProfiles(handles = {}) {
 module.exports = {
   getLeetCodeStats,
   getCodeforcesStats,
+  getCodeChefStats,
   getHackerRankStats,
   getDevToArticles,
   fetchAllDeveloperProfiles
