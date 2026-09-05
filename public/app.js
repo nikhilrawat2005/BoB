@@ -7308,16 +7308,58 @@ document.getElementById('resume-generate-btn')?.addEventListener('click', async 
     
     resultsBox.style.display = 'block';
     latexOut.value = res.latexCode || res.latexSource || '';
-    if (res.pdfUrl) {
-      pdfLink.href = res.pdfUrl;
+    if (pdfLink) {
       pdfLink.style.display = 'inline-flex';
-    } else {
-      pdfLink.style.display = 'none';
     }
   } catch (err) {
     alert(`Resume Generation Error: ${err.message}`);
   } finally {
     spinner.style.display = 'none';
+  }
+});
+
+// Direct Download PDF (Safe binary download)
+document.getElementById('resume-pdf-download-btn')?.addEventListener('click', async () => {
+  const latexOut = document.getElementById('resume-latex-output');
+  const latexCode = latexOut?.value?.trim();
+  if (!latexCode) { alert('Please generate a resume first.'); return; }
+
+  const btn = document.getElementById('resume-pdf-download-btn');
+  const originalText = btn.innerHTML;
+  btn.innerHTML = '⏳ Compiling PDF...';
+  btn.disabled = true;
+
+  try {
+    const token = await auth.currentUser.getIdToken();
+    const res = await fetch(API + '/api/resume/download-pdf', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`
+      },
+      body: JSON.stringify({ latexCode, filename: 'master_resume.pdf' })
+    });
+
+    if (!res.ok) {
+      const errJson = await res.json().catch(() => ({}));
+      throw new Error(errJson.error || `Failed to compile PDF (HTTP ${res.status})`);
+    }
+
+    const blob = await res.blob();
+    const blobUrl = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = blobUrl;
+    a.download = 'master_resume.pdf';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    window.URL.revokeObjectURL(blobUrl);
+  } catch (err) {
+    console.error('Download PDF error:', err);
+    alert(`PDF Download Error: ${err.message}\nTip: You can also copy the LaTeX code and compile on Overleaf if needed.`);
+  } finally {
+    btn.innerHTML = originalText;
+    btn.disabled = false;
   }
 });
 

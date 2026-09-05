@@ -275,10 +275,35 @@ router.post('/generate', requireAuth, async (req, res) => {
       latexCode: genResult.latexCode,
       pdfUrl: pdfResult.pdfUrl,
       isTargeted: genResult.isTargeted,
-      message: pdfResult.pdfUrl ? 'PDF compiled successfully' : 'LaTeX code generated. (PDF compile fallback available)'
+      message: pdfResult.pdfUrl ? 'PDF compiled successfully' : 'LaTeX code generated.'
     });
   } catch (err) {
     console.error('[ResumeAPI] Generate Resume Error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * 8. POST /api/resume/download-pdf — Direct PDF compilation and download stream
+ * Avoids any CDN access control / 401 issues by streaming compiled PDF buffer directly
+ */
+router.post('/download-pdf', requireAuth, async (req, res) => {
+  try {
+    const { latexCode, filename } = req.body;
+    if (!latexCode) return res.status(400).json({ error: 'LaTeX code is required' });
+
+    const result = await latexService.compileLatexToPdf(latexCode);
+    if (!result.success || !result.buffer) {
+      return res.status(502).json({ error: result.error || 'LaTeX compilation failed' });
+    }
+
+    const downloadName = filename || 'resume.pdf';
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${downloadName}"`);
+    res.setHeader('Content-Length', result.buffer.length);
+    res.end(result.buffer);
+  } catch (err) {
+    console.error('[ResumeAPI] Download PDF Error:', err);
     res.status(500).json({ error: err.message });
   }
 });
