@@ -146,27 +146,89 @@ function buildDirectPdfBuffer(resumeData) {
       const ruleColor = '#9ca3af';      // Divider line
 
       const pageWidth = doc.page.width - doc.page.margins.left - doc.page.margins.right;
+      const pageBottomLimit = () => doc.page.height - doc.page.margins.bottom;
 
-      // --- Helper: Draw Section Header ---
+      // --- Helper: Keep content inside the printable area (adds a page when needed) ---
+      function ensureSpace(height) {
+        if (doc.y + height > pageBottomLimit()) {
+          doc.addPage();
+        }
+      }
+
+      // --- Helper: Truncate a string with '…' so it never wraps or overlaps ---
+      function fitTextWidth(text, fontName, fontSize, maxWidth) {
+        doc.font(fontName).fontSize(fontSize);
+        let t = String(text || '');
+        if (doc.widthOfString(t) <= maxWidth) return t;
+        while (t.length > 1 && doc.widthOfString(t) > maxWidth) {
+          t = t.slice(0, -1);
+        }
+        return t.slice(0, -1) + '…';
+      }
+
+      if (doc.info) {
+        doc.info.Title = basics?.name ? basics.name + ' - Resume' : 'Resume';
+        doc.info.Author = basics?.name || 'Bob Resume Builder';
+        doc.info.Creator = 'Bob Resume Builder';
+      }
+
+      // --- Helper: Draw Section Header with a clean rule ---
       function drawSectionHeader(title) {
+        ensureSpace(34);
         doc.moveDown(0.5);
         doc.font('Helvetica-Bold')
            .fontSize(11)
            .fillColor(primaryColor)
            .text(title.toUpperCase(), { characterSpacing: 1 });
-        
+
         const y = doc.y + 2;
         doc.strokeColor(ruleColor)
            .lineWidth(0.75)
            .moveTo(doc.page.margins.left, y)
            .lineTo(doc.page.margins.left + pageWidth, y)
            .stroke();
-        
+
         doc.y = y + 4;
+      }
+
+      // --- Helper: Title row with an optional right-aligned note (cannot overlap) ---
+      // Left text wraps inside its reserved width; right text is measured & truncated.
+      function drawTitleLine(left, right, rightColor = secondaryColor) {
+        const y = doc.y;
+        let rightText = '';
+        let rightWidth = 0;
+        if (right) {
+          rightText = fitTextWidth(right, 'Helvetica-Oblique', 8.5, Math.min(210, pageWidth * 0.4));
+          rightWidth = doc.widthOfString(rightText);
+        }
+        const gap = 10;
+        const leftWidth = Math.max(90, pageWidth - rightWidth - gap);
+
+        let endY = y + 12;
+        if (left) {
+          doc.font('Helvetica-Bold').fontSize(9.5).fillColor(primaryColor);
+          doc.text(left, doc.page.margins.left, y, { width: leftWidth, lineGap: 1 });
+          endY = doc.y;
+        }
+        if (rightText) {
+          doc.font('Helvetica-Oblique').fontSize(8.5).fillColor(rightColor);
+          doc.text(rightText, doc.page.margins.left + leftWidth + gap, y, { width: rightWidth, lineBreak: false });
+          endY = Math.max(endY, doc.y);
+        }
+        doc.y = endY;
+      }
+
+      // --- Helper: Bullet point that never exits the printable area ---
+      function drawBullet(text) {
+        const b = String(text).trim().replace(/\.+$/, '');
+        ensureSpace(14);
+        doc.font('Helvetica').fontSize(8.8).fillColor(secondaryColor);
+        doc.text(`•  ${b}`, { indent: 10, lineGap: 1.2 });
       }
 
       // --- 1. HEADER / BASICS ---
       const name = basics?.name || 'Full Name';
+      ensureSpace(60);
       doc.font('Helvetica-Bold')
          .fontSize(20)
          .fillColor(primaryColor)
@@ -194,20 +256,21 @@ function buildDirectPdfBuffer(resumeData) {
            .text(contactItems.join('  •  '), { align: 'center' });
       }
 
-      // Profile Links bar
+      // Profile Links bar (shortened labels, single clean line per link pair)
       const links = (basics?.links || []).filter(l => l && l.label && l.url);
       if (links.length > 0) {
         doc.moveDown(0.15);
-        const linkParts = links.map(l => `${l.label}: ${l.url.replace(/^https?:\/\//, '')}`);
+        const linkParts = links.map(l => `${l.label}: ${l.url.replace(/^https?:\/\//, '').replace(/\/$/, '')}`);
         doc.font('Helvetica')
            .fontSize(8.5)
            .fillColor(accentColor)
-           .text(linkParts.join('  |  '), { align: 'center' });
+           .text(linkParts.join('   |   '), { align: 'center', lineGap: 1 });
       }
 
       // --- 2. SUMMARY (If available) ---
       if (summary && summary.trim().length > 10) {
         drawSectionHeader('Summary');
+        ensureSpace(45);
         doc.font('Helvetica')
            .fontSize(9.5)
            .fillColor(secondaryColor)
@@ -219,6 +282,7 @@ function buildDirectPdfBuffer(resumeData) {
         drawSectionHeader('Technical Skills');
         for (const [category, items] of Object.entries(skills)) {
           if (!Array.isArray(items) || items.length === 0) continue;
+          ensureSpace(14);
           doc.font('Helvetica-Bold')
              .fontSize(9)
              .fillColor(primaryColor)
@@ -234,62 +298,34 @@ function buildDirectPdfBuffer(resumeData) {
       if (Array.isArray(codingStats) && codingStats.length > 0) {
         drawSectionHeader('Competitive Programming & Problem Solving');
         const statsLine = codingStats.map(s => `${s.platform}: ${s.highlight}`).join('   •   ');
+        ensureSpace(20);
         doc.font('Helvetica')
            .fontSize(9)
            .fillColor(secondaryColor)
-           .text(statsLine);
+           .text(statsLine, { lineGap: 1 });
       }
 
       // --- 5. PROJECTS ---
       if (Array.isArray(projects) && projects.length > 0) {
         drawSectionHeader('Projects');
         projects.forEach(p => {
+          ensureSpace(16);
           doc.moveDown(0.2);
-          const startY = doc.y;
-
-          // Prepare link text and measure width to prevent overlapping
-          let cleanLink = '';
-          let linkWidth = 0;
-          if (p.link) {
-            cleanLink = p.link.replace(/^https?:\/\//, '').replace(/\/$/, '');
-            doc.font('Helvetica').fontSize(8.5);
-            linkWidth = Math.min(180, doc.widthOfString(cleanLink) + 5);
-          }
-
-          const titleMaxWidth = pageWidth - linkWidth - 10;
-
-          // Project Name & Stack (Left bounded)
-          doc.font('Helvetica-Bold')
-             .fontSize(9.5)
-             .fillColor(primaryColor)
-             .text(p.title || 'Project', doc.page.margins.left, startY, {
-               continued: Boolean(p.techStack && p.techStack.length > 0),
-               width: titleMaxWidth
-             });
+          const cleanLink = (p.link || '')
+            .replace(/^https?:\/\//, '')
+            .replace(/\/$/, '')
+            .replace(/^www\./, '');
+          drawTitleLine(p.title || 'Project', cleanLink || null, accentColor);
 
           if (p.techStack && p.techStack.length > 0) {
             doc.font('Helvetica-Oblique')
                .fontSize(8.5)
                .fillColor(secondaryColor)
-               .text(` | ${p.techStack.join(', ')}`, { width: titleMaxWidth });
+               .text(`| ${p.techStack.join(', ')}`, { indent: 2, lineGap: 1 });
+            doc.moveDown(0.1);
           }
 
-          // Link (Right aligned without overlapping)
-          if (cleanLink) {
-            doc.font('Helvetica')
-               .fontSize(8.5)
-               .fillColor(accentColor)
-               .text(cleanLink, doc.page.margins.left, startY, { align: 'right', width: pageWidth });
-          }
-
-          // Bullet points (Strip trailing periods for Hiration compliance)
-          (p.bullets || []).forEach(rawBullet => {
-            const b = String(rawBullet).trim().replace(/\.+$/, '');
-            doc.font('Helvetica')
-               .fontSize(8.8)
-               .fillColor(secondaryColor)
-               .text(`•  ${b}`, { indent: 10, lineGap: 1.2 });
-          });
+          (p.bullets || []).forEach(drawBullet);
         });
       }
 
@@ -297,36 +333,19 @@ function buildDirectPdfBuffer(resumeData) {
       if (Array.isArray(experience) && experience.length > 0) {
         drawSectionHeader('Experience');
         experience.forEach(exp => {
+          ensureSpace(16);
           doc.moveDown(0.2);
-          const startY = doc.y;
-
-          doc.font('Helvetica-Bold')
-             .fontSize(9.5)
-             .fillColor(primaryColor)
-             .text(exp.role || 'Role', { continued: true });
+          drawTitleLine(exp.role || 'Role', exp.duration || '');
 
           if (exp.company) {
             doc.font('Helvetica')
-               .fillColor(secondaryColor)
-               .text(` — ${exp.company}`);
-          } else {
-            doc.text('');
-          }
-
-          if (exp.duration) {
-            doc.font('Helvetica-Oblique')
                .fontSize(8.5)
                .fillColor(secondaryColor)
-               .text(exp.duration, doc.page.margins.left, startY, { align: 'right', width: pageWidth });
+               .text(exp.company, { lineGap: 1 });
+            doc.moveDown(0.1);
           }
 
-          (exp.bullets || []).forEach(rawBullet => {
-            const b = String(rawBullet).trim().replace(/\.+$/, '');
-            doc.font('Helvetica')
-               .fontSize(8.8)
-               .fillColor(secondaryColor)
-               .text(`•  ${b}`, { indent: 10, lineGap: 1.2 });
-          });
+          (exp.bullets || []).forEach(drawBullet);
         });
       }
 
@@ -334,34 +353,15 @@ function buildDirectPdfBuffer(resumeData) {
       if (Array.isArray(education) && education.length > 0) {
         drawSectionHeader('Education');
         education.forEach(edu => {
+          ensureSpace(16);
           doc.moveDown(0.15);
-          const startY = doc.y;
-
-          doc.font('Helvetica-Bold')
-             .fontSize(9)
-             .fillColor(primaryColor)
-             .text(edu.degree || 'Degree', { continued: true });
-
-          if (edu.score) {
-            doc.font('Helvetica')
-               .fillColor(secondaryColor)
-               .text(` (${edu.score})`);
-          } else {
-            doc.text('');
-          }
-
-          if (edu.duration) {
-            doc.font('Helvetica-Oblique')
-               .fontSize(8.5)
-               .fillColor(secondaryColor)
-               .text(edu.duration, doc.page.margins.left, startY, { align: 'right', width: pageWidth });
-          }
+          drawTitleLine(`${edu.degree || 'Degree'}${edu.score ? ` (${edu.score})` : ''}`, edu.duration || '');
 
           if (edu.institution) {
             doc.font('Helvetica')
                .fontSize(8.5)
                .fillColor(secondaryColor)
-               .text(edu.institution);
+               .text(edu.institution, { lineGap: 1 });
           }
         });
       }
@@ -370,10 +370,11 @@ function buildDirectPdfBuffer(resumeData) {
       if (Array.isArray(certifications) && certifications.length > 0) {
         drawSectionHeader('Certifications & Academics');
         certifications.forEach(c => {
+          ensureSpace(13);
           doc.font('Helvetica')
              .fontSize(8.8)
              .fillColor(secondaryColor)
-             .text(`•  ${c.title}${c.issuer ? ` (${c.issuer})` : ''}`, { indent: 10 });
+             .text(`•  ${c.title}${c.issuer ? ` (${c.issuer})` : ''}`, { indent: 10, lineGap: 1 });
         });
       }
 

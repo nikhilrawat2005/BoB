@@ -7131,6 +7131,11 @@ async function loadResumeProfile(profileId = activeCandidateProfileId) {
             { label: 'CodeChef', url: handles.codechef ? `https://codechef.com/users/${handles.codechef}` : (res.profile.developerPlatforms?.codechef?.profileUrl || '') }
           ].filter(l => l.url);
 
+      const pasteBox = document.getElementById('resume-links-paste');
+      if (pasteBox) {
+        pasteBox.value = savedSmartLinks.map(l => l.url || '').filter(Boolean).join('\n');
+      }
+
       renderSmartLinksUI(savedSmartLinks);
       renderSmartLinksBadges(res.profile.smartLinksResult || [], res.profile.developerPlatforms || {});
 
@@ -7377,83 +7382,104 @@ function renderSmartLinksBadges(items = [], platforms = {}) {
   badgesBox.innerHTML = badges.length > 0 ? badges.join('') : '<span style="font-size:10px; color:var(--text3);">No live stats extracted yet. Click Sync.</span>';
 }
 
-// Add Smart Link Button Handler
-document.getElementById('resume-add-link-btn')?.addEventListener('click', () => {
-  activeCandidateSmartLinks.push({ label: '', url: '' });
+// Auto-detect a label from any pasted link URL
+function autolabelLink(url) {
+  const lower = (url || '').toLowerCase();
+  if (lower.includes('leetcode.com')) return 'LeetCode';
+  if (lower.includes('codechef.com')) return 'CodeChef';
+  if (lower.includes('codeforces.com')) return 'Codeforces';
+  if (lower.includes('hackerrank.com')) return 'HackerRank';
+  if (lower.includes('geeksforgeeks.org')) return 'GeeksforGeeks';
+  if (lower.includes('dev.to')) return 'DEV.to';
+  if (lower.includes('medium.com')) return 'Medium';
+  if (lower.includes('github.com')) return 'GitHub';
+  if (lower.includes('linkedin.com')) return 'LinkedIn';
+  if (lower.includes('kaggle.com')) return 'Kaggle';
+  if (lower.includes('blogspot.com') || lower.includes('wordpress.com') || lower.includes('hashnode.com')) return 'Blog';
+  if (lower.includes('portfolio') || lower.includes('resume')) return 'Portfolio';
+  try {
+    const host = (new URL(url).hostname || '').replace(/^www\./, '');
+    const base = host.split('.')[0];
+    return base ? base.charAt(0).toUpperCase() + base.slice(1) : 'Portfolio';
+  } catch (e) {
+    return 'Portfolio';
+  }
+}
+
+// Pull links from the paste box (one per line) into activeCandidateSmartLinks with auto labels
+function applyPastedLinks() {
+  const textarea = document.getElementById('resume-links-paste');
+  if (!textarea) return;
+  const lines = (textarea.value || '').split('\n').map(l => l.trim()).filter(l => l.length > 0);
+  const existing = new Map((activeCandidateSmartLinks || []).map(l => [String(l.url || '').replace(/\/+$/, ''), l.label]));
+  activeCandidateSmartLinks = lines.map(url => {
+    const key = url.replace(/\/+$/, '');
+    return { label: existing.has(key) ? existing.get(key) : autolabelLink(url), url };
+  });
   renderSmartLinksUI(activeCandidateSmartLinks);
+}
+
+// Live re-parse whenever the user pastes/edits links in the paste box
+document.getElementById('resume-links-paste')?.addEventListener('input', () => {
+  clearTimeout(window.__resumePasteTimer);
+  window.__resumePasteTimer = setTimeout(applyPastedLinks, 350);
 });
 
-// GitHub Sync
-document.getElementById('resume-sync-github-btn')?.addEventListener('click', async () => {
-  const rawInput = document.getElementById('resume-github-username')?.value.trim();
-  const username = extractCleanHandle(rawInput);
-  const statusEl = document.getElementById('resume-sync-status');
-  if (!username) { alert('Please enter your GitHub profile link or username.'); return; }
-  
-  statusEl.textContent = `⏳ Crawling GitHub repositories & READMEs for @${username}...`;
-  try {
-    const res = await apiFetch(`/api/resume/sync/github?profileId=${encodeURIComponent(activeCandidateProfileId)}`, {
-      method: 'POST',
-      body: JSON.stringify({ username, profileId: activeCandidateProfileId })
-    });
-    statusEl.textContent = `✅ Synced ${res.projects?.length || 0} GitHub repositories!`;
-    await loadCandidateProfilesList();
-    await loadResumeProfile(activeCandidateProfileId);
-  } catch (err) {
-    statusEl.textContent = `❌ Failed to sync GitHub: ${err.message}`;
-  }
-});
-
-// Smart Links & Coding Stats Sync
-document.getElementById('resume-sync-coding-btn')?.addEventListener('click', async () => {
-  const statusEl = document.getElementById('resume-sync-status');
-  const validLinks = activeCandidateSmartLinks.filter(l => l.url && l.url.trim().length > 0);
-
-  if (validLinks.length === 0) {
-    alert('Please enter at least one URL (LeetCode, CodeChef, Portfolio, etc.) to sync.');
-    return;
-  }
-
-  statusEl.textContent = `⏳ Crawling & analyzing ${validLinks.length} link(s)...`;
-  try {
-    const res = await apiFetch(`/api/resume/sync/coding?profileId=${encodeURIComponent(activeCandidateProfileId)}`, {
-      method: 'POST',
-      body: JSON.stringify({ links: validLinks, profileId: activeCandidateProfileId })
-    });
-
-    const count = (res.items || []).filter(i => i.success).length;
-    statusEl.textContent = `✅ Successfully fetched intelligence from ${count}/${validLinks.length} link(s)!`;
-
-    renderSmartLinksBadges(res.items || [], res.stats || {});
-    await loadResumeProfile(activeCandidateProfileId);
-  } catch (err) {
-    statusEl.textContent = `❌ Failed to sync links: ${err.message}`;
-  }
-});
-
-// Save Profile Data (GitHub handle + Smart Links) for the active candidate
-document.getElementById('resume-save-profile-btn')?.addEventListener('click', async () => {
+// Combined Sync: persistence + GitHub crawl + links intelligence in one go
+document.getElementById('resume-sync-all-btn')?.addEventListener('click', async () => {
   const statusEl = document.getElementById('resume-sync-status');
   const rawInput = document.getElementById('resume-github-username')?.value.trim();
   const githubUsername = extractCleanHandle(rawInput);
-  const smartLinks = activeCandidateSmartLinks
-    .filter(l => l.url && l.url.trim().length > 0)
-    .map(l => ({ label: (l.label || '').trim(), url: l.url.trim() }));
 
-  statusEl.textContent = '⏳ Saving profile data...';
+  applyPastedLinks();
+  const validLinks = activeCandidateSmartLinks.filter(l => l.url && l.url.trim().length > 0);
+
+  if (!githubUsername && validLinks.length === 0) {
+    alert('Enter a GitHub link/username or paste at least one link to sync.');
+    return;
+  }
+
+  const done = [];
   try {
-    const res = await apiFetch(`/api/resume/profile?profileId=${encodeURIComponent(activeCandidateProfileId)}`, {
+    // 1. Persist the profile data first so it is never lost
+    statusEl.textContent = '⏳ Saving profile data...';
+    await apiFetch(`/api/resume/profile?profileId=${encodeURIComponent(activeCandidateProfileId)}`, {
       method: 'POST',
       body: JSON.stringify({
         profileId: activeCandidateProfileId,
         githubUsername: githubUsername || null,
-        smartLinks
+        smartLinks: validLinks.map(l => ({ label: l.label, url: l.url }))
       })
     });
-    statusEl.textContent = `✅ Profile data saved (github: ${githubUsername || 'none'}, links: ${smartLinks.length})!`;
+    done.push('saved data');
+
+    // 2. Crawl GitHub
+    if (githubUsername) {
+      statusEl.textContent = `⏳ Crawling GitHub repositories for @${githubUsername}...`;
+      const ghRes = await apiFetch(`/api/resume/sync/github?profileId=${encodeURIComponent(activeCandidateProfileId)}`, {
+        method: 'POST',
+        body: JSON.stringify({ username: githubUsername, profileId: activeCandidateProfileId })
+      });
+      done.push(`${ghRes.projects?.length || 0} repos`);
+    }
+
+    // 3. Crawl links intelligence
+    if (validLinks.length > 0) {
+      statusEl.textContent = `⏳ Crawling & analyzing ${validLinks.length} link(s)...`;
+      const res = await apiFetch(`/api/resume/sync/coding?profileId=${encodeURIComponent(activeCandidateProfileId)}`, {
+        method: 'POST',
+        body: JSON.stringify({ links: validLinks, profileId: activeCandidateProfileId })
+      });
+      const count = (res.items || []).filter(i => i.success).length;
+      done.push(`${count}/${validLinks.length} links`);
+      renderSmartLinksBadges(res.items || [], res.stats || {});
+    }
+
+    statusEl.textContent = `✅ ${done.join(' · ')} synced!`;
+    await loadCandidateProfilesList();
     await loadResumeProfile(activeCandidateProfileId);
   } catch (err) {
-    statusEl.textContent = `❌ Failed to save profile data: ${err.message}`;
+    statusEl.textContent = `❌ Sync failed: ${err.message}`;
   }
 });
 
@@ -7661,18 +7687,72 @@ document.getElementById('resume-generate-btn')?.addEventListener('click', async 
   const targetJobDescription = document.getElementById('resume-jd-input')?.value.trim();
   const spinner = document.getElementById('resume-gen-spinner');
   const resultsBox = document.getElementById('resume-results-container');
+  const statusEl = document.getElementById('resume-sync-status');
+
+  if (statusEl) statusEl.textContent = '⏳ Auto-syncing fed data...';
 
   spinner.style.display = 'inline';
   try {
+    // Always sync whatever has been fed, even if the Sync button was never pressed
+    const rawInput = document.getElementById('resume-github-username')?.value.trim();
+    const githubUsername = extractCleanHandle(rawInput);
+    applyPastedLinks();
+    const validLinks = activeCandidateSmartLinks.filter(l => l.url && l.url.trim().length > 0);
+
+    const syncSteps = [];
+
+    // 1. Persist manually fed data first
+    if (githubUsername || validLinks.length > 0) {
+      try {
+        await apiFetch(`/api/resume/profile?profileId=${encodeURIComponent(activeCandidateProfileId)}`, {
+          method: 'POST',
+          body: JSON.stringify({
+            profileId: activeCandidateProfileId,
+            githubUsername: githubUsername || null,
+            smartLinks: validLinks.map(l => ({ label: l.label, url: l.url }))
+          })
+        });
+        syncSteps.push('data');
+      } catch (e) { console.warn('Auto-save skip:', e.message); }
+    }
+
+    // 2. Crawl GitHub if any handle fed
+    if (githubUsername) {
+      try {
+        await apiFetch(`/api/resume/sync/github?profileId=${encodeURIComponent(activeCandidateProfileId)}`, {
+          method: 'POST',
+          body: JSON.stringify({ username: githubUsername, profileId: activeCandidateProfileId })
+        });
+        syncSteps.push('github');
+      } catch (e) { console.warn('Auto github sync skip:', e.message); }
+    }
+
+    // 3. Crawl link intelligence if any links fed
+    if (validLinks.length > 0) {
+      try {
+        const res = await apiFetch(`/api/resume/sync/coding?profileId=${encodeURIComponent(activeCandidateProfileId)}`, {
+          method: 'POST',
+          body: JSON.stringify({ links: validLinks, profileId: activeCandidateProfileId })
+        });
+        renderSmartLinksBadges(res.items || [], res.stats || {});
+        syncSteps.push('links');
+      } catch (e) { console.warn('Auto links sync skip:', e.message); }
+    }
+
+    if (statusEl) statusEl.textContent = syncSteps.length > 0
+      ? `✅ Auto-synced (${syncSteps.join(', ')}). Building resume...`
+      : '⏳ Building resume...';
+
     const res = await apiFetch(`/api/resume/generate?profileId=${encodeURIComponent(activeCandidateProfileId)}`, {
       method: 'POST',
       body: JSON.stringify({ targetJobDescription, profileId: activeCandidateProfileId })
     });
-    
+
     if (res.resumeData) {
       latestGeneratedResumeData = res.resumeData;
       resultsBox.style.display = 'block';
       renderResumeCardPreview(res.resumeData);
+      if (statusEl) statusEl.textContent = '✅ Resume generated! Fed data was auto-synced.';
     }
   } catch (err) {
     alert(`Resume Generation Error: ${err.message}`);
