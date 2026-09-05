@@ -53,15 +53,41 @@ router.post('/sync/github', requireAuth, async (req, res) => {
 
     const projects = await resumeProfile.syncGitHubProjects(username);
     
-    // Save to master profile
+    // Save to master profile, preserving excluded repos
     const profile = await resumeProfile.getMasterProfile(req.userId);
+    const excluded = new Set(profile.excludedRepos || []);
     profile.githubUsername = username;
-    profile.githubProjects = projects;
+    profile.githubProjects = projects.filter(p => !excluded.has(p.title));
     await resumeProfile.saveMasterProfile(req.userId, profile);
 
-    res.json({ success: true, projects, total: projects.length });
+    res.json({ success: true, projects: profile.githubProjects, total: profile.githubProjects.length });
   } catch (err) {
     console.error('[ResumeAPI] Sync GitHub Error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * 3b. DELETE /api/resume/project/:title — Exclude/remove a project from resume profile
+ */
+router.delete('/project/:title', requireAuth, async (req, res) => {
+  try {
+    const { title } = req.params;
+    const profile = await resumeProfile.getMasterProfile(req.userId);
+    const existing = profile.githubProjects || [];
+    profile.githubProjects = existing.filter(p => p.title.toLowerCase() !== title.toLowerCase());
+    
+    // Remember in excludedRepos list so re-scraping does not re-add it
+    const excluded = profile.excludedRepos || [];
+    if (!excluded.includes(title)) {
+      excluded.push(title);
+    }
+    profile.excludedRepos = excluded;
+
+    await resumeProfile.saveMasterProfile(req.userId, profile);
+    res.json({ success: true, removed: title, remaining: profile.githubProjects.length });
+  } catch (err) {
+    console.error('[ResumeAPI] Delete Project Error:', err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -204,7 +230,8 @@ router.post('/generate', requireAuth, async (req, res) => {
       try {
         const freshProjects = await resumeProfile.syncGitHubProjects(profile.githubUsername);
         if (freshProjects && freshProjects.length > 0) {
-          profile.githubProjects = freshProjects;
+          const excluded = new Set(profile.excludedRepos || []);
+          profile.githubProjects = freshProjects.filter(p => !excluded.has(p.title));
         }
       } catch (ghErr) {
         console.warn('[ResumeAPI] Auto re-scrape GitHub skip:', ghErr.message);

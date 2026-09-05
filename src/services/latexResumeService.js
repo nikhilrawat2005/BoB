@@ -124,8 +124,9 @@ LATEX FORMATTING REQUIREMENTS:
     temperature: 0.2
   });
 
-  const latexMatch = response.match(/```(?:latex|tex)?[\n\r]([\s\S]*?)```/i);
-  const latexCode = latexMatch ? latexMatch[1].trim() : response.trim();
+  const responseText = (response && response.text) ? response.text : String(response);
+  const latexMatch = responseText.match(/```(?:latex|tex)?[\n\r]([\s\S]*?)```/i);
+  const latexCode = latexMatch ? latexMatch[1].trim() : responseText.trim();
 
   return {
     latexCode,

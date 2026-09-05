@@ -7137,15 +7137,35 @@ async function loadResumeProfile() {
           reposList.innerHTML = projects.map(p => {
             const stack = (p.techStack || []).slice(0, 3).join(', ');
             return `
-              <div style="display:inline-flex; flex-direction:column; gap:2px; padding:6px 10px; border-radius:6px; background:var(--bg); border:1px solid var(--border); font-size:11px; max-width:210px;" title="${p.description || p.title}">
+              <div style="display:inline-flex; flex-direction:column; gap:2px; padding:6px 10px; border-radius:6px; background:var(--bg); border:1px solid var(--border); font-size:11px; max-width:210px; position:relative;" title="${p.description || p.title}">
                 <div style="display:flex; justify-content:space-between; align-items:center; gap:6px;">
-                  <strong style="color:var(--text); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">📦 ${p.title}</strong>
-                  <a href="${p.githubUrl}" target="_blank" style="color:var(--accent); text-decoration:none;" title="View on GitHub">↗</a>
+                  <strong style="color:var(--text); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:140px;">📦 ${p.title}</strong>
+                  <div style="display:flex; align-items:center; gap:4px;">
+                    <a href="${p.githubUrl}" target="_blank" style="color:var(--accent); text-decoration:none;" title="View on GitHub">↗</a>
+                    <button class="resume-remove-repo-btn" data-title="${p.title}" style="background:none; border:none; color:var(--text3); cursor:pointer; padding:0 2px; font-size:11px;" title="Remove from Resume">✕</button>
+                  </div>
                 </div>
                 ${stack ? `<span style="color:var(--text3); font-size:10px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">🛠️ ${stack}</span>` : ''}
               </div>
             `;
           }).join('');
+
+          // Bind delete handlers
+          reposList.querySelectorAll('.resume-remove-repo-btn').forEach(btn => {
+            btn.addEventListener('click', async (e) => {
+              e.stopPropagation();
+              const repoTitle = btn.getAttribute('data-title');
+              if (!confirm(`Do you want to exclude "${repoTitle}" from your resume?`)) return;
+              try {
+                btn.parentElement.parentElement.parentElement.style.opacity = '0.4';
+                await apiFetch(`/api/resume/project/${encodeURIComponent(repoTitle)}`, { method: 'DELETE' });
+                await loadResumeProfile();
+              } catch (delErr) {
+                alert(`Failed to remove project: ${delErr.message}`);
+                btn.parentElement.parentElement.parentElement.style.opacity = '1';
+              }
+            });
+          });
         } else {
           reposContainer.style.display = 'none';
         }
@@ -7287,7 +7307,7 @@ document.getElementById('resume-generate-btn')?.addEventListener('click', async 
     });
     
     resultsBox.style.display = 'block';
-    latexOut.value = res.latexSource || '';
+    latexOut.value = res.latexCode || res.latexSource || '';
     if (res.pdfUrl) {
       pdfLink.href = res.pdfUrl;
       pdfLink.style.display = 'inline-flex';
