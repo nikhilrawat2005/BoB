@@ -7613,13 +7613,74 @@ document.getElementById('resume-analyzer-run-btn')?.addEventListener('click', as
   }
 });
 
+let latestAuditResult = null;
+let latestAuditFileName = 'Resume';
+
+// Download ATS Audit Report as PDF
+document.getElementById('resume-download-audit-pdf-btn')?.addEventListener('click', async () => {
+  if (!latestAuditResult) {
+    alert('Please run an ATS audit first to download the report.');
+    return;
+  }
+
+  const btn = document.getElementById('resume-download-audit-pdf-btn');
+  const originalText = btn.innerHTML;
+  btn.innerHTML = '⏳ Generating PDF Report...';
+  btn.disabled = true;
+
+  try {
+    const token = await auth.currentUser.getIdToken();
+    const res = await fetch(API + '/api/resume/download-audit-pdf', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`
+      },
+      body: JSON.stringify({
+        audit: latestAuditResult,
+        fileName: latestAuditFileName
+      })
+    });
+
+    if (!res.ok) {
+      const errJson = await res.json().catch(() => ({}));
+      throw new Error(errJson.error || `Failed to download report (HTTP ${res.status})`);
+    }
+
+    const blob = await res.blob();
+    const blobUrl = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = blobUrl;
+    const safeName = (latestAuditFileName || 'Resume_Audit').replace(/[^a-zA-Z0-9_-]/g, '_');
+    a.download = `${safeName}_ATS_Report.pdf`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    window.URL.revokeObjectURL(blobUrl);
+  } catch (err) {
+    console.error('Download Audit PDF error:', err);
+    alert(`Audit PDF Download Error: ${err.message}`);
+  } finally {
+    btn.innerHTML = originalText;
+    btn.disabled = false;
+  }
+});
+
 // Render the detailed ATS Audit visual report
 function renderAtsAuditResults(audit, fileName = 'Resume') {
   if (!audit) return;
   const container = document.getElementById('resume-audit-results');
   if (!container) return;
 
+  latestAuditResult = audit;
+  latestAuditFileName = fileName;
+
   container.style.display = 'block';
+
+  const fileBadge = document.getElementById('audit-report-filename-badge');
+  if (fileBadge) {
+    fileBadge.textContent = `Audited Document: ${fileName}`;
+  }
 
   // Overall Score & Verdict
   const scoreVal = document.getElementById('audit-score-val');
@@ -7747,5 +7808,6 @@ function renderAtsAuditResults(audit, fileName = 'Resume') {
       : '<li>Resume is ready to submit.</li>';
   }
 }
+
 
 

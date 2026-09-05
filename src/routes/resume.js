@@ -387,4 +387,28 @@ router.post('/analyze-generated', requireAuth, async (req, res) => {
   }
 });
 
+/**
+ * 11. POST /api/resume/download-audit-pdf — Download ATS Audit Report as PDF
+ */
+router.post('/download-audit-pdf', requireAuth, async (req, res) => {
+  try {
+    const { audit, fileName } = req.body || {};
+    if (!audit) {
+      return res.status(400).json({ error: 'Audit data is required to generate report PDF.' });
+    }
+
+    const reportBuffer = await resumeAnalyzer.buildAuditReportPdfBuffer(audit, fileName || 'Resume');
+    const safeName = (fileName || 'Resume_Audit').replace(/[^a-zA-Z0-9_-]/g, '_');
+
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${safeName}_ATS_Report.pdf"`);
+    res.setHeader('Content-Length', reportBuffer.length);
+    res.end(reportBuffer);
+  } catch (err) {
+    console.error('[ResumeAPI] Download Audit PDF Error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 module.exports = router;
+

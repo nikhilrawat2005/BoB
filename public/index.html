@@ -855,7 +855,14 @@
 
               <!-- Audit Results Container -->
               <div id="resume-audit-results" style="display: none; margin-top: 20px; border-top: 1px solid var(--border); padding-top: 20px;">
-                <!-- Header with Score Gauge & Verdict -->
+                <!-- Header with Score Gauge, Verdict & Download PDF Report -->
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; flex-wrap: wrap; gap: 10px;">
+                  <span id="audit-report-filename-badge" style="font-size: 13px; font-weight: 600; color: var(--text);">Audited: Resume</span>
+                  <button id="resume-download-audit-pdf-btn" class="btn-small" style="background: var(--surface2); border: 1px solid var(--border2); cursor: pointer; display: inline-flex; align-items: center; gap: 6px; font-weight: 600;">
+                    📥 Download ATS Audit Report (PDF)
+                  </button>
+                </div>
+
                 <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 20px;">
                   <div style="background: var(--bg); border: 1px solid var(--border); border-radius: 10px; padding: 16px; text-align: center;">
                     <div style="font-size: 12px; color: var(--text3); text-transform: uppercase; letter-spacing: 1px;">Overall ATS Score</div>

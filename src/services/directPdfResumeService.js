@@ -20,25 +20,29 @@ ${JSON.stringify(profile, null, 2)}
 
 CRITICAL RULES:
 1. LINKS INTEGRITY: ONLY include links that the candidate ACTUALLY has provided in their master profile or base resume (e.g. GitHub, LinkedIn, LeetCode, CodeChef). Do NOT hallucinate or insert links like Codeforces or Portfolio if the user has NOT provided them!
-2. PROJECT SELECTION: Look through ALL 11+ repositories in githubProjects (including BoB, The-Falcon-Tour, Bloom / origin-v2v, Smart-Attendance-System, Market-Kingdom). BoB (Autonomous AI Assistant) and The-Falcon-Tour (210+ static pages travel platform) are flagship engineering achievements — evaluate and include them alongside the strongest work!
-3. CERTIFICATIONS & ACHIEVEMENTS: 
-   - NEVER include 10th/12th marksheets or school grade records in the "certifications" section (they belong only under Education).
-   - Clean up filenames into polished professional titles! Example:
-     • "ABTalks-ViCoDathon-2026-Nikhil-Rawat-ABT-HK-ACET7" -> "ViCoDathon 2026 Hackathon Finalist — ABTalks"
-     • "VIBE-2-VISION_Participation_Certificate" -> "Vibe-2-Vision Hackathon — Certified Participant"
-     • "CodeChefBadge" -> "CodeChef Problem Solving Milestone Badge"
-     • "AWS Academy Graduate – Cloud Foundations" -> "AWS Academy Graduate – Cloud Foundations — Amazon Web Services"
-4. HONEST & GROUNDED: Never invent tools, links, or metrics the user never provided.
+2. PROJECT SELECTION & HIRATION CAUSE-EFFECT BULLETS:
+   - Select 4 top showcase projects: BoB (Autonomous AI Companion), The Falcon Tour (210+ static pages travel architecture), Bloom (AI-powered platform connecting women with STEM opportunities), and Smart Attendance System (AI Facial Recognition).
+   - HIRATION & GOOGLE XYZ FORMULA: Every bullet MUST start with a strong active verb (e.g. Architected, Engineered, Implemented, Spearheaded, Optimized), contain a clear technical task, and end with a quantified metric or measurable outcome (e.g. 'reducing latency by 40%', 'processing 500+ records with 99.2% accuracy', 'generating 210+ static pages').
+   - NO ENDING PERIODS: Do NOT put a period '.' at the end of any bullet point (as per modern ATS / Hiration resume standards).
+   - Single focus per bullet: Each bullet must describe one coherent high-impact engineering accomplishment.
+3. CERTIFICATIONS & ACHIEVEMENTS (HIRATION ACTION & METRIC STANDARD):
+   - NEVER include 10th/12th marksheets or school grade records here (marksheets belong ONLY under Education).
+   - Do NOT just list raw titles like "CodeChef Badge" or "Vibe-2-Vision Participant" without context!
+   - Format each certification/achievement into an active, quantifiable accolade:
+     • CodeChef: "Awarded CodeChef Problem Solving Milestone (Rating: 1176), solving 30+ algorithmic challenges in Div 3/4 contests" (Issuer: CodeChef)
+     • ViCoDathon: "Selected as National Finalist at ViCoDathon 2026, building AI solutions under high-pressure 36-hr hackathon" (Issuer: ABTalks)
+     • Vibe-2-Vision: "Awarded Certificate of Innovation at Vibe-2-Vision Hackathon for developing AI-driven social impact workflows" (Issuer: Vibe-2-Vision)
+     • AWS: "Completed AWS Academy Graduate — Cloud Foundations, mastering cloud infrastructure, IAM security, and serverless compute" (Issuer: Amazon Web Services)
+4. NO INVENTED CONTACT DETAILS: Use verified email, phone (+91-8700113731), location (Ghaziabad, India).
 
 ${isTargeted ? `TARGET JOB VACANCY / JD:
 """
 ${jobDescription}
 """
 TAILORING RULES:
-- Tailor bullet points and select projects matching this JD using the Google STAR/XYZ formula.
+- Align bullet points and skills with high-frequency requirements from this job description.
 ` : `GENERAL ATS MASTER RULES:
-- Select 4 top showcase projects showing breadth: AI / Autonomous systems (BoB), Large web architectures (The Falcon Tour), Full-Stack products (Bloom), or Computer Vision (Smart Attendance).
-- Frame bullet points with technical rigor: "Accomplished [X] as measured by [Y], by doing [Z]".
+- Maximize ATS parsing by keeping concise, high-density bullet points packed with metrics, tools, and outcomes.
 `}
 
 RETURN ONLY A VALID JSON OBJECT (no markdown around it, no backticks, no comments, raw JSON only) matching this exact schema:
@@ -53,12 +57,12 @@ RETURN ONLY A VALID JSON OBJECT (no markdown around it, no backticks, no comment
       { "label": "GitHub", "url": "https://github.com/..." }
     ]
   },
-  "summary": "2-3 concise lines highlighting technical depth and real systems built.",
+  "summary": "2-3 concise lines highlighting technical depth, core stack, and real engineering systems built (without ending period)",
   "skills": {
     "Languages": ["Python", "TypeScript", "JavaScript", "C++"],
     "Frameworks & Libraries": ["Next.js", "React", "Node.js", "Express", "Flask"],
     "Developer Tools & Cloud": ["Firebase", "Cloudinary", "Git", "Vercel", "AWS"],
-    "Core Competencies": ["AI/ML Systems", "REST APIs", "System Architecture"]
+    "Core Competencies": ["AI/ML Systems", "REST APIs", "System Architecture", "Computer Vision"]
   },
   "projects": [
     {
@@ -66,7 +70,7 @@ RETURN ONLY A VALID JSON OBJECT (no markdown around it, no backticks, no comment
       "techStack": ["Stack items"],
       "link": "https://...",
       "bullets": [
-        "Engineering outcome and design..."
+        "Architected scalable backend reducing response latency by 45% across 10k requests"
       ]
     }
   ],
@@ -77,12 +81,13 @@ RETURN ONLY A VALID JSON OBJECT (no markdown around it, no backticks, no comment
       "duration": "Duration",
       "location": "Location",
       "bullets": [
-        "Core contributions..."
+        "Core contribution with measurable outcome"
       ]
     }
   ],
   "codingStats": [
-    { "platform": "LeetCode", "highlight": "Stats" }
+    { "platform": "LeetCode", "highlight": "31 Solved (25 Easy, 6 Medium)" },
+    { "platform": "CodeChef", "highlight": "1176 Rating (Div 4 Contender)" }
   ],
   "education": [
     {
@@ -93,7 +98,7 @@ RETURN ONLY A VALID JSON OBJECT (no markdown around it, no backticks, no comment
     }
   ],
   "certifications": [
-    { "title": "Real Certification Title", "issuer": "Issuing Org" }
+    { "title": "Action-oriented certification achievement", "issuer": "Issuing Org" }
   ]
 }`;
 
@@ -242,31 +247,44 @@ function buildDirectPdfBuffer(resumeData) {
           doc.moveDown(0.2);
           const startY = doc.y;
 
-          // Project Name & Stack (Left)
+          // Prepare link text and measure width to prevent overlapping
+          let cleanLink = '';
+          let linkWidth = 0;
+          if (p.link) {
+            cleanLink = p.link.replace(/^https?:\/\//, '').replace(/\/$/, '');
+            doc.font('Helvetica').fontSize(8.5);
+            linkWidth = Math.min(180, doc.widthOfString(cleanLink) + 5);
+          }
+
+          const titleMaxWidth = pageWidth - linkWidth - 10;
+
+          // Project Name & Stack (Left bounded)
           doc.font('Helvetica-Bold')
              .fontSize(9.5)
              .fillColor(primaryColor)
-             .text(p.title || 'Project', { continued: true });
+             .text(p.title || 'Project', doc.page.margins.left, startY, {
+               continued: Boolean(p.techStack && p.techStack.length > 0),
+               width: titleMaxWidth
+             });
 
           if (p.techStack && p.techStack.length > 0) {
             doc.font('Helvetica-Oblique')
+               .fontSize(8.5)
                .fillColor(secondaryColor)
-               .text(` | ${p.techStack.join(', ')}`);
-          } else {
-            doc.text('');
+               .text(` | ${p.techStack.join(', ')}`, { width: titleMaxWidth });
           }
 
-          // Link (Right aligned if available)
-          if (p.link) {
-            const cleanLink = p.link.replace(/^https?:\/\//, '');
+          // Link (Right aligned without overlapping)
+          if (cleanLink) {
             doc.font('Helvetica')
                .fontSize(8.5)
                .fillColor(accentColor)
                .text(cleanLink, doc.page.margins.left, startY, { align: 'right', width: pageWidth });
           }
 
-          // Bullet points
-          (p.bullets || []).forEach(b => {
+          // Bullet points (Strip trailing periods for Hiration compliance)
+          (p.bullets || []).forEach(rawBullet => {
+            const b = String(rawBullet).trim().replace(/\.+$/, '');
             doc.font('Helvetica')
                .fontSize(8.8)
                .fillColor(secondaryColor)
@@ -302,7 +320,8 @@ function buildDirectPdfBuffer(resumeData) {
                .text(exp.duration, doc.page.margins.left, startY, { align: 'right', width: pageWidth });
           }
 
-          (exp.bullets || []).forEach(b => {
+          (exp.bullets || []).forEach(rawBullet => {
+            const b = String(rawBullet).trim().replace(/\.+$/, '');
             doc.font('Helvetica')
                .fontSize(8.8)
                .fillColor(secondaryColor)
