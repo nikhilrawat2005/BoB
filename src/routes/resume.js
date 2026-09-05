@@ -42,7 +42,13 @@ router.post('/profile', requireAuth, async (req, res) => {
  */
 router.post('/sync/github', requireAuth, async (req, res) => {
   try {
-    const { username } = req.body;
+    let { username } = req.body || {};
+    if (username) {
+      username = username.trim()
+        .replace(/^(?:https?:\/\/)?(?:www\.)?github\.com\//i, '')
+        .split('/')[0]
+        .replace(/\/+$/, '');
+    }
     if (!username) return res.status(400).json({ error: 'GitHub username is required' });
 
     const projects = await resumeProfile.syncGitHubProjects(username);

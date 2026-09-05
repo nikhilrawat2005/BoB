@@ -217,12 +217,16 @@ function friendlyAuthError(code) {
 // ═══════════════════════════════════════════════════════
 
 async function apiFetch(path, options = {}, isRetry = false) {
+  const headers = {
+    'Authorization': `Bearer ${idToken}`,
+    ...(options.headers || {}),
+  };
+  if (options.body && typeof options.body === 'string' && !headers['Content-Type']) {
+    headers['Content-Type'] = 'application/json';
+  }
   const res = await fetch(API + path, {
     ...options,
-    headers: {
-      'Authorization': `Bearer ${idToken}`,
-      ...(options.headers || {}),
-    }
+    headers
   });
 
   if (!res.ok) {
