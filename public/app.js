@@ -7068,8 +7068,33 @@ document.addEventListener('click', async (e) => {
 // ═══════════════════════════════════════════════════════
 
 let currentResumeProfile = null;
+let activeCandidateProfileId = 'master';
 
-async function loadResumeProfile() {
+async function loadCandidateProfilesList() {
+  const select = document.getElementById('resume-candidate-select');
+  const deleteBtn = document.getElementById('resume-delete-candidate-btn');
+  if (!select) return;
+
+  try {
+    const res = await apiFetch('/api/resume/profiles');
+    if (res && Array.isArray(res.profiles)) {
+      select.innerHTML = res.profiles.map(p => `
+        <option value="${p.profileId}" ${p.profileId === activeCandidateProfileId ? 'selected' : ''}>
+          ${p.profileName} ${p.githubUsername ? `(@${p.githubUsername})` : ''}
+        </option>
+      `).join('');
+
+      if (deleteBtn) {
+        deleteBtn.style.display = (activeCandidateProfileId !== 'master') ? 'inline-flex' : 'none';
+      }
+    }
+  } catch (err) {
+    console.warn('Failed to load candidate profiles list:', err);
+  }
+}
+
+async function loadResumeProfile(profileId = activeCandidateProfileId) {
+  activeCandidateProfileId = profileId || 'master';
   const syncStatus = document.getElementById('resume-sync-status');
   const baseStatus = document.getElementById('resume-base-status');
   const certCount = document.getElementById('resume-cert-count');
@@ -7077,22 +7102,35 @@ async function loadResumeProfile() {
   const lcInput = document.getElementById('resume-leetcode-username');
   const ccInput = document.getElementById('resume-codechef-username');
   const cfInput = document.getElementById('resume-codeforces-username');
+  const deleteBtn = document.getElementById('resume-delete-candidate-btn');
+
+  if (deleteBtn) {
+    deleteBtn.style.display = (activeCandidateProfileId !== 'master') ? 'inline-flex' : 'none';
+  }
+
+  // Reset inputs when switching
+  if (ghInput) ghInput.value = '';
+  if (lcInput) lcInput.value = '';
+  if (ccInput) ccInput.value = '';
+  if (cfInput) cfInput.value = '';
+  if (syncStatus) syncStatus.textContent = '';
+  if (baseStatus) baseStatus.textContent = 'Loading...';
 
   try {
-    const res = await apiFetch('/api/resume/profile');
+    const res = await apiFetch(`/api/resume/profile?profileId=${encodeURIComponent(activeCandidateProfileId)}`);
     if (res && res.profile) {
       currentResumeProfile = res.profile;
       const handles = res.profile.savedHandles || {};
-      if (ghInput && res.profile.githubUsername && !ghInput.value) {
+      if (ghInput && res.profile.githubUsername) {
         ghInput.value = res.profile.githubUsername;
       }
-      if (lcInput && (handles.leetcode || res.profile.developerPlatforms?.leetcode?.username) && !lcInput.value) {
+      if (lcInput && (handles.leetcode || res.profile.developerPlatforms?.leetcode?.username)) {
         lcInput.value = handles.leetcode || res.profile.developerPlatforms.leetcode.username;
       }
-      if (ccInput && (handles.codechef || res.profile.developerPlatforms?.codechef?.username) && !ccInput.value) {
+      if (ccInput && (handles.codechef || res.profile.developerPlatforms?.codechef?.username)) {
         ccInput.value = handles.codechef || res.profile.developerPlatforms.codechef.username;
       }
-      if (cfInput && (handles.codeforces || res.profile.developerPlatforms?.codeforces?.username) && !cfInput.value) {
+      if (cfInput && (handles.codeforces || res.profile.developerPlatforms?.codeforces?.username)) {
         cfInput.value = handles.codeforces || res.profile.developerPlatforms.codeforces.username;
       }
 
@@ -7158,10 +7196,10 @@ async function loadResumeProfile() {
               if (!confirm(`Do you want to exclude "${repoTitle}" from your resume?`)) return;
               try {
                 btn.parentElement.parentElement.parentElement.style.opacity = '0.4';
-                await apiFetch(`/api/resume/project/${encodeURIComponent(repoTitle)}`, { method: 'DELETE' });
-                await loadResumeProfile();
-              } catch (delErr) {
-                alert(`Failed to remove project: ${delErr.message}`);
+                await apiFetch(`/api/resume/project/${encodeURIComponent(repoTitle)}?profileId=${encodeURIComponent(activeCandidateProfileId)}`, { method: 'DELETE' });
+                await loadResumeProfile(activeCandidateProfileId);
+              } catch (err) {
+                alert(`Failed to remove project: ${err.message}`);
                 btn.parentElement.parentElement.parentElement.style.opacity = '1';
               }
             });
@@ -7170,12 +7208,77 @@ async function loadResumeProfile() {
           reposContainer.style.display = 'none';
         }
       }
+
+      // If this profile already has a generated resume, show it
+      if (res.profile.latestResumeData) {
+        latestGeneratedResumeData = res.profile.latestResumeData;
+        const resultsBox = document.getElementById('resume-results-container');
+        if (resultsBox) {
+          resultsBox.style.display = 'block';
+          renderResumeCardPreview(res.profile.latestResumeData);
+        }
+      } else {
+        const resultsBox = document.getElementById('resume-results-container');
+        if (resultsBox) resultsBox.style.display = 'none';
+      }
     }
   } catch (err) {
-    console.error('loadResumeProfile error:', err);
-    if (syncStatus) syncStatus.textContent = 'Error loading career profile.';
+    console.error('Failed to load resume profile:', err);
   }
 }
+
+// Bind Candidate Switcher Events
+document.getElementById('resume-candidate-select')?.addEventListener('change', async (e) => {
+  const profileId = e.target.value;
+  await loadResumeProfile(profileId);
+});
+
+// Add New Candidate Profile (For a Friend)
+document.getElementById('resume-add-candidate-btn')?.addEventListener('click', async () => {
+  const friendName = prompt('Enter your friend\'s full name (e.g. Aman Sharma):');
+  if (!friendName || !friendName.trim()) return;
+
+  const cleanName = friendName.trim();
+  const slug = cleanName.toLowerCase().replace(/[^a-z0-9]+/g, '_').slice(0, 30) || 'friend';
+  const profileId = `candidate_${slug}_${Date.now().toString().slice(-4)}`;
+
+  try {
+    await apiFetch(`/api/resume/profile?profileId=${encodeURIComponent(profileId)}`, {
+      method: 'POST',
+      body: JSON.stringify({
+        profileId,
+        profileName: `${cleanName} (Friend)`,
+        personal: { name: cleanName }
+      })
+    });
+
+    activeCandidateProfileId = profileId;
+    await loadCandidateProfilesList();
+    await loadResumeProfile(profileId);
+    alert(`Candidate Profile for "${cleanName}" created! You can now sync their GitHub, upload their resume/certs, and generate their resume independently without altering your own data.`);
+  } catch (err) {
+    alert(`Failed to create candidate profile: ${err.message}`);
+  }
+});
+
+// Delete Candidate Profile
+document.getElementById('resume-delete-candidate-btn')?.addEventListener('click', async () => {
+  if (activeCandidateProfileId === 'master') {
+    alert('Cannot delete your primary master profile.');
+    return;
+  }
+  if (!confirm(`Are you sure you want to delete this candidate profile? All synced data for this friend will be removed.`)) return;
+
+  try {
+    await apiFetch(`/api/resume/profile/${encodeURIComponent(activeCandidateProfileId)}`, { method: 'DELETE' });
+    activeCandidateProfileId = 'master';
+    await loadCandidateProfilesList();
+    await loadResumeProfile('master');
+    alert('Candidate profile deleted. Switched back to Primary Profile.');
+  } catch (err) {
+    alert(`Failed to delete profile: ${err.message}`);
+  }
+});
 
 // Helper to clean handles from full URLs or raw usernames
 function extractCleanHandle(input) {
@@ -7206,12 +7309,13 @@ document.getElementById('resume-sync-github-btn')?.addEventListener('click', asy
   
   statusEl.textContent = `⏳ Crawling GitHub repositories & READMEs for @${username}...`;
   try {
-    const res = await apiFetch('/api/resume/sync/github', {
+    const res = await apiFetch(`/api/resume/sync/github?profileId=${encodeURIComponent(activeCandidateProfileId)}`, {
       method: 'POST',
-      body: JSON.stringify({ username })
+      body: JSON.stringify({ username, profileId: activeCandidateProfileId })
     });
     statusEl.textContent = `✅ Synced ${res.projects?.length || 0} GitHub repositories!`;
-    await loadResumeProfile();
+    await loadCandidateProfilesList();
+    await loadResumeProfile(activeCandidateProfileId);
   } catch (err) {
     statusEl.textContent = `❌ Failed to sync GitHub: ${err.message}`;
   }
@@ -7226,12 +7330,12 @@ document.getElementById('resume-sync-coding-btn')?.addEventListener('click', asy
 
   statusEl.textContent = '⏳ Syncing coding platform statistics...';
   try {
-    const res = await apiFetch('/api/resume/sync/coding', {
+    const res = await apiFetch(`/api/resume/sync/coding?profileId=${encodeURIComponent(activeCandidateProfileId)}`, {
       method: 'POST',
-      body: JSON.stringify({ handles: { leetcode, codechef, codeforces } })
+      body: JSON.stringify({ handles: { leetcode, codechef, codeforces }, profileId: activeCandidateProfileId })
     });
     statusEl.textContent = `✅ Coding statistics updated!`;
-    await loadResumeProfile();
+    await loadResumeProfile(activeCandidateProfileId);
   } catch (err) {
     statusEl.textContent = `❌ Failed to sync coding stats: ${err.message}`;
   }
@@ -7246,10 +7350,11 @@ document.getElementById('resume-base-input')?.addEventListener('change', async (
 
   const formData = new FormData();
   formData.append('file', file);
+  formData.append('profileId', activeCandidateProfileId);
 
   try {
     const token = await auth.currentUser.getIdToken();
-    const res = await fetch(API + '/api/resume/upload/base', {
+    const res = await fetch(API + `/api/resume/upload/base?profileId=${encodeURIComponent(activeCandidateProfileId)}`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${token}` },
       body: formData
@@ -7257,7 +7362,7 @@ document.getElementById('resume-base-input')?.addEventListener('change', async (
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || 'Upload failed');
     statusEl.innerHTML = `✅ <a href="${data.baseResume.url}" target="_blank" style="color:var(--accent);">View Uploaded PDF</a>`;
-    await loadResumeProfile();
+    await loadResumeProfile(activeCandidateProfileId);
   } catch (err) {
     statusEl.textContent = `❌ Error: ${err.message}`;
   }
@@ -7272,10 +7377,11 @@ document.getElementById('resume-cert-input')?.addEventListener('change', async (
 
   const formData = new FormData();
   files.forEach(f => formData.append('files', f));
+  formData.append('profileId', activeCandidateProfileId);
 
   try {
     const token = await auth.currentUser.getIdToken();
-    const res = await fetch(API + '/api/resume/upload/documents', {
+    const res = await fetch(API + `/api/resume/upload/documents?profileId=${encodeURIComponent(activeCandidateProfileId)}`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${token}` },
       body: formData
@@ -7283,7 +7389,7 @@ document.getElementById('resume-cert-input')?.addEventListener('change', async (
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || 'Upload failed');
     countEl.textContent = `✅ Uploaded ${data.added?.length || files.length} document(s)!`;
-    await loadResumeProfile();
+    await loadResumeProfile(activeCandidateProfileId);
   } catch (err) {
     countEl.textContent = `❌ Error: ${err.message}`;
   } finally {
@@ -7442,9 +7548,9 @@ document.getElementById('resume-generate-btn')?.addEventListener('click', async 
 
   spinner.style.display = 'inline';
   try {
-    const res = await apiFetch('/api/resume/generate', {
+    const res = await apiFetch(`/api/resume/generate?profileId=${encodeURIComponent(activeCandidateProfileId)}`, {
       method: 'POST',
-      body: JSON.stringify({ targetJobDescription })
+      body: JSON.stringify({ targetJobDescription, profileId: activeCandidateProfileId })
     });
     
     if (res.resumeData) {
@@ -7507,8 +7613,9 @@ document.getElementById('resume-pdf-download-btn')?.addEventListener('click', as
 });
 
 // Refresh button
-document.getElementById('resume-refresh-btn')?.addEventListener('click', () => {
-  loadResumeProfile();
+document.getElementById('resume-refresh-btn')?.addEventListener('click', async () => {
+  await loadCandidateProfilesList();
+  await loadResumeProfile(activeCandidateProfileId);
 });
 
 // ═══════════════════════════════════════════════════════

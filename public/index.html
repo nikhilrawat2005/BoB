@@ -720,12 +720,36 @@
               <p class="view-sub">Sync GitHub, LeetCode, Codeforces, Certificates & Generate ATS-Proof Jake's LaTeX Resume</p>
             </div>
             <div class="view-header-actions">
-              <button id="resume-refresh-btn" class="btn-small" style="background:var(--surface2); border:1px solid var(--border2);" title="Refresh profile">🔄 Refresh</button>
+                <button id="resume-refresh-btn" class="btn-small" style="background:var(--surface2); border:1px solid var(--border2);" title="Refresh profile">🔄 Refresh</button>
               <button class="view-close icon-btn" title="Close (back to chat)">✕</button>
             </div>
           </div>
 
           <div class="view-body" style="padding: 20px; overflow-y: auto; display: flex; flex-direction: column; gap: 20px;">
+            <!-- Candidate Profile Switcher Bar -->
+            <div style="background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 14px 18px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
+              <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+                <span style="font-size: 16px;">👤</span>
+                <div>
+                  <div style="font-size: 11px; color: var(--text3); text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600;">Current Candidate Profile</div>
+                  <div style="display: flex; align-items: center; gap: 8px; margin-top: 2px;">
+                    <select id="resume-candidate-select" style="padding: 6px 12px; border-radius: 6px; border: 1px solid var(--border); background: var(--bg); color: var(--text); font-size: 13px; font-weight: 600; cursor: pointer; min-width: 220px;">
+                      <option value="master">Primary Profile (Self)</option>
+                    </select>
+                    <span id="resume-candidate-badge" style="font-size: 11px; background: rgba(16, 185, 129, 0.15); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.3); border-radius: 12px; padding: 2px 8px; font-weight: 600;">Active</span>
+                  </div>
+                </div>
+              </div>
+              <div style="display: flex; gap: 8px; align-items: center;">
+                <button id="resume-add-candidate-btn" class="btn-small btn-accent" style="cursor: pointer; display: inline-flex; align-items: center; gap: 6px; font-weight: 600;">
+                  <span>➕</span> Create for a Friend
+                </button>
+                <button id="resume-delete-candidate-btn" class="btn-small" style="background: transparent; border: 1px solid rgba(239, 68, 68, 0.4); color: #ef4444; cursor: pointer; display: none; align-items: center; gap: 4px;" title="Delete this friend profile">
+                  <span>🗑️</span> Delete
+                </button>
+              </div>
+            </div>
+
             <!-- Top Controls Grid -->
             <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px;">
               <!-- Card 1: Sync Profiles -->

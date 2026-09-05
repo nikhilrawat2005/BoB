@@ -14,11 +14,39 @@ const upload = multer({
 });
 
 /**
- * 1. GET /api/resume/profile — Fetch Master Career Profile
+ * 0. GET /api/resume/profiles — List all candidate profiles
+ */
+router.get('/profiles', requireAuth, async (req, res) => {
+  try {
+    const profiles = await resumeProfile.listCandidateProfiles(req.userId);
+    res.json({ success: true, profiles });
+  } catch (err) {
+    console.error('[ResumeAPI] List Profiles Error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * 0b. DELETE /api/resume/profile/:profileId — Delete a friend / candidate profile
+ */
+router.delete('/profile/:profileId', requireAuth, async (req, res) => {
+  try {
+    const { profileId } = req.params;
+    const result = await resumeProfile.deleteCandidateProfile(req.userId, profileId);
+    res.json({ success: true, deleted: profileId });
+  } catch (err) {
+    console.error('[ResumeAPI] Delete Profile Error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * 1. GET /api/resume/profile — Fetch Master or Specific Candidate Career Profile
  */
 router.get('/profile', requireAuth, async (req, res) => {
   try {
-    const profile = await resumeProfile.getMasterProfile(req.userId);
+    const profileId = req.query.profileId || 'master';
+    const profile = await resumeProfile.getMasterProfile(req.userId, profileId);
     res.json({ success: true, profile });
   } catch (err) {
     console.error('[ResumeAPI] Get Profile Error:', err);
@@ -27,11 +55,12 @@ router.get('/profile', requireAuth, async (req, res) => {
 });
 
 /**
- * 2. POST /api/resume/profile — Update Master Career Profile
+ * 2. POST /api/resume/profile — Update Master or Specific Candidate Career Profile
  */
 router.post('/profile', requireAuth, async (req, res) => {
   try {
-    const updated = await resumeProfile.saveMasterProfile(req.userId, req.body);
+    const profileId = req.query.profileId || req.body.profileId || 'master';
+    const updated = await resumeProfile.saveMasterProfile(req.userId, req.body, profileId);
     res.json({ success: true, profile: updated });
   } catch (err) {
     console.error('[ResumeAPI] Save Profile Error:', err);
@@ -44,6 +73,7 @@ router.post('/profile', requireAuth, async (req, res) => {
  */
 router.post('/sync/github', requireAuth, async (req, res) => {
   try {
+    const profileId = req.query.profileId || req.body.profileId || 'master';
     let { username } = req.body || {};
     if (username) {
       username = username.trim()
@@ -55,12 +85,12 @@ router.post('/sync/github', requireAuth, async (req, res) => {
 
     const projects = await resumeProfile.syncGitHubProjects(username);
     
-    // Save to master profile, preserving excluded repos
-    const profile = await resumeProfile.getMasterProfile(req.userId);
+    // Save to target candidate profile, preserving excluded repos
+    const profile = await resumeProfile.getMasterProfile(req.userId, profileId);
     const excluded = new Set(profile.excludedRepos || []);
     profile.githubUsername = username;
     profile.githubProjects = projects.filter(p => !excluded.has(p.title));
-    await resumeProfile.saveMasterProfile(req.userId, profile);
+    await resumeProfile.saveMasterProfile(req.userId, profile, profileId);
 
     res.json({ success: true, projects: profile.githubProjects, total: profile.githubProjects.length });
   } catch (err) {
@@ -99,11 +129,12 @@ router.delete('/project/:title', requireAuth, async (req, res) => {
  */
 router.post('/sync/coding', requireAuth, async (req, res) => {
   try {
+    const profileId = req.query.profileId || req.body.profileId || 'master';
     const { handles } = req.body; // { leetcode, codechef, codeforces, hackerrank }
     const stats = await resumeProfile.syncDeveloperProfiles(handles || {});
     
-    // Save handles & stats permanently to master profile
-    const profile = await resumeProfile.getMasterProfile(req.userId);
+    // Save handles & stats permanently to candidate profile
+    const profile = await resumeProfile.getMasterProfile(req.userId, profileId);
     profile.developerPlatforms = {
       ...(profile.developerPlatforms || {}),
       ...stats
@@ -112,7 +143,7 @@ router.post('/sync/coding', requireAuth, async (req, res) => {
       ...(profile.savedHandles || {}),
       ...(handles || {})
     };
-    await resumeProfile.saveMasterProfile(req.userId, profile);
+    await resumeProfile.saveMasterProfile(req.userId, profile, profileId);
 
     res.json({ success: true, stats, savedHandles: profile.savedHandles });
   } catch (err) {
@@ -127,6 +158,7 @@ router.post('/sync/coding', requireAuth, async (req, res) => {
 router.post('/upload/base', requireAuth, upload.single('file'), async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ error: 'No PDF file uploaded' });
+    const profileId = req.query.profileId || req.body.profileId || 'master';
 
     // 1. Upload to Cloudinary via fileService
     const storedFile = await fileService.uploadFile(req.userId, req.file);
@@ -134,8 +166,8 @@ router.post('/upload/base', requireAuth, upload.single('file'), async (req, res)
     // 2. Parse text
     const parsed = await resumeProfile.parseResumePdf(req.file.buffer);
 
-    // 3. Update master profile with baseResume reference
-    const currentProfile = await resumeProfile.getMasterProfile(req.userId);
+    // 3. Update candidate profile with baseResume reference
+    const currentProfile = await resumeProfile.getMasterProfile(req.userId, profileId);
     currentProfile.baseResume = {
       fileId: storedFile.id,
       url: storedFile.url,
@@ -143,7 +175,7 @@ router.post('/upload/base', requireAuth, upload.single('file'), async (req, res)
       uploadedAt: Date.now(),
       rawText: parsed.rawText
     };
-    await resumeProfile.saveMasterProfile(req.userId, currentProfile);
+    await resumeProfile.saveMasterProfile(req.userId, currentProfile, profileId);
 
     res.json({
       success: true,
@@ -162,12 +194,13 @@ router.post('/upload/base', requireAuth, upload.single('file'), async (req, res)
  */
 router.post(['/upload/certificate', '/upload/documents'], requireAuth, upload.array('files', 15), async (req, res) => {
   try {
+    const profileId = req.query.profileId || req.body.profileId || 'master';
     const uploadedFiles = req.files || (req.file ? [req.file] : []);
     if (!uploadedFiles || uploadedFiles.length === 0) {
       return res.status(400).json({ error: 'No documents/certificates uploaded' });
     }
 
-    const profile = await resumeProfile.getMasterProfile(req.userId);
+    const profile = await resumeProfile.getMasterProfile(req.userId, profileId);
     const existingCerts = profile.certifications || [];
     const addedRecords = [];
 
@@ -202,7 +235,7 @@ router.post(['/upload/certificate', '/upload/documents'], requireAuth, upload.ar
     }
 
     profile.certifications = existingCerts;
-    await resumeProfile.saveMasterProfile(req.userId, profile);
+    await resumeProfile.saveMasterProfile(req.userId, profile, profileId);
 
     res.json({
       success: true,
@@ -221,11 +254,12 @@ router.post(['/upload/certificate', '/upload/documents'], requireAuth, upload.ar
  */
 router.post('/generate', requireAuth, async (req, res) => {
   try {
+    const profileId = req.query.profileId || req.body.profileId || 'master';
     const { jobDescription, customPrompt, templateName, targetJobDescription } = req.body;
     const finalJD = jobDescription || targetJobDescription || '';
 
-    // Fetch user's full context
-    let profile = await resumeProfile.getMasterProfile(req.userId);
+    // Fetch target candidate's full context
+    let profile = await resumeProfile.getMasterProfile(req.userId, profileId);
 
     // Auto-re-scrape fresh projects from GitHub if username is saved
     if (profile.githubUsername) {
@@ -256,7 +290,7 @@ router.post('/generate', requireAuth, async (req, res) => {
     }
 
     // Save updated fresh state back to profile
-    await resumeProfile.saveMasterProfile(req.userId, profile);
+    await resumeProfile.saveMasterProfile(req.userId, profile, profileId);
 
     // 1. Generate Structured Resume Data via LLM
     const structuredResult = await directPdfService.generateStructuredResumeData({
@@ -264,9 +298,9 @@ router.post('/generate', requireAuth, async (req, res) => {
       jobDescription: finalJD
     });
 
-    // Save latest resume JSON to profile
+    // Save latest resume JSON to candidate profile
     profile.latestResumeData = structuredResult.data;
-    await resumeProfile.saveMasterProfile(req.userId, profile);
+    await resumeProfile.saveMasterProfile(req.userId, profile, profileId);
 
     res.json({
       success: true,

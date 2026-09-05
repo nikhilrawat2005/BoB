@@ -12,15 +12,18 @@ const documentReader = require('./documentReaderService');
 const fetch = require('node-fetch');
 
 /**
- * Fetch Master Career Profile from Firestore
+ * Fetch Candidate / Master Career Profile from Firestore
  */
-async function getMasterProfile(userId) {
+async function getMasterProfile(userId, profileId = 'master') {
   if (!userId) return null;
-  const docRef = db.collection('users').doc(userId).collection('resume_profile').doc('master');
+  const safeProfileId = (profileId || 'master').trim().replace(/[^a-zA-Z0-9_-]/g, '_') || 'master';
+  const docRef = db.collection('users').doc(userId).collection('resume_profile').doc(safeProfileId);
   const snap = await docRef.get();
   if (!snap.exists) {
     return {
       userId,
+      profileId: safeProfileId,
+      profileName: safeProfileId === 'master' ? 'Primary Profile (Self)' : safeProfileId,
       personal: {},
       education: [],
       experience: [],
@@ -33,22 +36,74 @@ async function getMasterProfile(userId) {
       updatedAt: null
     };
   }
-  return snap.data();
+  const data = snap.data();
+  return {
+    ...data,
+    profileId: safeProfileId,
+    profileName: data.profileName || (safeProfileId === 'master' ? 'Primary Profile (Self)' : safeProfileId)
+  };
 }
 
 /**
- * Save or Update Master Career Profile in Firestore
+ * Save or Update Candidate / Master Career Profile in Firestore
  */
-async function saveMasterProfile(userId, profileData) {
+async function saveMasterProfile(userId, profileData, profileId = 'master') {
   if (!userId) throw new Error('User ID required');
-  const docRef = db.collection('users').doc(userId).collection('resume_profile').doc('master');
+  const safeProfileId = (profileId || profileData?.profileId || 'master').trim().replace(/[^a-zA-Z0-9_-]/g, '_') || 'master';
+  const docRef = db.collection('users').doc(userId).collection('resume_profile').doc(safeProfileId);
   const payload = {
     ...profileData,
     userId,
+    profileId: safeProfileId,
+    profileName: profileData?.profileName || (safeProfileId === 'master' ? 'Primary Profile (Self)' : safeProfileId),
     updatedAt: Date.now()
   };
   await docRef.set(payload, { merge: true });
   return payload;
+}
+
+/**
+ * List all candidate profiles created by this user
+ */
+async function listCandidateProfiles(userId) {
+  if (!userId) return [];
+  const colRef = db.collection('users').doc(userId).collection('resume_profile');
+  const snap = await colRef.get();
+  const profiles = [];
+  snap.forEach(doc => {
+    const d = doc.data() || {};
+    profiles.push({
+      profileId: doc.id,
+      profileName: d.profileName || (doc.id === 'master' ? 'Primary Profile (Self)' : doc.id),
+      githubUsername: d.githubUsername || '',
+      updatedAt: d.updatedAt || null,
+      isDefault: doc.id === 'master'
+    });
+  });
+
+  // Ensure 'master' is always in the list
+  if (!profiles.some(p => p.profileId === 'master')) {
+    profiles.unshift({
+      profileId: 'master',
+      profileName: 'Primary Profile (Self)',
+      githubUsername: '',
+      updatedAt: null,
+      isDefault: true
+    });
+  }
+  return profiles;
+}
+
+/**
+ * Delete a candidate profile
+ */
+async function deleteCandidateProfile(userId, profileId) {
+  if (!userId || !profileId || profileId === 'master') {
+    throw new Error('Cannot delete primary master profile');
+  }
+  const docRef = db.collection('users').doc(userId).collection('resume_profile').doc(profileId);
+  await docRef.delete();
+  return { success: true, deleted: profileId };
 }
 
 /**
@@ -147,6 +202,8 @@ async function parseResumePdf(buffer) {
 module.exports = {
   getMasterProfile,
   saveMasterProfile,
+  listCandidateProfiles,
+  deleteCandidateProfile,
   syncGitHubProjects,
   syncDeveloperProfiles,
   parseResumePdf
