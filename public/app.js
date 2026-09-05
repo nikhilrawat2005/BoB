@@ -7123,6 +7123,33 @@ async function loadResumeProfile() {
           `).join('');
         }
       }
+
+      // Render Synced GitHub Repositories Preview
+      const reposContainer = document.getElementById('resume-repos-container');
+      const reposList = document.getElementById('resume-repos-list');
+      const reposCount = document.getElementById('resume-repos-count');
+      const projects = res.profile.githubProjects || [];
+
+      if (reposContainer && reposList) {
+        if (projects.length > 0) {
+          reposContainer.style.display = 'block';
+          if (reposCount) reposCount.textContent = projects.length;
+          reposList.innerHTML = projects.map(p => {
+            const stack = (p.techStack || []).slice(0, 3).join(', ');
+            return `
+              <div style="display:inline-flex; flex-direction:column; gap:2px; padding:6px 10px; border-radius:6px; background:var(--bg); border:1px solid var(--border); font-size:11px; max-width:210px;" title="${p.description || p.title}">
+                <div style="display:flex; justify-content:space-between; align-items:center; gap:6px;">
+                  <strong style="color:var(--text); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">📦 ${p.title}</strong>
+                  <a href="${p.githubUrl}" target="_blank" style="color:var(--accent); text-decoration:none;" title="View on GitHub">↗</a>
+                </div>
+                ${stack ? `<span style="color:var(--text3); font-size:10px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">🛠️ ${stack}</span>` : ''}
+              </div>
+            `;
+          }).join('');
+        } else {
+          reposContainer.style.display = 'none';
+        }
+      }
     }
   } catch (err) {
     console.error('loadResumeProfile error:', err);

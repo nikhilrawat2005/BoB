@@ -747,6 +747,14 @@
                   </div>
                 </div>
                 <div id="resume-sync-status" style="font-size: 12px; margin-top: 8px; color: var(--text2);"></div>
+                <!-- Synced GitHub Repositories Preview & Selection -->
+                <div id="resume-repos-container" style="display:none; margin-top:12px; border-top: 1px solid var(--border); padding-top: 10px;">
+                  <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                    <strong style="font-size: 12px; color: var(--text);">Synced Repositories (<span id="resume-repos-count">0</span>):</strong>
+                    <span style="font-size: 11px; color: var(--text3);">Click any repo to view or customize details</span>
+                  </div>
+                  <div id="resume-repos-list" style="display: flex; flex-wrap: wrap; gap: 6px; max-height: 120px; overflow-y: auto;"></div>
+                </div>
               </div>
 
               <!-- Card 2: Vault Files (Previous Resume & Certificates) -->
@@ -786,13 +794,15 @@
             <!-- Generate Section -->
             <div style="background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 16px;">
               <h3 style="margin-top: 0; font-size: 15px; display: flex; align-items: center; gap: 8px;">
-                <span>🎯</span> ATS Job Tailoring & LaTeX Generator
+                <span>🎯</span> Generate Professional ATS Resume
               </h3>
-              <p style="font-size: 12px; color: var(--text3); margin-bottom: 10px;">Paste Target Job Description (Optional) to tailor projects & bullet points using STAR format.</p>
-              <textarea id="resume-jd-input" placeholder="Paste Job Description (JD) here to match skills & ATS keywords..." style="width: 100%; height: 80px; padding: 10px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg); color: var(--text); resize: vertical; font-size: 13px; margin-bottom: 12px; box-sizing: border-box;"></textarea>
+              <p style="font-size: 12px; color: var(--text3); margin-bottom: 10px;">
+                💡 <strong>Completely Free & Flexible:</strong> Agar koi specific job nahi hai, toh neeche ka box khali chhod de — Bob aapke saare best projects, coding stats aur documents ko lekar ek complete Master Technical Resume bana dega. Agar koi target Job Description (JD) hai, toh paste kar de taaki ATS keywords match ho sakein.
+              </p>
+              <textarea id="resume-jd-input" placeholder="(Optional) Paste Target Job Description here if applying for a specific role, or leave blank to build a master resume..." style="width: 100%; height: 75px; padding: 10px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg); color: var(--text); resize: vertical; font-size: 13px; margin-bottom: 12px; box-sizing: border-box;"></textarea>
               
-              <div style="display: flex; gap: 12px; align-items: center;">
-                <button id="resume-generate-btn" class="btn-small btn-accent" style="padding: 8px 16px; font-weight: 600;">🚀 Generate Tailored LaTeX Resume</button>
+              <div style="display: flex; gap: 12px; align-items: center; flex-wrap: wrap;">
+                <button id="resume-generate-btn" class="btn-small btn-accent" style="padding: 9px 18px; font-weight: 600;">🚀 Build & Compile LaTeX Resume</button>
                 <span id="resume-gen-spinner" style="font-size: 13px; color: var(--text3); display: none;">⏳ Compiling ATS Resume with AI & LaTeX engine...</span>
               </div>
             </div>
