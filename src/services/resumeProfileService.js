@@ -62,8 +62,8 @@ async function syncGitHubProjects(username) {
       headers['Authorization'] = `token ${process.env.GITHUB_TOKEN}`;
     }
 
-    // 1. Fetch user public repositories
-    const res = await fetch(`https://api.github.com/users/${username}/repos?sort=updated&per_page=15`, { headers });
+    // 1. Fetch user public repositories (up to 100)
+    const res = await fetch(`https://api.github.com/users/${username}/repos?sort=updated&per_page=100`, { headers });
     if (!res.ok) {
       console.warn(`[ResumeProfile] Failed to fetch GitHub repos for ${username}: ${res.statusText}`);
       return [];
@@ -71,13 +71,10 @@ async function syncGitHubProjects(username) {
     const repos = await res.json();
     if (!Array.isArray(repos)) return [];
 
-    // Filter non-forked repos with descriptions or stars
-    const relevantRepos = repos
-      .filter(r => !r.fork)
-      .sort((a, b) => (b.stargazers_count + b.forks_count) - (a.stargazers_count + a.forks_count))
-      .slice(0, 8);
+    // Filter non-forked original repos
+    const relevantRepos = repos.filter(r => !r.fork);
 
-    // 2. Deep inspect top repos (fetch languages & README snippet)
+    // 2. Deep inspect repos (fetch languages & README snippets)
     const projectPromises = relevantRepos.map(async (repo) => {
       let languages = [];
       let readmeSummary = '';

@@ -52,7 +52,14 @@ router.post('/sync/github', requireAuth, async (req, res) => {
     if (!username) return res.status(400).json({ error: 'GitHub username is required' });
 
     const projects = await resumeProfile.syncGitHubProjects(username);
-    res.json({ success: true, projects });
+    
+    // Save to master profile
+    const profile = await resumeProfile.getMasterProfile(req.userId);
+    profile.githubUsername = username;
+    profile.githubProjects = projects;
+    await resumeProfile.saveMasterProfile(req.userId, profile);
+
+    res.json({ success: true, projects, total: projects.length });
   } catch (err) {
     console.error('[ResumeAPI] Sync GitHub Error:', err);
     res.status(500).json({ error: err.message });
