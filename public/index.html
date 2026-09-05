@@ -809,10 +809,11 @@
 
             <!-- Results Preview Grid -->
             <div id="resume-results-container" style="display: none; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 16px;">
-              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; flex-wrap: wrap; gap: 8px;">
                 <h3 style="margin: 0; font-size: 15px;">✨ Generated ATS Resume</h3>
-                <div style="display: flex; gap: 8px;">
-                  <button id="resume-copy-latex-btn" class="btn-small" style="background: var(--surface2); border: 1px solid var(--border2);">📋 Copy LaTeX Code</button>
+                <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+                  <button id="resume-copy-latex-btn" class="btn-small" style="background: var(--surface2); border: 1px solid var(--border2);">📋 Copy LaTeX</button>
+                  <a id="resume-overleaf-btn" href="https://www.overleaf.com/docs" target="_blank" class="btn-small" style="background: #138a07; color: #fff; text-decoration: none; display: inline-flex; align-items: center; gap: 4px; font-weight: 500;" title="Open in Overleaf editor">🍃 Open Overleaf</a>
                   <button id="resume-pdf-download-btn" class="btn-small btn-accent" style="cursor: pointer; display: inline-flex; align-items: center; gap: 4px;">⬇️ Download PDF</button>
                 </div>
               </div>

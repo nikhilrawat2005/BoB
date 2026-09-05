@@ -139,25 +139,33 @@ LATEX FORMATTING REQUIREMENTS:
  * Compile LaTeX code to PDF using public TeX compilation engine or fallback service
  */
 async function compileLatexToPdf(latexCode) {
-  try {
-    // 1. Try public LaTeX compilation endpoint (LatexOnline / TeX Live Cloud API)
-    const compileRes = await fetch('https://latexonline.cc/compile?text=' + encodeURIComponent(latexCode), {
-      method: 'GET',
-      timeout: 25000
-    });
+  const endpoints = [
+    'https://latexonline.cc/compile?text=',
+    'https://texlive.net/cgi-bin/latexcgi?text='
+  ];
 
-    if (compileRes.ok) {
-      const buffer = await compileRes.buffer();
-      return { success: true, buffer };
+  for (const ep of endpoints) {
+    try {
+      const compileRes = await fetch(ep + encodeURIComponent(latexCode), {
+        method: 'GET',
+        timeout: 30000
+      });
+
+      if (compileRes.ok) {
+        const buffer = await compileRes.buffer();
+        if (buffer && buffer.length > 500 && buffer.slice(0, 4).toString() === '%PDF') {
+          return { success: true, buffer };
+        }
+      }
+    } catch (err) {
+      console.warn(`[LatexResumeService] Compiler ${ep} failed:`, err.message);
     }
-  } catch (err) {
-    console.warn('[LatexResumeService] LatexOnline compilation failed, trying fallback:', err.message);
   }
 
   // If external compiler unavailable or times out, return cleanly formatted error + LaTeX source
   return {
     success: false,
-    error: 'LaTeX compiler service temporarily busy. LaTeX source code is ready to copy or compile.'
+    error: 'LaTeX compiler service is temporarily busy. You can click "Open Overleaf" or copy the LaTeX code to download instantly.'
   };
 }
 

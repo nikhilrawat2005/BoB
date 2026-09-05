@@ -7371,6 +7371,14 @@ document.getElementById('resume-copy-latex-btn')?.addEventListener('click', () =
   alert('✅ LaTeX source code copied to clipboard!');
 });
 
+// Overleaf 1-Click Open & Copy
+document.getElementById('resume-overleaf-btn')?.addEventListener('click', (e) => {
+  const latexOut = document.getElementById('resume-latex-output');
+  if (latexOut && latexOut.value) {
+    navigator.clipboard.writeText(latexOut.value);
+  }
+});
+
 // Refresh button
 document.getElementById('resume-refresh-btn')?.addEventListener('click', () => {
   loadResumeProfile();
