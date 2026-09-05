@@ -7110,13 +7110,34 @@ async function loadResumeProfile() {
   }
 }
 
+// Helper to clean handles from full URLs or raw usernames
+function extractCleanHandle(input) {
+  if (!input) return '';
+  let str = input.trim();
+  try {
+    if (str.startsWith('http://') || str.startsWith('https://')) {
+      const u = new URL(str);
+      const parts = u.pathname.split('/').filter(Boolean);
+      // handles URLs like /u/username, /users/username, /profile/username or just /username
+      if (['u', 'users', 'profile', 'in'].includes(parts[0]) && parts[1]) {
+        return parts[1];
+      }
+      return parts[parts.length - 1] || '';
+    }
+  } catch (e) {}
+  // Strip trailing slashes or domain prefixes if entered without protocol
+  str = str.replace(/^(?:https?:\/\/)?(?:www\.)?(?:github\.com|leetcode\.com|codechef\.com|codeforces\.com)\/(?:u\/|users\/|profile\/)?/i, '');
+  return str.replace(/\/+$/, '').trim();
+}
+
 // GitHub Sync
 document.getElementById('resume-sync-github-btn')?.addEventListener('click', async () => {
-  const username = document.getElementById('resume-github-username')?.value.trim();
+  const rawInput = document.getElementById('resume-github-username')?.value.trim();
+  const username = extractCleanHandle(rawInput);
   const statusEl = document.getElementById('resume-sync-status');
-  if (!username) { alert('Please enter your GitHub username.'); return; }
+  if (!username) { alert('Please enter your GitHub profile link or username.'); return; }
   
-  statusEl.textContent = '⏳ Crawling GitHub repositories & READMEs...';
+  statusEl.textContent = `⏳ Crawling GitHub repositories & READMEs for @${username}...`;
   try {
     const res = await apiFetch('/api/resume/sync/github', {
       method: 'POST',
@@ -7131,9 +7152,9 @@ document.getElementById('resume-sync-github-btn')?.addEventListener('click', asy
 
 // Coding Stats Sync
 document.getElementById('resume-sync-coding-btn')?.addEventListener('click', async () => {
-  const leetcode = document.getElementById('resume-leetcode-username')?.value.trim();
-  const codechef = document.getElementById('resume-codechef-username')?.value.trim();
-  const codeforces = document.getElementById('resume-codeforces-username')?.value.trim();
+  const leetcode = extractCleanHandle(document.getElementById('resume-leetcode-username')?.value);
+  const codechef = extractCleanHandle(document.getElementById('resume-codechef-username')?.value);
+  const codeforces = extractCleanHandle(document.getElementById('resume-codeforces-username')?.value);
   const statusEl = document.getElementById('resume-sync-status');
 
   statusEl.textContent = '⏳ Syncing coding platform statistics...';
