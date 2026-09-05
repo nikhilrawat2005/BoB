@@ -802,22 +802,29 @@
               <textarea id="resume-jd-input" placeholder="(Optional) Paste Target Job Description here if applying for a specific role, or leave blank to build a master resume..." style="width: 100%; height: 75px; padding: 10px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg); color: var(--text); resize: vertical; font-size: 13px; margin-bottom: 12px; box-sizing: border-box;"></textarea>
               
               <div style="display: flex; gap: 12px; align-items: center; flex-wrap: wrap;">
-                <button id="resume-generate-btn" class="btn-small btn-accent" style="padding: 9px 18px; font-weight: 600;">🚀 Build & Compile LaTeX Resume</button>
-                <span id="resume-gen-spinner" style="font-size: 13px; color: var(--text3); display: none;">⏳ Compiling ATS Resume with AI & LaTeX engine...</span>
+                <button id="resume-generate-btn" class="btn-small btn-accent" style="padding: 10px 20px; font-weight: 600; font-size: 13px;">🚀 Generate Master ATS Resume (PDF)</button>
+                <span id="resume-gen-spinner" style="font-size: 13px; color: var(--text3); display: none;">⏳ Crafting ATS Resume & generating PDF...</span>
               </div>
             </div>
 
             <!-- Results Preview Grid -->
-            <div id="resume-results-container" style="display: none; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 16px;">
-              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; flex-wrap: wrap; gap: 8px;">
-                <h3 style="margin: 0; font-size: 15px;">✨ Generated ATS Resume</h3>
-                <div style="display: flex; gap: 8px; flex-wrap: wrap;">
-                  <button id="resume-copy-latex-btn" class="btn-small" style="background: var(--surface2); border: 1px solid var(--border2);">📋 Copy LaTeX</button>
-                  <a id="resume-overleaf-btn" href="https://www.overleaf.com/docs" target="_blank" class="btn-small" style="background: #138a07; color: #fff; text-decoration: none; display: inline-flex; align-items: center; gap: 4px; font-weight: 500;" title="Open in Overleaf editor">🍃 Open Overleaf</a>
-                  <button id="resume-pdf-download-btn" class="btn-small btn-accent" style="cursor: pointer; display: inline-flex; align-items: center; gap: 4px;">⬇️ Download PDF</button>
+            <div id="resume-results-container" style="display: none; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 20px;">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; flex-wrap: wrap; gap: 10px;">
+                <div>
+                  <h3 style="margin: 0; font-size: 16px; display: flex; align-items: center; gap: 6px;">
+                    <span>📄</span> <span id="resume-preview-name">Generated Resume</span>
+                  </h3>
+                  <span id="resume-preview-subtitle" style="font-size: 12px; color: var(--text3);">Formatted according to Harvard / Jake's ATS standard</span>
+                </div>
+                <div style="display: flex; gap: 10px;">
+                  <button id="resume-pdf-download-btn" class="btn-small btn-accent" style="cursor: pointer; padding: 8px 16px; display: inline-flex; align-items: center; gap: 6px; font-weight: 600;">⬇️ Download PDF</button>
                 </div>
               </div>
-              <textarea id="resume-latex-output" readonly style="width: 100%; height: 260px; font-family: monospace; font-size: 12px; background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 8px; padding: 12px; box-sizing: border-box;"></textarea>
+
+              <!-- Interactive Clean Resume Card Preview -->
+              <div id="resume-card-preview" style="background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 24px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: var(--text); line-height: 1.5; font-size: 13px; max-height: 520px; overflow-y: auto;">
+                <!-- Dynamically populated -->
+              </div>
             </div>
           </div>
         </section>

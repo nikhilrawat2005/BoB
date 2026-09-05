@@ -7291,13 +7291,141 @@ document.getElementById('resume-cert-input')?.addEventListener('change', async (
   }
 });
 
-// Generate Tailored ATS Resume
+// Render Structured Resume into Clean ATS HTML Preview
+function renderResumeCardPreview(data) {
+  const previewBox = document.getElementById('resume-card-preview');
+  if (!previewBox || !data) return;
+
+  const { basics, summary, skills, projects, experience, codingStats, education, certifications } = data;
+  const name = basics?.name || 'Your Name';
+  const nameEl = document.getElementById('resume-preview-name');
+  if (nameEl) nameEl.textContent = `${name}'s ATS Resume`;
+
+  const contactParts = [];
+  if (basics?.email) contactParts.push(`✉️ ${basics.email}`);
+  if (basics?.phone) contactParts.push(`📞 ${basics.phone}`);
+  if (basics?.location) contactParts.push(`📍 ${basics.location}`);
+
+  const linksHtml = (basics?.links || []).map(l => 
+    `<a href="${l.url}" target="_blank" style="color:var(--accent); text-decoration:underline;">${l.label}</a>`
+  ).join('  |  ');
+
+  let skillsHtml = '';
+  if (skills && Object.keys(skills).length > 0) {
+    skillsHtml = `
+      <div style="margin-top:16px;">
+        <h4 style="margin:0 0 4px 0; font-size:12px; letter-spacing:1px; text-transform:uppercase; border-bottom:1px solid var(--border); padding-bottom:3px; color:var(--text);">TECHNICAL SKILLS</h4>
+        <div style="font-size:12px; color:var(--text2); display:flex; flex-direction:column; gap:3px; margin-top:4px;">
+          ${Object.entries(skills).map(([cat, items]) => `<div><strong>${cat}:</strong> ${Array.isArray(items) ? items.join(', ') : items}</div>`).join('')}
+        </div>
+      </div>
+    `;
+  }
+
+  let codingHtml = '';
+  if (Array.isArray(codingStats) && codingStats.length > 0) {
+    codingHtml = `
+      <div style="margin-top:16px;">
+        <h4 style="margin:0 0 4px 0; font-size:12px; letter-spacing:1px; text-transform:uppercase; border-bottom:1px solid var(--border); padding-bottom:3px; color:var(--text);">COMPETITIVE PROGRAMMING & STATS</h4>
+        <div style="font-size:12px; color:var(--text2); margin-top:4px;">
+          ${codingStats.map(s => `<strong>${s.platform}:</strong> ${s.highlight}`).join(' &nbsp;•&nbsp; ')}
+        </div>
+      </div>
+    `;
+  }
+
+  let projectsHtml = '';
+  if (Array.isArray(projects) && projects.length > 0) {
+    projectsHtml = `
+      <div style="margin-top:16px;">
+        <h4 style="margin:0 0 4px 0; font-size:12px; letter-spacing:1px; text-transform:uppercase; border-bottom:1px solid var(--border); padding-bottom:3px; color:var(--text);">PROJECTS</h4>
+        <div style="display:flex; flex-direction:column; gap:10px; margin-top:6px;">
+          ${projects.map(p => `
+            <div>
+              <div style="display:flex; justify-content:space-between; align-items:center;">
+                <strong>${p.title}</strong>
+                ${p.link ? `<a href="${p.link}" target="_blank" style="color:var(--accent); font-size:11px;">View Link ↗</a>` : ''}
+              </div>
+              ${p.techStack && p.techStack.length ? `<div style="font-size:11px; color:var(--text3); font-style:italic;">Stack: ${p.techStack.join(', ')}</div>` : ''}
+              <ul style="margin:4px 0 0 16px; padding:0; font-size:12px; color:var(--text2);">
+                ${(p.bullets || []).map(b => `<li style="margin-bottom:2px;">${b}</li>`).join('')}
+              </ul>
+            </div>
+          `).join('')}
+        </div>
+      </div>
+    `;
+  }
+
+  let expHtml = '';
+  if (Array.isArray(experience) && experience.length > 0) {
+    expHtml = `
+      <div style="margin-top:16px;">
+        <h4 style="margin:0 0 4px 0; font-size:12px; letter-spacing:1px; text-transform:uppercase; border-bottom:1px solid var(--border); padding-bottom:3px; color:var(--text);">EXPERIENCE</h4>
+        <div style="display:flex; flex-direction:column; gap:10px; margin-top:6px;">
+          ${experience.map(e => `
+            <div>
+              <div style="display:flex; justify-content:space-between; align-items:center;">
+                <strong>${e.role} — ${e.company || ''}</strong>
+                <span style="font-size:11px; color:var(--text3);">${e.duration || ''}</span>
+              </div>
+              <ul style="margin:4px 0 0 16px; padding:0; font-size:12px; color:var(--text2);">
+                ${(e.bullets || []).map(b => `<li style="margin-bottom:2px;">${b}</li>`).join('')}
+              </ul>
+            </div>
+          `).join('')}
+        </div>
+      </div>
+    `;
+  }
+
+  let eduHtml = '';
+  if (Array.isArray(education) && education.length > 0) {
+    eduHtml = `
+      <div style="margin-top:16px;">
+        <h4 style="margin:0 0 4px 0; font-size:12px; letter-spacing:1px; text-transform:uppercase; border-bottom:1px solid var(--border); padding-bottom:3px; color:var(--text);">EDUCATION</h4>
+        <div style="display:flex; flex-direction:column; gap:6px; margin-top:6px;">
+          ${education.map(ed => `
+            <div style="display:flex; justify-content:space-between; align-items:center; font-size:12px;">
+              <div><strong>${ed.degree}</strong> ${ed.score ? `(${ed.score})` : ''} <span style="color:var(--text3);">${ed.institution ? `— ${ed.institution}` : ''}</span></div>
+              <span style="font-size:11px; color:var(--text3);">${ed.duration || ''}</span>
+            </div>
+          `).join('')}
+        </div>
+      </div>
+    `;
+  }
+
+  previewBox.innerHTML = `
+    <div style="text-align:center; border-bottom:1px solid var(--border); padding-bottom:12px;">
+      <h2 style="margin:0; font-size:22px; font-weight:700; color:var(--text);">${name}</h2>
+      ${basics?.title ? `<div style="font-size:13px; color:var(--text2); margin-top:2px;">${basics.title}</div>` : ''}
+      ${contactParts.length ? `<div style="font-size:11px; color:var(--text3); margin-top:4px;">${contactParts.join('  •  ')}</div>` : ''}
+      ${linksHtml ? `<div style="font-size:11px; margin-top:4px;">${linksHtml}</div>` : ''}
+    </div>
+
+    ${summary ? `
+      <div style="margin-top:14px;">
+        <h4 style="margin:0 0 4px 0; font-size:12px; letter-spacing:1px; text-transform:uppercase; border-bottom:1px solid var(--border); padding-bottom:3px; color:var(--text);">PROFESSIONAL SUMMARY</h4>
+        <p style="margin:4px 0 0 0; font-size:12px; color:var(--text2); line-height:1.5;">${summary}</p>
+      </div>
+    ` : ''}
+
+    ${skillsHtml}
+    ${codingHtml}
+    ${projectsHtml}
+    ${expHtml}
+    ${eduHtml}
+  `;
+}
+
+let latestGeneratedResumeData = null;
+
+// Generate Direct ATS Resume
 document.getElementById('resume-generate-btn')?.addEventListener('click', async () => {
   const targetJobDescription = document.getElementById('resume-jd-input')?.value.trim();
   const spinner = document.getElementById('resume-gen-spinner');
   const resultsBox = document.getElementById('resume-results-container');
-  const latexOut = document.getElementById('resume-latex-output');
-  const pdfLink = document.getElementById('resume-pdf-download-btn');
 
   spinner.style.display = 'inline';
   try {
@@ -7306,10 +7434,10 @@ document.getElementById('resume-generate-btn')?.addEventListener('click', async 
       body: JSON.stringify({ targetJobDescription })
     });
     
-    resultsBox.style.display = 'block';
-    latexOut.value = res.latexCode || res.latexSource || '';
-    if (pdfLink) {
-      pdfLink.style.display = 'inline-flex';
+    if (res.resumeData) {
+      latestGeneratedResumeData = res.resumeData;
+      resultsBox.style.display = 'block';
+      renderResumeCardPreview(res.resumeData);
     }
   } catch (err) {
     alert(`Resume Generation Error: ${err.message}`);
@@ -7318,64 +7446,50 @@ document.getElementById('resume-generate-btn')?.addEventListener('click', async 
   }
 });
 
-// Direct Download PDF (Safe binary download)
+// Direct Download PDF (In-Server PDFKit Stream)
 document.getElementById('resume-pdf-download-btn')?.addEventListener('click', async () => {
-  const latexOut = document.getElementById('resume-latex-output');
-  const latexCode = latexOut?.value?.trim();
-  if (!latexCode) { alert('Please generate a resume first.'); return; }
+  if (!latestGeneratedResumeData) {
+    alert('Please generate a resume first.');
+    return;
+  }
 
   const btn = document.getElementById('resume-pdf-download-btn');
   const originalText = btn.innerHTML;
-  btn.innerHTML = '⏳ Compiling PDF...';
+  btn.innerHTML = '⏳ Generating PDF...';
   btn.disabled = true;
 
   try {
     const token = await auth.currentUser.getIdToken();
-    const res = await fetch(API + '/api/resume/download-pdf', {
+    const res = await fetch(API + '/api/resume/download-direct-pdf', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${token}`
       },
-      body: JSON.stringify({ latexCode, filename: 'master_resume.pdf' })
+      body: JSON.stringify({ resumeData: latestGeneratedResumeData })
     });
 
     if (!res.ok) {
       const errJson = await res.json().catch(() => ({}));
-      throw new Error(errJson.error || `Failed to compile PDF (HTTP ${res.status})`);
+      throw new Error(errJson.error || `Failed to download PDF (HTTP ${res.status})`);
     }
 
     const blob = await res.blob();
     const blobUrl = window.URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = blobUrl;
-    a.download = 'master_resume.pdf';
+    const name = (latestGeneratedResumeData.basics?.name || 'Resume').replace(/\s+/g, '_');
+    a.download = `${name}_Resume.pdf`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
     window.URL.revokeObjectURL(blobUrl);
   } catch (err) {
-    console.error('Download PDF error:', err);
-    alert(`PDF Download Error: ${err.message}\nTip: You can also copy the LaTeX code and compile on Overleaf if needed.`);
+    console.error('Download Direct PDF error:', err);
+    alert(`PDF Download Error: ${err.message}`);
   } finally {
     btn.innerHTML = originalText;
     btn.disabled = false;
-  }
-});
-
-// Copy LaTeX
-document.getElementById('resume-copy-latex-btn')?.addEventListener('click', () => {
-  const latexOut = document.getElementById('resume-latex-output');
-  if (!latexOut || !latexOut.value) return;
-  navigator.clipboard.writeText(latexOut.value);
-  alert('✅ LaTeX source code copied to clipboard!');
-});
-
-// Overleaf 1-Click Open & Copy
-document.getElementById('resume-overleaf-btn')?.addEventListener('click', (e) => {
-  const latexOut = document.getElementById('resume-latex-output');
-  if (latexOut && latexOut.value) {
-    navigator.clipboard.writeText(latexOut.value);
   }
 });
 

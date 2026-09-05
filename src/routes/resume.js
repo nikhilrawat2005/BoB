@@ -4,6 +4,7 @@ const multer = require('multer');
 const { requireAuth } = require('../middleware/auth');
 const resumeProfile = require('../services/resumeProfileService');
 const latexService = require('../services/latexResumeService');
+const directPdfService = require('../services/directPdfResumeService');
 const fileService = require('../services/fileService');
 
 const upload = multer({
@@ -256,26 +257,21 @@ router.post('/generate', requireAuth, async (req, res) => {
     // Save updated fresh state back to profile
     await resumeProfile.saveMasterProfile(req.userId, profile);
 
-    // Generate tailored LaTeX code
-    const genResult = await latexService.generateLatexResume({
+    // 1. Generate Structured Resume Data via LLM
+    const structuredResult = await directPdfService.generateStructuredResumeData({
       profile,
-      jobDescription: finalJD,
-      templateName: templateName || 'jake'
+      jobDescription: finalJD
     });
 
-    // Try PDF compilation & Cloudinary persistence
-    const pdfResult = await latexService.buildAndStoreResumePdf(
-      req.userId,
-      genResult.latexCode,
-      jobDescription ? 'tailored_resume' : 'master_resume'
-    );
+    // Save latest resume JSON to profile
+    profile.latestResumeData = structuredResult.data;
+    await resumeProfile.saveMasterProfile(req.userId, profile);
 
     res.json({
       success: true,
-      latexCode: genResult.latexCode,
-      pdfUrl: pdfResult.pdfUrl,
-      isTargeted: genResult.isTargeted,
-      message: pdfResult.pdfUrl ? 'PDF compiled successfully' : 'LaTeX code generated.'
+      resumeData: structuredResult.data,
+      isTargeted: structuredResult.isTargeted,
+      message: 'ATS Resume successfully generated.'
     });
   } catch (err) {
     console.error('[ResumeAPI] Generate Resume Error:', err);
@@ -284,26 +280,31 @@ router.post('/generate', requireAuth, async (req, res) => {
 });
 
 /**
- * 8. POST /api/resume/download-pdf — Direct PDF compilation and download stream
- * Avoids any CDN access control / 401 issues by streaming compiled PDF buffer directly
+ * 8. POST /api/resume/download-direct-pdf — Generate and stream PDF binary directly
  */
-router.post('/download-pdf', requireAuth, async (req, res) => {
+router.post('/download-direct-pdf', requireAuth, async (req, res) => {
   try {
-    const { latexCode, filename } = req.body;
-    if (!latexCode) return res.status(400).json({ error: 'LaTeX code is required' });
+    const { resumeData, filename } = req.body;
+    let data = resumeData;
 
-    const result = await latexService.compileLatexToPdf(latexCode);
-    if (!result.success || !result.buffer) {
-      return res.status(502).json({ error: result.error || 'LaTeX compilation failed' });
+    if (!data) {
+      const profile = await resumeProfile.getMasterProfile(req.userId);
+      data = profile.latestResumeData;
     }
 
-    const downloadName = filename || 'resume.pdf';
+    if (!data) {
+      return res.status(400).json({ error: 'No resume data found. Please generate resume first.' });
+    }
+
+    const pdfBuffer = await directPdfService.buildDirectPdfBuffer(data);
+    const downloadName = filename || `${(data.basics?.name || 'Resume').replace(/\s+/g, '_')}_Resume.pdf`;
+
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `attachment; filename="${downloadName}"`);
-    res.setHeader('Content-Length', result.buffer.length);
-    res.end(result.buffer);
+    res.setHeader('Content-Length', pdfBuffer.length);
+    res.end(pdfBuffer);
   } catch (err) {
-    console.error('[ResumeAPI] Download PDF Error:', err);
+    console.error('[ResumeAPI] Direct PDF Download Error:', err);
     res.status(500).json({ error: err.message });
   }
 });
