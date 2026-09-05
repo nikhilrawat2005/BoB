@@ -7396,6 +7396,18 @@ function renderResumeCardPreview(data) {
     `;
   }
 
+  let certHtml = '';
+  if (Array.isArray(certifications) && certifications.length > 0) {
+    certHtml = `
+      <div style="margin-top:16px;">
+        <h4 style="margin:0 0 4px 0; font-size:12px; letter-spacing:1px; text-transform:uppercase; border-bottom:1px solid var(--border); padding-bottom:3px; color:var(--text);">CERTIFICATIONS & ACHIEVEMENTS</h4>
+        <ul style="margin:4px 0 0 16px; padding:0; font-size:12px; color:var(--text2);">
+          ${certifications.map(c => `<li style="margin-bottom:2px;"><strong>${c.title}</strong>${c.issuer ? ` — <span style="color:var(--text3);">${c.issuer}</span>` : ''}</li>`).join('')}
+        </ul>
+      </div>
+    `;
+  }
+
   previewBox.innerHTML = `
     <div style="text-align:center; border-bottom:1px solid var(--border); padding-bottom:12px;">
       <h2 style="margin:0; font-size:22px; font-weight:700; color:var(--text);">${name}</h2>
@@ -7416,6 +7428,7 @@ function renderResumeCardPreview(data) {
     ${projectsHtml}
     ${expHtml}
     ${eduHtml}
+    ${certHtml}
   `;
 }
 

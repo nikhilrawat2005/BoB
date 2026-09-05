@@ -18,51 +18,49 @@ Convert the candidate's master profile into a polished, high-impact ATS Technica
 CANDIDATE MASTER PROFILE:
 ${JSON.stringify(profile, null, 2)}
 
+CRITICAL RULES:
+1. LINKS INTEGRITY: ONLY include links that the candidate ACTUALLY has provided in their master profile or base resume (e.g. GitHub, LinkedIn, LeetCode, CodeChef). Do NOT hallucinate or insert links like Codeforces or Portfolio if the user has NOT provided them!
+2. PROJECT SELECTION: Look through ALL 11+ repositories in githubProjects (including BoB, The-Falcon-Tour, Bloom / origin-v2v, Smart-Attendance-System, Market-Kingdom). BoB (Autonomous AI Assistant) and The-Falcon-Tour (210+ static pages travel platform) are flagship engineering achievements — evaluate and include them alongside the strongest work!
+3. CERTIFICATIONS & ACHIEVEMENTS: Inspect the profile.certifications list (e.g. ABTalks-ViCoDathon, CodeChefBadge, VIBE-2-VISION) AND any baseResume achievements (e.g. AWS Academy Graduate). ALWAYS include a "certifications" array with these real verified items.
+4. HONEST & GROUNDED: Never invent tools, links, or metrics the user never provided.
+
 ${isTargeted ? `TARGET JOB VACANCY / JD:
 """
 ${jobDescription}
 """
 TAILORING RULES:
-1. Deeply analyze ALL available repositories, base resume experiences, and credentials.
-2. Autonomously evaluate which 3-4 projects demonstrate the strongest engineering complexity, architecture, real-world utility, and tech stack alignment (e.g. large platforms, 200+ static page architectures, live Firebase databases, AI systems, full-stack tools).
-3. Write high-impact STAR-method bullet points with quantifiable engineering outcomes (Google XYZ formula).
+- Tailor bullet points and select projects matching this JD using the Google STAR/XYZ formula.
 ` : `GENERAL ATS MASTER RULES:
-1. Autonomously inspect ALL repositories in the candidate profile (README snippets, tech stacks, live links).
-2. Rank and select the candidate's absolute most impressive, showcase-worthy technical projects based on architectural scale, depth of implementation, and production-readiness (e.g. platforms with real traffic/pages, full-stack state management, AI/CV systems, or published innovation).
-3. Frame bullets strictly around: "Accomplished [X] as measured by [Y], by doing [Z]" — highlighting technical decisions, architecture, and metrics.
+- Select 4 top showcase projects showing breadth: AI / Autonomous systems (BoB), Large web architectures (The Falcon Tour), Full-Stack products (Bloom), or Computer Vision (Smart Attendance).
+- Frame bullet points with technical rigor: "Accomplished [X] as measured by [Y], by doing [Z]".
 `}
 
 RETURN ONLY A VALID JSON OBJECT (no markdown around it, no backticks, no comments, raw JSON only) matching this exact schema:
 {
   "basics": {
     "name": "Full Name",
-    "title": "Professional Title (e.g. Full Stack Developer | AI Enthusiast)",
+    "title": "Professional Title",
     "email": "Email Address",
     "phone": "Phone Number or empty string",
     "location": "City, Country",
     "links": [
-      { "label": "GitHub", "url": "https://github.com/..." },
-      { "label": "LinkedIn", "url": "..." },
-      { "label": "LeetCode", "url": "..." },
-      { "label": "Codeforces", "url": "..." },
-      { "label": "Portfolio", "url": "..." }
+      { "label": "GitHub", "url": "https://github.com/..." }
     ]
   },
-  "summary": "2-3 concise, punchy lines highlighting core competencies, technical depth, and passion.",
+  "summary": "2-3 concise lines highlighting technical depth and real systems built.",
   "skills": {
-    "Languages": ["JavaScript", "Python", "C++"],
-    "Frameworks & Libraries": ["React", "Node.js", "Express"],
-    "Developer Tools & Cloud": ["Git", "Docker", "Firebase", "Cloudinary"],
-    "Core Competencies": ["Data Structures & Algorithms", "System Design", "REST APIs"]
+    "Languages": ["Python", "TypeScript", "JavaScript", "C++"],
+    "Frameworks & Libraries": ["Next.js", "React", "Node.js", "Express", "Flask"],
+    "Developer Tools & Cloud": ["Firebase", "Cloudinary", "Git", "Vercel", "AWS"],
+    "Core Competencies": ["AI/ML Systems", "REST APIs", "System Architecture"]
   },
   "projects": [
     {
       "title": "Project Name",
-      "techStack": ["React", "Node.js", "MongoDB"],
-      "link": "https://github.com/...",
+      "techStack": ["Stack items"],
+      "link": "https://...",
       "bullets": [
-        "Architected and deployed full-stack platform serving active users.",
-        "Implemented real-time features reducing latency by 40%."
+        "Engineering outcome and design..."
       ]
     }
   ],
@@ -70,29 +68,26 @@ RETURN ONLY A VALID JSON OBJECT (no markdown around it, no backticks, no comment
     {
       "role": "Role / Position",
       "company": "Company / Organization Name",
-      "duration": "Duration (e.g. June 2024 – Present)",
-      "location": "Location / Remote",
+      "duration": "Duration",
+      "location": "Location",
       "bullets": [
-        "Led development of core modules.",
-        "Collaborated with cross-functional teams."
+        "Core contributions..."
       ]
     }
   ],
   "codingStats": [
-    { "platform": "LeetCode", "highlight": "150+ Solved | 1650 Rating" },
-    { "platform": "CodeChef", "highlight": "3-Star | 1620 Max Rating" },
-    { "platform": "Codeforces", "highlight": "Specialist | 1420 Rating" }
+    { "platform": "LeetCode", "highlight": "Stats" }
   ],
   "education": [
     {
-      "degree": "Bachelor of Technology in Computer Science & Engineering",
-      "institution": "University / College Name",
-      "duration": "2022 – 2026",
-      "score": "CGPA / Percentage"
+      "degree": "Degree",
+      "institution": "College / Institution",
+      "duration": "Duration",
+      "score": "Score / CGPA"
     }
   ],
   "certifications": [
-    { "title": "Certification / Marksheet Title", "issuer": "Issuing Org / Board" }
+    { "title": "Real Certification Title", "issuer": "Issuing Org" }
   ]
 }`;
 
