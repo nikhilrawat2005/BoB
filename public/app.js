@@ -2402,8 +2402,8 @@ async function restoreWorkspaceState() {
   const sidKey = p === 'builder' ? 'bob_builder_session' : 'bob_chat_session';
   const sid = localStorage.getItem(sidKey) || '';
   if (p && p !== 'bob') setPersona('builder');
-  if (['hackathons', 'stalking', 'seo', 'routines', 'live', 'memory', 'files', 'keys', 'hq'].includes(view)) {
-    openHqCard(view);
+  if (['hackathons', 'stalking', 'seo', 'routines', 'live', 'memory', 'files', 'keys', 'hq', 'resume_builder', 'resume'].includes(view)) {
+    openHqCard(view === 'resume' ? 'resume_builder' : view);
     return;
   }
   if (!sid) return;
@@ -4429,7 +4429,7 @@ function openHqCard(id) {
   if (id === 'vault') { openVaultPanel(); return; }
   if (id === 'memory') { showView('memory'); showMemorySubview('dashboard'); loadFacts(); loadMonthlyFiles(); return; }
   if (id === 'files') { showView('files'); loadFiles(); return; }
-  if (id === 'resume_builder') { alert('📄 Resume Builder workspace is ready for development! You can configure ATS templates and profile here.'); return; }
+  if (id === 'resume_builder') { showView('resume'); loadResumeProfile(); return; }
   if (id === 'hackathons') { showView('hackathons'); loadHackathons(); return; }
   if (id === 'stalking') { showView('stalking'); loadStalking(); return; }
   if (id === 'seo') { showView('seo'); loadSeoSites(); return; }
@@ -7058,3 +7058,184 @@ document.addEventListener('click', async (e) => {
     }, 2000);
   }
 });
+
+// ═══════════════════════════════════════════════════════
+// RESUME BUILDER & CAREER INTELLIGENCE WORKSPACE
+// ═══════════════════════════════════════════════════════
+
+let currentResumeProfile = null;
+
+async function loadResumeProfile() {
+  const syncStatus = document.getElementById('resume-sync-status');
+  const baseStatus = document.getElementById('resume-base-status');
+  const certCount = document.getElementById('resume-cert-count');
+  const ghInput = document.getElementById('resume-github-username');
+  const lcInput = document.getElementById('resume-leetcode-username');
+  const cfInput = document.getElementById('resume-codeforces-username');
+
+  try {
+    const res = await apiFetch('/api/resume/profile');
+    if (res && res.profile) {
+      currentResumeProfile = res.profile;
+      if (ghInput && res.profile.githubUsername && !ghInput.value) {
+        ghInput.value = res.profile.githubUsername;
+      }
+      if (lcInput && res.profile.developerPlatforms?.leetcode?.username && !lcInput.value) {
+        lcInput.value = res.profile.developerPlatforms.leetcode.username;
+      }
+      if (cfInput && res.profile.developerPlatforms?.codeforces?.username && !cfInput.value) {
+        cfInput.value = res.profile.developerPlatforms.codeforces.username;
+      }
+
+      if (baseStatus) {
+        if (res.profile.baseResume?.url) {
+          baseStatus.innerHTML = `✅ <a href="${res.profile.baseResume.url}" target="_blank" style="color:var(--accent);">View Uploaded PDF</a> (${res.profile.baseResume.originalName || 'base_resume.pdf'})`;
+        } else {
+          baseStatus.textContent = 'No PDF uploaded yet';
+        }
+      }
+
+      if (certCount) {
+        const total = (res.profile.certifications || []).length;
+        certCount.textContent = `${total} Certificate${total === 1 ? '' : 's'} stored`;
+      }
+    }
+  } catch (err) {
+    console.error('loadResumeProfile error:', err);
+    if (syncStatus) syncStatus.textContent = 'Error loading career profile.';
+  }
+}
+
+// GitHub Sync
+document.getElementById('resume-sync-github-btn')?.addEventListener('click', async () => {
+  const username = document.getElementById('resume-github-username')?.value.trim();
+  const statusEl = document.getElementById('resume-sync-status');
+  if (!username) { alert('Please enter your GitHub username.'); return; }
+  
+  statusEl.textContent = '⏳ Crawling GitHub repositories & READMEs...';
+  try {
+    const res = await apiFetch('/api/resume/sync/github', {
+      method: 'POST',
+      body: JSON.stringify({ username })
+    });
+    statusEl.textContent = `✅ Synced ${res.projects?.length || 0} GitHub repositories!`;
+    await loadResumeProfile();
+  } catch (err) {
+    statusEl.textContent = `❌ Failed to sync GitHub: ${err.message}`;
+  }
+});
+
+// Coding Stats Sync
+document.getElementById('resume-sync-coding-btn')?.addEventListener('click', async () => {
+  const leetcode = document.getElementById('resume-leetcode-username')?.value.trim();
+  const codeforces = document.getElementById('resume-codeforces-username')?.value.trim();
+  const statusEl = document.getElementById('resume-sync-status');
+
+  statusEl.textContent = '⏳ Syncing coding platform statistics...';
+  try {
+    const res = await apiFetch('/api/resume/sync/coding', {
+      method: 'POST',
+      body: JSON.stringify({ handles: { leetcode, codeforces } })
+    });
+    statusEl.textContent = `✅ Coding statistics updated!`;
+    await loadResumeProfile();
+  } catch (err) {
+    statusEl.textContent = `❌ Failed to sync coding stats: ${err.message}`;
+  }
+});
+
+// Base Resume PDF Upload
+document.getElementById('resume-base-input')?.addEventListener('change', async (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const statusEl = document.getElementById('resume-base-status');
+  statusEl.textContent = '⏳ Uploading and parsing previous resume PDF...';
+
+  const formData = new FormData();
+  formData.append('file', file);
+
+  try {
+    const token = await auth.currentUser.getIdToken();
+    const res = await fetch(API + '/api/resume/upload/base', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}` },
+      body: formData
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Upload failed');
+    statusEl.innerHTML = `✅ <a href="${data.baseResume.url}" target="_blank" style="color:var(--accent);">View Uploaded PDF</a>`;
+    await loadResumeProfile();
+  } catch (err) {
+    statusEl.textContent = `❌ Error: ${err.message}`;
+  }
+});
+
+// Certificate Upload
+document.getElementById('resume-cert-input')?.addEventListener('change', async (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const countEl = document.getElementById('resume-cert-count');
+  countEl.textContent = '⏳ Uploading certificate...';
+
+  const formData = new FormData();
+  formData.append('file', file);
+  formData.append('title', file.name.replace(/\.[^/.]+$/, ''));
+
+  try {
+    const token = await auth.currentUser.getIdToken();
+    const res = await fetch(API + '/api/resume/upload/certificate', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}` },
+      body: formData
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Upload failed');
+    await loadResumeProfile();
+  } catch (err) {
+    countEl.textContent = `❌ Error: ${err.message}`;
+  }
+});
+
+// Generate Tailored ATS Resume
+document.getElementById('resume-generate-btn')?.addEventListener('click', async () => {
+  const targetJobDescription = document.getElementById('resume-jd-input')?.value.trim();
+  const spinner = document.getElementById('resume-gen-spinner');
+  const resultsBox = document.getElementById('resume-results-container');
+  const latexOut = document.getElementById('resume-latex-output');
+  const pdfLink = document.getElementById('resume-pdf-download-btn');
+
+  spinner.style.display = 'inline';
+  try {
+    const res = await apiFetch('/api/resume/generate', {
+      method: 'POST',
+      body: JSON.stringify({ targetJobDescription })
+    });
+    
+    resultsBox.style.display = 'block';
+    latexOut.value = res.latexSource || '';
+    if (res.pdfUrl) {
+      pdfLink.href = res.pdfUrl;
+      pdfLink.style.display = 'inline-flex';
+    } else {
+      pdfLink.style.display = 'none';
+    }
+  } catch (err) {
+    alert(`Resume Generation Error: ${err.message}`);
+  } finally {
+    spinner.style.display = 'none';
+  }
+});
+
+// Copy LaTeX
+document.getElementById('resume-copy-latex-btn')?.addEventListener('click', () => {
+  const latexOut = document.getElementById('resume-latex-output');
+  if (!latexOut || !latexOut.value) return;
+  navigator.clipboard.writeText(latexOut.value);
+  alert('✅ LaTeX source code copied to clipboard!');
+});
+
+// Refresh button
+document.getElementById('resume-refresh-btn')?.addEventListener('click', () => {
+  loadResumeProfile();
+});
+

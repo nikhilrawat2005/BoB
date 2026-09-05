@@ -712,6 +712,102 @@
           </div>
         </section>
 
+        <!-- Resume Builder Workspace (ATS LaTeX Resume & Career Intelligence) -->
+        <section class="view" id="view-resume">
+          <div class="view-header">
+            <div>
+              <h2 class="view-title">📄 Resume Builder & Career Intelligence</h2>
+              <p class="view-sub">Sync GitHub, LeetCode, Codeforces, Certificates & Generate ATS-Proof Jake's LaTeX Resume</p>
+            </div>
+            <div class="view-header-actions">
+              <button id="resume-refresh-btn" class="btn-small" style="background:var(--surface2); border:1px solid var(--border2);" title="Refresh profile">🔄 Refresh</button>
+              <button class="view-close icon-btn" title="Close (back to chat)">✕</button>
+            </div>
+          </div>
+
+          <div class="view-body" style="padding: 20px; overflow-y: auto; display: flex; flex-direction: column; gap: 20px;">
+            <!-- Top Controls Grid -->
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px;">
+              <!-- Card 1: Sync Profiles -->
+              <div style="background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 16px;">
+                <h3 style="margin-top: 0; font-size: 15px; display: flex; align-items: center; gap: 8px;">
+                  <span>🐙</span> GitHub & Coding Profiles
+                </h3>
+                <p style="font-size: 12px; color: var(--text3); margin-bottom: 12px;">Sync your projects, commit highlights, and problem-solving stats.</p>
+                <div style="display: flex; flex-direction: column; gap: 8px;">
+                  <div style="display: flex; gap: 8px;">
+                    <input type="text" id="resume-github-username" placeholder="GitHub username (e.g. nikhilrawat2005)" style="flex:1; padding: 8px 12px; border-radius: 6px; border: 1px solid var(--border); background: var(--bg); color: var(--text);" />
+                    <button id="resume-sync-github-btn" class="btn-small btn-accent">Sync GitHub</button>
+                  </div>
+                  <div style="display: flex; gap: 8px;">
+                    <input type="text" id="resume-leetcode-username" placeholder="LeetCode handle" style="flex:1; padding: 8px 12px; border-radius: 6px; border: 1px solid var(--border); background: var(--bg); color: var(--text);" />
+                    <input type="text" id="resume-codeforces-username" placeholder="Codeforces handle" style="flex:1; padding: 8px 12px; border-radius: 6px; border: 1px solid var(--border); background: var(--bg); color: var(--text);" />
+                    <button id="resume-sync-coding-btn" class="btn-small" style="background: var(--surface2); border: 1px solid var(--border2);">Sync Stats</button>
+                  </div>
+                </div>
+                <div id="resume-sync-status" style="font-size: 12px; margin-top: 8px; color: var(--text2);"></div>
+              </div>
+
+              <!-- Card 2: Vault Files (Previous Resume & Certificates) -->
+              <div style="background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 16px;">
+                <h3 style="margin-top: 0; font-size: 15px; display: flex; align-items: center; gap: 8px;">
+                  <span>📂</span> Base Resume & Certificates
+                </h3>
+                <p style="font-size: 12px; color: var(--text3); margin-bottom: 12px;">Uploaded items are saved permanently to Cloudinary without duplication.</p>
+                <div style="display: flex; flex-direction: column; gap: 10px;">
+                  <div style="display: flex; justify-content: space-between; align-items: center; background: var(--bg); padding: 8px 12px; border-radius: 6px; border: 1px solid var(--border);">
+                    <div>
+                      <strong style="font-size: 13px;">Base Resume (PDF)</strong>
+                      <div id="resume-base-status" style="font-size: 11px; color: var(--text3);">No PDF uploaded yet</div>
+                    </div>
+                    <label class="btn-small btn-accent" style="cursor: pointer; margin:0;">
+                      Upload PDF
+                      <input type="file" id="resume-base-input" accept=".pdf" style="display:none;" />
+                    </label>
+                  </div>
+
+                  <div style="display: flex; justify-content: space-between; align-items: center; background: var(--bg); padding: 8px 12px; border-radius: 6px; border: 1px solid var(--border);">
+                    <div>
+                      <strong style="font-size: 13px;">Add Certificate</strong>
+                      <div id="resume-cert-count" style="font-size: 11px; color: var(--text3);">0 Certificates stored</div>
+                    </div>
+                    <label class="btn-small" style="cursor: pointer; background: var(--surface2); border: 1px solid var(--border2); margin:0;">
+                      + Certificate
+                      <input type="file" id="resume-cert-input" accept=".pdf,image/*" style="display:none;" />
+                    </label>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Generate Section -->
+            <div style="background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 16px;">
+              <h3 style="margin-top: 0; font-size: 15px; display: flex; align-items: center; gap: 8px;">
+                <span>🎯</span> ATS Job Tailoring & LaTeX Generator
+              </h3>
+              <p style="font-size: 12px; color: var(--text3); margin-bottom: 10px;">Paste Target Job Description (Optional) to tailor projects & bullet points using STAR format.</p>
+              <textarea id="resume-jd-input" placeholder="Paste Job Description (JD) here to match skills & ATS keywords..." style="width: 100%; height: 80px; padding: 10px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg); color: var(--text); resize: vertical; font-size: 13px; margin-bottom: 12px; box-sizing: border-box;"></textarea>
+              
+              <div style="display: flex; gap: 12px; align-items: center;">
+                <button id="resume-generate-btn" class="btn-small btn-accent" style="padding: 8px 16px; font-weight: 600;">🚀 Generate Tailored LaTeX Resume</button>
+                <span id="resume-gen-spinner" style="font-size: 13px; color: var(--text3); display: none;">⏳ Compiling ATS Resume with AI & LaTeX engine...</span>
+              </div>
+            </div>
+
+            <!-- Results Preview Grid -->
+            <div id="resume-results-container" style="display: none; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 16px;">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                <h3 style="margin: 0; font-size: 15px;">✨ Generated ATS Resume</h3>
+                <div style="display: flex; gap: 8px;">
+                  <button id="resume-copy-latex-btn" class="btn-small" style="background: var(--surface2); border: 1px solid var(--border2);">📋 Copy LaTeX Code</button>
+                  <a id="resume-pdf-download-btn" href="#" target="_blank" class="btn-small btn-accent" style="text-decoration: none; display: inline-flex; align-items: center;">⬇️ View / Download PDF</a>
+                </div>
+              </div>
+              <textarea id="resume-latex-output" readonly style="width: 100%; height: 260px; font-family: monospace; font-size: 12px; background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 8px; padding: 12px; box-sizing: border-box;"></textarea>
+            </div>
+          </div>
+        </section>
+
       </div><!-- /views -->
     </div><!-- /main-area -->
 
