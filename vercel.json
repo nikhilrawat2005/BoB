@@ -9,27 +9,23 @@
   ],
   "routes": [
     {
-      "src": "/api/(.*)",
-      "dest": "/src/server.js"
-    },
-    {
       "src": "/app.js",
       "headers": { "Cache-Control": "no-cache, no-store, must-revalidate" },
-      "dest": "/public/app.js"
+      "dest": "/src/server.js"
     },
     {
       "src": "/style.css",
       "headers": { "Cache-Control": "no-cache, no-store, must-revalidate" },
-      "dest": "/public/style.css"
+      "dest": "/src/server.js"
     },
     {
       "src": "/index.html",
       "headers": { "Cache-Control": "no-cache, no-store, must-revalidate" },
-      "dest": "/public/index.html"
+      "dest": "/src/server.js"
     },
     {
       "src": "/(.*)",
-      "dest": "/public/$1"
+      "dest": "/src/server.js"
     }
   ]
 }
