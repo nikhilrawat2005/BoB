@@ -33,7 +33,7 @@ router.delete('/profile/:profileId', requireAuth, async (req, res) => {
   try {
     const { profileId } = req.params;
     const result = await resumeProfile.deleteCandidateProfile(req.userId, profileId);
-    res.json({ success: true, deleted: profileId });
+    res.json(result);
   } catch (err) {
     console.error('[ResumeAPI] Delete Profile Error:', err);
     res.status(500).json({ error: err.message });

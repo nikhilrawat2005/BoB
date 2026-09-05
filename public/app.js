@@ -4433,7 +4433,7 @@ function openHqCard(id) {
   if (id === 'vault') { openVaultPanel(); return; }
   if (id === 'memory') { showView('memory'); showMemorySubview('dashboard'); loadFacts(); loadMonthlyFiles(); return; }
   if (id === 'files') { showView('files'); loadFiles(); return; }
-  if (id === 'resume_builder') { showView('resume'); loadResumeProfile(); return; }
+  if (id === 'resume_builder') { showView('resume'); loadCandidateProfilesList(); loadResumeProfile(); return; }
   if (id === 'hackathons') { showView('hackathons'); loadHackathons(); return; }
   if (id === 'stalking') { showView('stalking'); loadStalking(); return; }
   if (id === 'seo') { showView('seo'); loadSeoSites(); return; }
@@ -7270,11 +7270,14 @@ document.getElementById('resume-delete-candidate-btn')?.addEventListener('click'
   if (!confirm(`Are you sure you want to delete this candidate profile? All synced data for this friend will be removed.`)) return;
 
   try {
-    await apiFetch(`/api/resume/profile/${encodeURIComponent(activeCandidateProfileId)}`, { method: 'DELETE' });
+    const result = await apiFetch(`/api/resume/profile/${encodeURIComponent(activeCandidateProfileId)}`, { method: 'DELETE' });
     activeCandidateProfileId = 'master';
     await loadCandidateProfilesList();
     await loadResumeProfile('master');
-    alert('Candidate profile deleted. Switched back to Primary Profile.');
+    const fileCount = (result.deletedFiles || []).length;
+    const sharedCount = (result.sharedFiles || []).length;
+    const failedCount = (result.failedFiles || []).length;
+    alert(`Candidate profile deleted. Switched back to Primary Profile.${fileCount > 0 ? `\nRemoved ${fileCount} saved file(s).` : ''}${sharedCount > 0 ? `\nKept ${sharedCount} file(s) shared with other profiles.` : ''}${failedCount > 0 ? `\nCould not remove ${failedCount} file(s).` : ''}`);
   } catch (err) {
     alert(`Failed to delete profile: ${err.message}`);
   }
@@ -7312,8 +7315,8 @@ function renderSmartLinksUI(links = []) {
 
   listEl.innerHTML = activeCandidateSmartLinks.map((item, idx) => `
     <div class="smart-link-row" data-idx="${idx}" style="display: flex; gap: 6px; align-items: center;">
-      <input type="text" class="smart-link-label" value="${escapeHtml(item.label || '')}" placeholder="Label (e.g. Portfolio)" style="width: 100px; padding: 6px 8px; font-size: 11px; border-radius: 4px; border: 1px solid var(--border); background: var(--surface2); color: var(--text);" />
-      <input type="text" class="smart-link-url" value="${escapeHtml(item.url || '')}" placeholder="https://... (LeetCode, Portfolio, Kaggle, Blog)" style="flex: 1; padding: 6px 8px; font-size: 11px; border-radius: 4px; border: 1px solid var(--border); background: var(--surface2); color: var(--text);" />
+      <input type="text" class="smart-link-label" value="${escHtml(item.label || '')}" placeholder="Label (e.g. Portfolio)" style="width: 100px; padding: 6px 8px; font-size: 11px; border-radius: 4px; border: 1px solid var(--border); background: var(--surface2); color: var(--text);" />
+      <input type="text" class="smart-link-url" value="${escHtml(item.url || '')}" placeholder="https://... (LeetCode, Portfolio, Kaggle, Blog)" style="flex: 1; padding: 6px 8px; font-size: 11px; border-radius: 4px; border: 1px solid var(--border); background: var(--surface2); color: var(--text);" />
       <button type="button" class="smart-link-del-btn" data-idx="${idx}" style="background: none; border: none; color: var(--text3); font-size: 14px; cursor: pointer; padding: 0 4px;" title="Remove link">✕</button>
     </div>
   `).join('');
@@ -7365,7 +7368,7 @@ function renderSmartLinksBadges(items = [], platforms = {}) {
   validItems.forEach(it => {
     if (it.category === 'portfolio' && it.data) {
       const skillsCount = (it.data.skills || []).length;
-      badges.push(`<span style="font-size:10px; padding:2px 8px; border-radius:12px; background:#10B98122; color:#10B981; border:1px solid #10B98155;">🌐 ${escapeHtml(it.label || 'Portfolio')}: ${skillsCount > 0 ? skillsCount + ' skills analyzed' : 'Scraped'}</span>`);
+      badges.push(`<span style="font-size:10px; padding:2px 8px; border-radius:12px; background:#10B98122; color:#10B981; border:1px solid #10B98155;">🌐 ${escHtml(it.label || 'Portfolio')}: ${skillsCount > 0 ? skillsCount + ' skills analyzed' : 'Scraped'}</span>`);
     } else if (it.category === 'blog' && it.data) {
       badges.push(`<span style="font-size:10px; padding:2px 8px; border-radius:12px; background:#8B5CF622; color:#8B5CF6; border:1px solid #8B5CF655;">✍️ DEV.to: ${it.data.articleCount || 0} Articles</span>`);
     }
@@ -7425,6 +7428,32 @@ document.getElementById('resume-sync-coding-btn')?.addEventListener('click', asy
     await loadResumeProfile(activeCandidateProfileId);
   } catch (err) {
     statusEl.textContent = `❌ Failed to sync links: ${err.message}`;
+  }
+});
+
+// Save Profile Data (GitHub handle + Smart Links) for the active candidate
+document.getElementById('resume-save-profile-btn')?.addEventListener('click', async () => {
+  const statusEl = document.getElementById('resume-sync-status');
+  const rawInput = document.getElementById('resume-github-username')?.value.trim();
+  const githubUsername = extractCleanHandle(rawInput);
+  const smartLinks = activeCandidateSmartLinks
+    .filter(l => l.url && l.url.trim().length > 0)
+    .map(l => ({ label: (l.label || '').trim(), url: l.url.trim() }));
+
+  statusEl.textContent = '⏳ Saving profile data...';
+  try {
+    const res = await apiFetch(`/api/resume/profile?profileId=${encodeURIComponent(activeCandidateProfileId)}`, {
+      method: 'POST',
+      body: JSON.stringify({
+        profileId: activeCandidateProfileId,
+        githubUsername: githubUsername || null,
+        smartLinks
+      })
+    });
+    statusEl.textContent = `✅ Profile data saved (github: ${githubUsername || 'none'}, links: ${smartLinks.length})!`;
+    await loadResumeProfile(activeCandidateProfileId);
+  } catch (err) {
+    statusEl.textContent = `❌ Failed to save profile data: ${err.message}`;
   }
 });
 

@@ -9,6 +9,7 @@
 const { db } = require('../config/firebase');
 const developerPlatforms = require('./developerPlatformsService');
 const documentReader = require('./documentReaderService');
+const fileService = require('./fileService');
 const fetch = require('node-fetch');
 
 /**
@@ -95,15 +96,74 @@ async function listCandidateProfiles(userId) {
 }
 
 /**
- * Delete a candidate profile
+ * Delete a candidate profile (and its privately-owned saved files)
  */
 async function deleteCandidateProfile(userId, profileId) {
   if (!userId || !profileId || profileId === 'master') {
     throw new Error('Cannot delete primary master profile');
   }
-  const docRef = db.collection('users').doc(userId).collection('resume_profile').doc(profileId);
-  await docRef.delete();
-  return { success: true, deleted: profileId };
+
+  const loadedDocRef = db.collection('users').doc(userId).collection('resume_profile').doc(profileId);
+
+  // Collect file references (Cloudinary-backed Firestore records) owned by this profile
+  const fileRefs = new Set();
+  try {
+    const snap = await loadedDocRef.get();
+    const data = snap.exists ? snap.data() || {} : {};
+    if (data.baseResume && data.baseResume.fileId) fileRefs.add(data.baseResume.fileId);
+    (data.certifications || []).forEach(cert => {
+      if (cert && cert.id) fileRefs.add(cert.id);
+    });
+  } catch (err) {
+    console.warn(`[ResumeProfile] Could not read profile files for ${profileId}: ${err.message}`);
+  }
+
+  // Delete the Firestore profile doc first
+  await loadedDocRef.delete();
+
+  // Determine which files are still referenced by OTHER profiles (dedup/shared files)
+  const sharedFileIds = new Set();
+  if (fileRefs.size > 0) {
+    try {
+      const allDocs = await db.collection('users').doc(userId).collection('resume_profile').listDocuments();
+      const snapshots = await Promise.all(allDocs.map(doc => doc.get()));
+      snapshots.forEach(snapIt => {
+        const d = snapIt.exists ? snapIt.data() || {} : {};
+        if (d.baseResume && d.baseResume.fileId) sharedFileIds.add(d.baseResume.fileId);
+        (d.certifications || []).forEach(cert => {
+          if (cert && cert.id) sharedFileIds.add(cert.id);
+        });
+      });
+    } catch (err) {
+      console.warn('[ResumeProfile] Could not scan shared files:', err.message);
+    }
+  }
+
+  const deletedFiles = [];
+  const failedFiles = [];
+  const sharedFiles = [];
+
+  for (const fileId of fileRefs) {
+    if (sharedFileIds.has(fileId)) {
+      sharedFiles.push(fileId);
+      continue;
+    }
+    try {
+      await fileService.deleteFile(userId, fileId);
+      deletedFiles.push(fileId);
+    } catch (err) {
+      console.warn(`[ResumeProfile] Failed to delete file ${fileId}: ${err.message}`);
+      failedFiles.push(fileId);
+    }
+  }
+
+  return {
+    success: true,
+    deleted: profileId,
+    deletedFiles,
+    failedFiles,
+    sharedFiles
+  };
 }
 
 /**
