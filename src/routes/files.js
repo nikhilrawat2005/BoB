@@ -35,50 +35,52 @@ function fileFilter(req, file, cb) {
 
 // Keep uploads in memory (not disk) — we stream straight to Cloudinary.
 // 4MB cap keeps uploads compatible with Vercel serverless body limit.
-const MAX_UPLOAD_BYTES = 4 * 1024 * 1024;
+const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
+const MAX_UPLOAD_FILES = 10;
 const upload = multer({
   storage: multer.memoryStorage(),
   fileFilter,
-  limits: { fileSize: MAX_UPLOAD_BYTES, files: 1 },
+  limits: { fileSize: MAX_UPLOAD_BYTES, files: MAX_UPLOAD_FILES },
 });
 
-/**
- * BUGFIX: multer reports rejections (bad extension from fileFilter above, or
- * LIMIT_FILE_SIZE) by calling next(err) — which SKIPS the route handler's
- * try/catch entirely and falls through to the generic app-level handler in
- * server.js, so the client got `500 {"error":"Internal server error"}` and the
- * carefully-worded reason above was thrown away.
- *
- * Wrapping upload.single() lets us turn those into the correct 4xx with the
- * real reason, which is what the UI needs in order to tell the user anything
- * useful.
- */
-function uploadSingleFile(req, res, next) {
-  upload.single('file')(req, res, (err) => {
+function handleFileUpload(req, res, next) {
+  // Support both single ("file") and multiple ("files" or "file")
+  upload.any()(req, res, (err) => {
     if (!err) return next();
 
     if (err.code === 'LIMIT_FILE_SIZE') {
       return res.status(413).json({
-        error: `File is too large. Maximum upload size is ${Math.round(MAX_UPLOAD_BYTES / 1024 / 1024)}MB.`,
+        error: `File is too large. Maximum upload size per file is ${Math.round(MAX_UPLOAD_BYTES / 1024 / 1024)}MB.`,
       });
     }
     if (err.code === 'UNSUPPORTED_FILE_TYPE') {
       return res.status(415).json({ error: err.message });
     }
-    if (err.code === 'LIMIT_FILE_COUNT' || err.code === 'LIMIT_UNEXPECTED_FILE') {
-      return res.status(400).json({ error: 'Upload one file at a time, using the field name "file".' });
+    if (err.code === 'LIMIT_FILE_COUNT') {
+      return res.status(400).json({ error: `Maximum ${MAX_UPLOAD_FILES} files can be uploaded at once.` });
     }
     console.error('[files/upload] multer error:', err.code || '-', err.message);
     return res.status(400).json({ error: err.message || 'Upload rejected' });
   });
 }
 
-// POST /api/files/upload  (multipart/form-data, field name "file")
-router.post('/upload', requireAuth, uploadSingleFile, async (req, res) => {
-  if (!req.file) return res.status(400).json({ error: 'No file provided (field name must be "file")' });
+// POST /api/files/upload  (multipart/form-data, accepts multiple files)
+router.post('/upload', requireAuth, handleFileUpload, async (req, res) => {
+  const uploadedFiles = req.files || (req.file ? [req.file] : []);
+  if (!uploadedFiles.length) {
+    return res.status(400).json({ error: 'No files provided for upload.' });
+  }
+
   try {
-    const record = await fileService.uploadFile(req.userId, req.file);
-    res.json({ file: record });
+    const results = await Promise.all(
+      uploadedFiles.map(file => fileService.uploadFile(req.userId, file))
+    );
+
+    // Keep backward-compatible 'file' property for single upload, and 'files' array for multi-upload
+    res.json({
+      file: results[0],
+      files: results
+    });
   } catch (err) {
     console.error('[files/upload] error:', err.message);
     res.status(500).json({ error: 'Upload failed', details: err.message });

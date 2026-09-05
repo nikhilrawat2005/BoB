@@ -422,13 +422,13 @@ router.post('/', requireAuth, async (req, res) => {
     }
   }
 
-  // Normalize image URLs from request (screenshots uploaded by user)
-  const userImageUrls = Array.isArray(imageUrls) ? imageUrls.filter(Boolean).slice(0, 6) : [];
+  // Normalize image URLs from request (screenshots / images uploaded or pasted by user)
+  const userImageUrls = Array.isArray(imageUrls) ? imageUrls.filter(Boolean).slice(0, 10) : [];
 
-  // NEW: normalize attached documents (PDF/DOCX/XLSX/etc. text extracted at
+  // Normalize attached documents (PDF/DOCX/XLSX/etc. text extracted at
   // upload time or fetched from URL on-the-fly if missing)
   const rawDocs = Array.isArray(documents)
-    ? documents.filter((d) => d && d.name).slice(0, 3)
+    ? documents.filter((d) => d && d.name).slice(0, 10)
     : [];
 
   const userDocuments = await Promise.all(

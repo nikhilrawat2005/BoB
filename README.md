@@ -78,8 +78,19 @@ Six long-term memory pillars, all Firestore-backed:
 ### 9. 📈 SEO Auditor
 - Tracks and audits sites on a schedule, with the same cron-or-Firebase-auth pattern as the scheduler.
 
-### 10. 📊 HQ Dashboard
-- `/api/hq/summary` aggregates hackathons, profiles, routines, notifications, facts, monthly memory, files, and self-edits into one dashboard payload.
+### 11. 📄 AI-Powered LaTeX Resume Builder Card & Tailoring Engine
+- **Master Career Profile**: Unified profile graph stored in Firestore (`users/{userId}/resume_profile/master`) integrating education, work experience, and personal achievements.
+- **Deep GitHub Context Crawling**: Crawls user's top/pinned repos, languages, stars, and deep-parses `README.md` to extract real project context instead of generic summaries.
+- **Coding Platforms Sync**: Integrates with LeetCode, Codeforces, HackerRank, and DEV.to to auto-fetch contest ratings, badges, and problem-solving statistics.
+- **Base Resume & Certificate Vault**: Parses uploaded `resume.pdf` into structured sections and securely hosts certificates in Cloudinary with direct viewable links.
+- **Targeted Job Itinerary / Tailored Alignment**: Reads target Job Descriptions (JD) or vacancies, extracts required skill keywords, prioritizes matching projects, and writes ATS-compliant STAR-method bullet points (*Action + Tool + Metric*).
+- **LaTeX Compilation to PDF**: Uses clean industry-standard ATS templates (Jake's Resume) with online compilation fallback and direct PDF upload/sync to Cloudinary (`bob/{userId}/resumes/`).
+
+### 12. ⚡ Enhanced File Vault & Multi-File Clipboard System
+- **SHA-256 File Deduplication**: Every file upload generates a SHA-256 content hash. Duplicate uploads are instantly reused (`deduplicated: true`) without creating redundant Cloudinary copies or database clutter.
+- **Multi-File Upload & Clipboard Copy-Paste (Ctrl+V)**: Input bar accepts multiple files simultaneously (up to 10 files, 10MB each). Direct clipboard pasting (Ctrl+V) seamlessly queues multiple screenshots or files.
+- **Multi-Chip Preview UI**: Interactive file chips with individual removal (`✕`) buttons and status badges.
+- **Multi-Modal Vision & Doc Ingestion**: `/api/chat` processes multiple images and documents in a single turn without dropping previous attachments.
 
 ---
 
@@ -88,12 +99,15 @@ Six long-term memory pillars, all Firestore-backed:
 | Service | Responsibility |
 |---|---|
 | `llmService.js` | OpenRouter orchestration, key rotation, model routing/fallback |
+| `resumeProfileService.js` | Master career profile, GitHub crawler, coding stats sync, resume parsing |
+| `latexResumeService.js` | LaTeX ATS templates, JD tailoring engine, PDF compilation, Cloudinary storage |
+| `fileService.js` | Cloudinary upload/delete with SHA-256 deduplication & Firestore sync |
+| `documentReaderService.js` | Extracts text from PDF/DOCX/XLSX/code & zero-token local table query engine |
+| `documentGenerator.js` | Generates real `.xlsx/.docx/.pdf/.pptx` files |
+| `developerPlatformsService.js` | LeetCode, Codeforces, HackerRank, DEV.to data extraction |
 | `memoryService.js` / `memoryManager.js` | Structured facts, monthly memory, notifications |
 | `behaviorEngine.js` | Trait/behavior detection from conversation |
 | `proactiveAdvisor.js` | Auto-generates proactive notifications |
-| `fileService.js` | Cloudinary upload/delete + Firestore sync |
-| `documentReaderService.js` | Extracts text from PDF/DOCX/XLSX/code |
-| `documentGenerator.js` | Generates real `.xlsx/.docx/.pdf/.pptx` files |
 | `crawlerService.js` | Generic web page scraping + JSON-LD extraction |
 | `repoService.js` | GitHub repo reading for Builder self-awareness |
 | `builderService.js` / `builderKnowledgeService.js` / `builderTaskService.js` | Bob the Builder persona logic |
@@ -107,7 +121,6 @@ Six long-term memory pillars, all Firestore-backed:
 | `seoService.js` | Site SEO auditing |
 | `routineService.js` / `schedulerService.js` | Daily routines and cron-driven tasks |
 | `statsService.js` | Usage/stat aggregation |
-| `developerPlatformsService.js` | Developer-platform integrations |
 
 ---
 
@@ -207,6 +220,7 @@ All `/api/*` routes (except `/api/health` and `/api/config`) require:
 | `/api/self-edit` | `selfEdit.js` | Self-edit history/diffs |
 | `/api/keys` | `keys.js` | Anonymized OpenRouter key health (no raw keys ever sent) |
 | `/api/seo` | `seo.js` | SEO site tracking + audits (cron or user auth) |
+| `/api/resume` | `resume.js` | AI LaTeX resume builder, GitHub/coding platform sync, certificate vault & JD tailoring |
 
 ---
 

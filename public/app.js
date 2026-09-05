@@ -1641,7 +1641,7 @@ function attachAutoResizeTextarea(id, sendFn) {
 
 messageInput.addEventListener('input', () => {
   adjustTextareaHeight(messageInput);
-  sendBtn.disabled = !messageInput.value.trim() && !pendingFile && !pendingPasteImage;
+  updateSendBtnState();
 });
 
 messageInput.addEventListener('paste', () => {
@@ -1655,40 +1655,36 @@ messageInput.addEventListener('keydown', (e) => {
   }
 });
 
-// ── Paste Screenshot Support (Ctrl+V) ─────────────────
+// ── Multi-File & Paste Support (Ctrl+V) ─────────────────
+let pendingFiles = [];
+let pendingPasteImages = [];
+
+function updateSendBtnState() {
+  sendBtn.disabled = !messageInput.value.trim() && pendingFiles.length === 0 && pendingPasteImages.length === 0 && !pendingStorageFile;
+}
+
 messageInput.addEventListener('paste', (e) => {
   const items = e.clipboardData && e.clipboardData.items;
   if (!items) return;
 
+  let hasFile = false;
   for (const item of items) {
-    if (item.kind === 'file' && item.type.startsWith('image/')) {
-      e.preventDefault(); // don't paste image as text
+    if (item.kind === 'file') {
       const file = item.getAsFile();
-      if (!file) return;
-
-      pendingPasteImage = file;
-
-      // Show image thumbnail preview
-      const reader = new FileReader();
-      reader.onload = (ev) => {
-        const preview = document.getElementById('file-preview');
-        preview.classList.remove('hidden');
-        preview.innerHTML = `
-          <div class="paste-img-preview">
-            <img src="${ev.target.result}" alt="Screenshot preview" class="paste-thumb" />
-            <div class="paste-img-info">
-              <span class="file-type-badge">🖼️</span>
-              <span>Screenshot pasted <span style="color:var(--text3)">(${formatBytes(file.size)})</span></span>
-            </div>
-            <button class="remove-file" id="remove-paste-btn">✕</button>
-          </div>
-        `;
-        document.getElementById('remove-paste-btn').addEventListener('click', clearPastedImage);
-        sendBtn.disabled = false;
-      };
-      reader.readAsDataURL(file);
-      return; // only handle first image
+      if (!file) continue;
+      hasFile = true;
+      if (file.type.startsWith('image/')) {
+        pendingPasteImages.push(file);
+      } else {
+        pendingFiles.push(file);
+      }
     }
+  }
+
+  if (hasFile) {
+    e.preventDefault();
+    renderAllPreviews();
+    updateSendBtnState();
   }
 });
 
@@ -1873,22 +1869,19 @@ async function sendMessage() {
   const text  = messageInput.value.trim();
   const model = document.getElementById('model-selector').value || undefined;
 
-  if (!text && !pendingFile && !pendingPasteImage) return;
+  if (!text && pendingFiles.length === 0 && pendingPasteImages.length === 0 && !pendingStorageFile) return;
 
   // Collect image URLs to send to Bob for vision analysis (Bob persona only)
   const imageUrls = [];
-  // NEW: non-image attachments (PDF/DOCX/txt/...) — previously these were
-  // uploaded to Cloudinary but their upload result was thrown away because
-  // only image URLs were ever added to the outgoing payload. Bob never
-  // received any reference to the file, so he had no choice but to guess
-  // at its contents from the filename alone.
   const documents = [];
 
   if (currentPersona === 'bob') {
-    // Upload pasted screenshot if any
-    if (pendingPasteImage) {
-      const pasteUrl = await uploadImageFile(pendingPasteImage, 'pasted-screenshot');
-      if (pasteUrl) imageUrls.push(pasteUrl);
+    // Upload pasted screenshots if any
+    if (pendingPasteImages.length > 0) {
+      const pasteUploads = await Promise.all(
+        pendingPasteImages.map(img => uploadImageFile(img, 'pasted-screenshot'))
+      );
+      pasteUploads.filter(Boolean).forEach(url => imageUrls.push(url));
       clearPastedImage();
     }
 
@@ -1910,17 +1903,15 @@ async function sendMessage() {
       clearPendingStorageFile();
     }
 
-    // Upload newly attached file from disk if any
-    if (pendingFile) {
-      const isImage = pendingFile.type.startsWith('image/');
-      const uploadedRecord = await uploadPendingFile();
-      if (uploadedRecord) {
+    // Upload newly attached files from disk if any
+    if (pendingFiles.length > 0) {
+      const uploadedRecords = await uploadPendingFile();
+      for (const uploadedRecord of uploadedRecords) {
+        if (!uploadedRecord) continue;
+        const isImage = uploadedRecord.resourceType === 'image' || (uploadedRecord.originalName || '').match(/\.(jpg|jpeg|png|gif|webp)$/i);
         if (isImage) {
           imageUrls.push(uploadedRecord.url);
         } else {
-          // Forward the real extracted text (from fileService/documentReaderService
-          // on the backend) so Bob answers from the document's actual content
-          // instead of hallucinating from just the filename.
           documents.push({
             id: uploadedRecord.id,
             url: uploadedRecord.url,
@@ -1928,11 +1919,10 @@ async function sendMessage() {
             extractedText: uploadedRecord.extractedText || '',
             textExtracted: !!uploadedRecord.textExtracted,
             extractionError: uploadedRecord.extractionError || null,
-});
-}
+          });
+        }
       }
     }
-
   }
 
   // If only an image/document was sent with no text, add a default prompt
@@ -1947,10 +1937,21 @@ async function sendMessage() {
   sendBtn.disabled = true;
   messageInput.focus();
 
-  // Show user message (with image indicator if applicable)
-  const displayText = imageUrls.length
-    ? (text ? `🖼️ [Screenshot attached]\n${text}` : '🖼️ [Screenshot] — Yeh dekho aur samjhao')
-    : text;
+  // Show user message (with image/doc indicators if applicable)
+  let prefix = '';
+  if (imageUrls.length > 0 && documents.length > 0) {
+    prefix = `🖼️📄 [${imageUrls.length} image(s), ${documents.length} document(s) attached]\n`;
+  } else if (imageUrls.length > 1) {
+    prefix = `🖼️ [${imageUrls.length} images attached]\n`;
+  } else if (imageUrls.length === 1) {
+    prefix = `🖼️ [Screenshot attached]\n`;
+  } else if (documents.length > 1) {
+    prefix = `📄 [${documents.length} documents attached]\n`;
+  } else if (documents.length === 1) {
+    prefix = `📄 [Document attached: ${documents[0].name}]\n`;
+  }
+
+  const displayText = prefix ? `${prefix}${text || 'Yeh dekho aur samjhao'}` : text;
   appendMessage('user', displayText);
 
   // Show typing
@@ -2054,55 +2055,129 @@ function setupFileInputHandlers(inputId, previewId, clearFn) {
 let pendingHackFile = null;
 let pendingStalkFile = null;
 
+let pendingFiles = [];
+let pendingPasteImages = [];
 let pendingStorageFile = null;
 
-function renderAttachedPreview(icon, title, subtitle, onRemove) {
+function getAttachedFileIcon(file) {
+  const type = file.type || '';
+  const name = (file.name || '').toLowerCase();
+  if (type.startsWith('image/')) return '🖼️';
+  if (type.startsWith('audio/')) return '🎵';
+  if (type.startsWith('video/')) return '🎬';
+  if (type.includes('pdf')) return '📕';
+  if (name.endsWith('.csv') || name.endsWith('.tsv') || name.endsWith('.xlsx') || name.endsWith('.xls')) return '📊';
+  if (name.endsWith('.json')) return '🔧';
+  if (name.endsWith('.py')) return '🐍';
+  if (name.endsWith('.js') || name.endsWith('.ts')) return '🟨';
+  if (name.endsWith('.html') || name.endsWith('.htm')) return '🌐';
+  if (name.endsWith('.md')) return '📝';
+  if (name.endsWith('.sql')) return '🗃️';
+  if (name.endsWith('.cpp') || name.endsWith('.c') || name.endsWith('.java')) return '⚡';
+  if (name.endsWith('.sh') || name.endsWith('.bash')) return '💻';
+  return '📄';
+}
+
+function renderAllPreviews() {
   const preview = document.getElementById('file-preview');
+  if (!preview) return;
+
+  const totalCount = pendingFiles.length + pendingPasteImages.length + (pendingStorageFile ? 1 : 0);
+  if (totalCount === 0) {
+    preview.classList.add('hidden');
+    preview.innerHTML = '';
+    return;
+  }
+
   preview.classList.remove('hidden');
-  preview.innerHTML = `
-    <span class="file-type-badge">${icon}</span>
-    <span>${escHtml(title)} <span style="color:var(--text3)">(${subtitle})</span></span>
-    <button class="remove-file" id="remove-file-btn">✕</button>
-  `;
-  document.getElementById('remove-file-btn').addEventListener('click', onRemove);
-  sendBtn.disabled = false;
+  preview.innerHTML = '';
+
+  // 1. Attached disk files
+  pendingFiles.forEach((file, index) => {
+    const item = document.createElement('div');
+    item.className = 'file-preview-item';
+    item.innerHTML = `
+      <span class="file-type-badge">${getAttachedFileIcon(file)}</span>
+      <span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${escHtml(file.name)}">${escHtml(file.name)} <span style="color:var(--text3)">(${formatBytes(file.size)})</span></span>
+      <button type="button" class="remove-file" data-idx="${index}">✕</button>
+    `;
+    item.querySelector('.remove-file').addEventListener('click', (e) => {
+      e.stopPropagation();
+      pendingFiles.splice(index, 1);
+      renderAllPreviews();
+      updateSendBtnState();
+    });
+    preview.appendChild(item);
+  });
+
+  // 2. Pasted clipboard images
+  pendingPasteImages.forEach((file, index) => {
+    const item = document.createElement('div');
+    item.className = 'file-preview-item';
+    item.innerHTML = `
+      <span class="file-type-badge">🖼️</span>
+      <span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">Pasted #${index + 1} <span style="color:var(--text3)">(${formatBytes(file.size)})</span></span>
+      <button type="button" class="remove-file" data-paste-idx="${index}">✕</button>
+    `;
+    item.querySelector('.remove-file').addEventListener('click', (e) => {
+      e.stopPropagation();
+      pendingPasteImages.splice(index, 1);
+      renderAllPreviews();
+      updateSendBtnState();
+    });
+    preview.appendChild(item);
+  });
+
+  // 3. Pending storage file
+  if (pendingStorageFile) {
+    const name = pendingStorageFile.originalName || pendingStorageFile.publicId || 'Storage Document';
+    const icon = getFileIcon(name, pendingStorageFile.resourceType);
+    const size = formatBytes(pendingStorageFile.sizeBytes || 0);
+    const item = document.createElement('div');
+    item.className = 'file-preview-item';
+    item.innerHTML = `
+      <span class="file-type-badge">${icon}</span>
+      <span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${escHtml(name)}">${escHtml(name)} <span style="color:var(--text3)">(${size} • Storage)</span></span>
+      <button type="button" class="remove-file" id="remove-storage-btn">✕</button>
+    `;
+    item.querySelector('.remove-file').addEventListener('click', (e) => {
+      e.stopPropagation();
+      pendingStorageFile = null;
+      renderAllPreviews();
+      updateSendBtnState();
+    });
+    preview.appendChild(item);
+  }
+}
+
+function updateSendBtnState() {
+  sendBtn.disabled = !messageInput.value.trim() && pendingFiles.length === 0 && pendingPasteImages.length === 0 && !pendingStorageFile;
 }
 
 function clearPendingStorageFile() {
   pendingStorageFile = null;
-  document.getElementById('file-preview').classList.add('hidden');
-  sendBtn.disabled = !messageInput.value.trim() && !pendingFile;
+  renderAllPreviews();
+  updateSendBtnState();
 }
 
 function clearPendingFile() {
-  pendingFile = null;
-  // Always reset the input, otherwise re-picking the SAME file fires no
-  // 'change' event and the attachment silently fails to re-attach.
+  pendingFiles = [];
   const input = document.getElementById('file-upload-input');
   if (input) input.value = '';
+  renderAllPreviews();
+  updateSendBtnState();
+}
 
-  if (pendingStorageFile) {
-    // A storage file is also selected — keep showing that instead of blanking
-    // the shared preview strip.
-    setStorageFileSelected(pendingStorageFile);
-    return;
-  }
-  // Don't hide the strip if a pasted screenshot is still waiting in it.
-  if (!pendingPasteImage) {
-    document.getElementById('file-preview').classList.add('hidden');
-  }
-  sendBtn.disabled = !messageInput.value.trim() && !pendingPasteImage;
+function clearPastedImage() {
+  pendingPasteImages = [];
+  renderAllPreviews();
+  updateSendBtnState();
 }
 
 function setStorageFileSelected(file) {
   pendingStorageFile = file;
-  pendingFile = null;
-  document.getElementById('file-upload-input').value = '';
-  const name = file.originalName || file.publicId || 'Storage Document';
-  const icon = getFileIcon(name, file.resourceType);
-  const size = formatBytes(file.sizeBytes || 0);
-  const badge = file.textExtracted ? '📁 Storage (AI-Ready)' : '📁 Storage (Asset)';
-  renderAttachedPreview(icon, name, `${size} • ${badge}`, clearPendingStorageFile);
+  renderAllPreviews();
+  updateSendBtnState();
   closeStorageFilePicker();
 }
 
@@ -2216,29 +2291,14 @@ document.getElementById('storage-picker-search')?.addEventListener('input', () =
 
 
 document.getElementById('file-upload-input').addEventListener('change', (e) => {
-  const file = e.target.files[0];
-  if (!file) return;
-  pendingFile = file;
-  pendingStorageFile = null; // Prioritize fresh upload if user picked file from disk
+  const selectedFiles = Array.from(e.target.files || []);
+  if (!selectedFiles.length) return;
 
-  const type = file.type || '';
-  const name = file.name.toLowerCase();
-  let fileIcon = '📄';
-  if (type.startsWith('image/'))           fileIcon = '🖼️';
-  else if (type.startsWith('audio/'))      fileIcon = '🎵';
-  else if (type.startsWith('video/'))      fileIcon = '🎬';
-  else if (type.includes('pdf'))           fileIcon = '📕';
-  else if (name.endsWith('.csv') || name.endsWith('.tsv') || name.endsWith('.xlsx') || name.endsWith('.xls')) fileIcon = '📊';
-  else if (name.endsWith('.json'))         fileIcon = '🔧';
-  else if (name.endsWith('.py'))           fileIcon = '🐍';
-  else if (name.endsWith('.js') || name.endsWith('.ts')) fileIcon = '🟨';
-  else if (name.endsWith('.html') || name.endsWith('.htm')) fileIcon = '🌐';
-  else if (name.endsWith('.md'))           fileIcon = '📝';
-  else if (name.endsWith('.sql'))          fileIcon = '🗃️';
-  else if (name.endsWith('.cpp') || name.endsWith('.c') || name.endsWith('.java')) fileIcon = '⚡';
-  else if (name.endsWith('.sh') || name.endsWith('.bash')) fileIcon = '💻';
+  // Add selected files to pendingFiles list
+  pendingFiles.push(...selectedFiles);
 
-  renderAttachedPreview(fileIcon, file.name, formatBytes(file.size), clearPendingFile);
+  renderAllPreviews();
+  updateSendBtnState();
 });
 
 
@@ -2272,12 +2332,6 @@ document.getElementById('stalk-file-upload-input')?.addEventListener('change', (
   document.getElementById('remove-stalk-file-btn').addEventListener('click', clearPendingStalkFile);
 });
 
-// NOTE: clearPendingFile() is defined once, near clearPendingStorageFile().
-// There used to be a second, simpler copy of it right here — and because
-// function declarations hoist, THIS one silently overwrote the earlier one,
-// which meant the "keep the storage file selected" branch up there was
-// unreachable dead code. Removing the duplicate restores that behaviour.
-
 function clearPendingHackFile() {
   pendingHackFile = null;
   const p = document.getElementById('hack-file-preview');
@@ -2295,10 +2349,11 @@ function clearPendingStalkFile() {
 }
 
 async function uploadPendingFile() {
-  if (!currentSession || !pendingFile) return null;
-  const file = pendingFile;
+  if (!currentSession || pendingFiles.length === 0) return [];
+  const filesToUpload = [...pendingFiles];
   clearPendingFile();
-  return await uploadFileRecord(file);
+  const results = await Promise.all(filesToUpload.map(f => uploadFileRecord(f)));
+  return results.filter(Boolean);
 }
 
 /**

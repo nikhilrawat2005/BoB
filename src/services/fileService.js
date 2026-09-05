@@ -13,18 +13,32 @@ function uploadBufferToCloudinary(buffer, folder) {
   });
 }
 
+const crypto = require('crypto');
+
 async function uploadFile(userId, file) {
-  // Upload the raw bytes to Cloudinary as before (unchanged behaviour).
+  // Compute SHA-256 hash of file buffer for exact deduplication
+  const fileHash = crypto.createHash('sha256').update(file.buffer).digest('hex');
+
+  // Check if this user already uploaded the exact same file
+  const existingSnap = await db.collection('users').doc(userId).collection('files')
+    .where('fileHash', '==', fileHash)
+    .limit(1)
+    .get();
+
+  if (!existingSnap.empty) {
+    const existingDoc = existingSnap.docs[0];
+    console.log(`[fileService] Deduplication match! Reusing file ${existingDoc.id} for "${file.originalname}"`);
+    return { id: existingDoc.id, ...existingDoc.data(), deduplicated: true };
+  }
+
+  // Upload the raw bytes to Cloudinary
   const result = await uploadBufferToCloudinary(file.buffer, `bob/${userId}`);
 
   if (!result || !result.secure_url) {
     throw new Error('Upload succeeded but storage returned no file URL');
   }
 
-  // NEW: actually read the file's content for text-bearing formats
-  // (PDF, DOCX, txt/md/csv/json/...). Without this, Bob only ever knew a
-  // file's name/size — never what was written inside it — and would
-  // hallucinate an answer instead of using the real content.
+  // Actually read the file's content for text-bearing formats
   const extraction = await documentReader.extractText(file.buffer, file.originalname);
 
   const record = {
@@ -32,15 +46,10 @@ async function uploadFile(userId, file) {
     publicId: result.public_id,
     resourceType: result.resource_type, // image | video | raw
     originalName: file.originalname,
-    // BUGFIX: mimeType was never stored for uploads (only for generated files),
-    // so the `MIME_MAP[ext] || file.mimeType || octet-stream` fallback chain in
-    // routes/files.js always skipped the middle term. Any allowed extension not
-    // in MIME_MAP was served as application/octet-stream, which makes the
-    // browser download it instead of rendering it inline on /view.
     mimeType: file.mimetype || null,
     sizeBytes: file.size,
+    fileHash,
     createdAt: Date.now(),
-    // Populated only when extraction succeeded; undefined/empty otherwise.
     extractedText: extraction.supported ? extraction.text : '',
     textExtracted: extraction.supported,
     extractionError: extraction.supported ? null : extraction.error,
