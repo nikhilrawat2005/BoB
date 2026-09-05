@@ -85,7 +85,8 @@ document.getElementById('login-form').addEventListener('submit', async (e) => {
     await auth.signInWithEmailAndPassword(email, password);
     // onAuthStateChanged handles the rest
   } catch (err) {
-    errEl.textContent = friendlyAuthError(err.code);
+    console.error('Login error:', err);
+    errEl.textContent = friendlyAuthError(err.code) || err.message;
     errEl.classList.remove('hidden');
   } finally {
     btnText.classList.remove('hidden');
@@ -144,19 +145,6 @@ if (googleBtn) {
     }
   });
 }
-
-// Disable Inspect / Right Click / DevTools Shortcuts
-document.addEventListener('contextmenu', (e) => e.preventDefault());
-document.addEventListener('keydown', (e) => {
-  if (
-    e.keyCode === 123 || // F12
-    (e.ctrlKey && e.shiftKey && (e.keyCode === 73 || e.keyCode === 74 || e.keyCode === 67)) || // Ctrl+Shift+I / J / C
-    (e.ctrlKey && e.keyCode === 85) // Ctrl+U
-  ) {
-    e.preventDefault();
-    return false;
-  }
-});
 
 // Logout
 document.getElementById('logout-btn').addEventListener('click', () => auth.signOut());
@@ -2054,9 +2042,6 @@ function setupFileInputHandlers(inputId, previewId, clearFn) {
 
 let pendingHackFile = null;
 let pendingStalkFile = null;
-
-let pendingFiles = [];
-let pendingPasteImages = [];
 let pendingStorageFile = null;
 
 function getAttachedFileIcon(file) {
