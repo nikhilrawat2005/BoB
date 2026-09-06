@@ -285,11 +285,15 @@ router.post(['/upload/certificate', '/upload/documents'], requireAuth, upload.ar
 router.post('/generate', requireAuth, async (req, res) => {
   try {
     const profileId = req.query.profileId || req.body.profileId || 'master';
-    const { jobDescription, customPrompt, templateName, targetJobDescription } = req.body;
+    const { jobDescription, customPrompt, resumeNotes, templateName, targetJobDescription } = req.body;
     const finalJD = jobDescription || targetJobDescription || '';
 
     // Fetch target candidate's full context
     let profile = await resumeProfile.getMasterProfile(req.userId, profileId);
+
+    // Resume Notes / custom instructions come from the request body; fall back to
+    // notes saved on the candidate profile (e.g. generated from the UI each time).
+    const customInstructions = resumeNotes || customPrompt || profile.resumeNotes || '';
 
     // Auto-re-scrape fresh projects from GitHub if username is saved
     if (profile.githubUsername) {
@@ -325,11 +329,13 @@ router.post('/generate', requireAuth, async (req, res) => {
     // 1. Generate Structured Resume Data via LLM
     const structuredResult = await directPdfService.generateStructuredResumeData({
       profile,
-      jobDescription: finalJD
+      jobDescription: finalJD,
+      customInstructions
     });
 
-    // Save latest resume JSON to candidate profile
+    // Save latest resume JSON + notes snapshot to candidate profile
     profile.latestResumeData = structuredResult.data;
+    profile.resumeNotes = customInstructions;
     await resumeProfile.saveMasterProfile(req.userId, profile, profileId);
 
     res.json({

@@ -9,7 +9,7 @@ const { callLLM } = require('./llmService');
 /**
  * Step 1: Use LLM to structure all user data into high-converting ATS JSON
  */
-async function generateStructuredResumeData({ profile, jobDescription = '' }) {
+async function generateStructuredResumeData({ profile, jobDescription = '', customInstructions = '' }) {
   const isTargeted = Boolean(jobDescription && jobDescription.trim().length > 20);
 
   const prompt = `You are a World-Class Technical Career Strategist and Harvard/Google Resume Expert.
@@ -20,12 +20,25 @@ ${JSON.stringify(profile, null, 2)}
 
 CRITICAL RULES:
 1. LINKS INTEGRITY: ONLY include links that the candidate ACTUALLY has provided in their master profile, smartLinks array, or base resume (e.g. GitHub, LinkedIn, LeetCode, CodeChef, Portfolios). Do NOT hallucinate or insert links if the user has NOT provided them! Ensure link labels are clean and accurate.
-2. PROJECT SELECTION & HIRATION CAUSE-EFFECT BULLETS:
-   - Select 4 top showcase projects: BoB (Autonomous AI Companion), The Falcon Tour (210+ static pages travel architecture), Bloom (AI-powered platform connecting women with STEM opportunities), and Smart Attendance System (AI Facial Recognition).
+2. PROJECT PRESERVATION, CLASSIFICATION & HIRATION BULLETS:
+   - The candidate's own named signature projects (BoB, The Falcon Tour, Bloom, Smart Attendance System, Market Kingdom, or any project named in their profile / base resume / notes) MUST all be preserved in the projects array with accurate titles — never drop them, never swap in hallucinated projects. If it is a lot of projects it is fine: this resume is built for high density.
+   - CLASSIFY PERSONAL VS CLIENT WORK: From the candidate's custom instructions/notes decide each project's client field. If the candidate says a project was built as freelancing / for a client / paid service work ("client ke liye banaya", "freelancing me"), set "client": true and phrase its bullets as a client-delivered engagement (business outcome, on-time delivery, stakeholder value). Otherwise keep "client": false (personal portfolio work).
    - HIRATION & GOOGLE XYZ FORMULA: Every bullet MUST start with a strong active verb (e.g. Architected, Engineered, Implemented, Spearheaded, Optimized), contain a clear technical task, and end with a quantified metric or measurable outcome (e.g. 'reducing latency by 40%', 'processing 500+ records with 99.2% accuracy', 'generating 210+ static pages').
+   - MAXIMIZE ATS KEYWORD COVERAGE: Weave the candidate's actual languages, frameworks, platforms and tools (e.g. React, Node.js, Firebase, Cloudinary, Gemini AI, Next.js, REST APIs, Computer Vision) into project titles, tech stacks and bullets so ATS keyword matching is maximised. Never use a keyword the candidate has not actually used.
    - NO ENDING PERIODS: Do NOT put a period '.' at the end of any bullet point (as per modern ATS / Hiration resume standards).
    - Single focus per bullet: Each bullet must describe one coherent high-impact engineering accomplishment.
-3. CERTIFICATIONS & ACHIEVEMENTS (HIRATION ACTION & METRIC STANDARD):
+3. CUSTOM INSTRUCTIONS (HIGHEST PRIORITY — ALWAYS FOLLOW EXACTLY):
+${customInstructions && customInstructions.trim().length > 0 ? `USER'S OWN RESUME NOTES / INSTRUCTIONS:
+"""
+${customInstructions.trim()}
+"""
+HOW TO APPLY THEM:
+   - If the user says a project was freelance / client / paid-service work ("client ke liye", "freelancing me banaya", "service project"), set that project's "client": true and describe it as a client engagement so a recruiter understands it is real professional/client work, not a class assignment.
+   - If the user says "replace X with Y", drop project X and put project Y in exactly that position.
+   - If the user says to add something to certifications ("certificates mein dalna"), add it as a certifications entry (action-oriented title + issuer).
+   - If the user gives a personal overview / story / context, weave the meaningful parts naturally into the summary and project descriptions without inventing any facts or metrics.
+   - These notes OVERRIDE any conflicting default behaviour above.` : `(No custom notes provided — use your best editorial judgement purely from the profile data.)`}
+4. CERTIFICATIONS & ACHIEVEMENTS (HIRATION ACTION & METRIC STANDARD):
    - NEVER include 10th/12th marksheets or school grade records here (marksheets belong ONLY under Education).
    - Do NOT just list raw titles like "CodeChef Badge" or "Vibe-2-Vision Participant" without context!
    - Format each certification/achievement into an active, quantifiable accolade:
@@ -33,7 +46,8 @@ CRITICAL RULES:
      • ViCoDathon: "Selected as National Finalist at ViCoDathon 2026, building AI solutions under high-pressure 36-hr hackathon" (Issuer: ABTalks)
      • Vibe-2-Vision: "Awarded Certificate of Innovation at Vibe-2-Vision Hackathon for developing AI-driven social impact workflows" (Issuer: Vibe-2-Vision)
      • AWS: "Completed AWS Academy Graduate — Cloud Foundations, mastering cloud infrastructure, IAM security, and serverless compute" (Issuer: Amazon Web Services)
-4. NO INVENTED CONTACT DETAILS: Use verified email, phone (+91-8700113731), location (Ghaziabad, India).
+   - Respect any user request above to also move/duplicate a project into certifications.
+5. NO INVENTED CONTACT DETAILS: Use verified email, phone (+91-8700113731), location (Ghaziabad, India).
 
 ${isTargeted ? `TARGET JOB VACANCY / JD:
 """
@@ -43,6 +57,7 @@ TAILORING RULES:
 - Align bullet points and skills with high-frequency requirements from this job description.
 ` : `GENERAL ATS MASTER RULES:
 - Maximize ATS parsing by keeping concise, high-density bullet points packed with metrics, tools, and outcomes.
+- MAXIMISE ATS KEYWORD COVERAGE: Weave the candidate's real technologies, platforms, and domains across the summary, skills, and bullets (e.g. Node.js, Firebase, Cloudinary, Gemini AI, React, REST APIs, Computer Vision) so that every relevant keyword the candidate actually uses appears somewhere in the document.
 `}
 
 RETURN ONLY A VALID JSON OBJECT (no markdown around it, no backticks, no comments, raw JSON only) matching this exact schema:
@@ -69,6 +84,7 @@ RETURN ONLY A VALID JSON OBJECT (no markdown around it, no backticks, no comment
       "title": "Project Name",
       "techStack": ["Stack items"],
       "link": "https://...",
+      "client": false,
       "bullets": [
         "Architected scalable backend reducing response latency by 45% across 10k requests"
       ]
@@ -421,7 +437,7 @@ function buildDirectPdfBuffer(resumeData) {
             .replace(/^https?:\/\//, '')
             .replace(/\/$/, '')
             .replace(/^www\./, '');
-          drawTitleLine(p.title || 'Project', cleanLink || null, accentColor, p.link || null);
+          drawTitleLine(p.client ? `${p.title} (Client Project)` : (p.title || 'Project'), cleanLink || null, accentColor, p.link || null);
 
           if (p.techStack && p.techStack.length > 0) {
             doc.font('Helvetica-Oblique')

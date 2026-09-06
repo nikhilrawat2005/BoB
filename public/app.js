@@ -7136,6 +7136,11 @@ async function loadResumeProfile(profileId = activeCandidateProfileId) {
         pasteBox.value = savedSmartLinks.map(l => l.url || '').filter(Boolean).join('\n');
       }
 
+      const notesBox = document.getElementById('resume-notes-input');
+      if (notesBox) {
+        notesBox.value = res.profile.resumeNotes || '';
+      }
+
       renderSmartLinksUI(savedSmartLinks);
       renderSmartLinksBadges(res.profile.smartLinksResult || [], res.profile.developerPlatforms || {});
 
@@ -7448,7 +7453,8 @@ document.getElementById('resume-sync-all-btn')?.addEventListener('click', async 
       body: JSON.stringify({
         profileId: activeCandidateProfileId,
         githubUsername: githubUsername || null,
-        smartLinks: validLinks.map(l => ({ label: l.label, url: l.url }))
+        smartLinks: validLinks.map(l => ({ label: l.label, url: l.url })),
+        resumeNotes: document.getElementById('resume-notes-input')?.value.trim() || ''
       })
     });
     done.push('saved data');
@@ -7709,7 +7715,8 @@ document.getElementById('resume-generate-btn')?.addEventListener('click', async 
           body: JSON.stringify({
             profileId: activeCandidateProfileId,
             githubUsername: githubUsername || null,
-            smartLinks: validLinks.map(l => ({ label: l.label, url: l.url }))
+            smartLinks: validLinks.map(l => ({ label: l.label, url: l.url })),
+            resumeNotes: document.getElementById('resume-notes-input')?.value.trim() || ''
           })
         });
         syncSteps.push('data');
@@ -7745,7 +7752,11 @@ document.getElementById('resume-generate-btn')?.addEventListener('click', async 
 
     const res = await apiFetch(`/api/resume/generate?profileId=${encodeURIComponent(activeCandidateProfileId)}`, {
       method: 'POST',
-      body: JSON.stringify({ targetJobDescription, profileId: activeCandidateProfileId })
+      body: JSON.stringify({
+        targetJobDescription,
+        profileId: activeCandidateProfileId,
+        resumeNotes: document.getElementById('resume-notes-input')?.value.trim() || ''
+      })
     });
 
     if (res.resumeData) {
