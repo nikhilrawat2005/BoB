@@ -6,6 +6,217 @@
 const PDFDocument = require('pdfkit');
 const { callLLM } = require('./llmService');
 
+// ---------------------------------------------------------------------------
+// Deterministic Resume-Notes Directive Engine
+// Guarantees the user's own notes are honoured even when the LLM misses them.
+// Supported directives (Hinglish + English):
+//   1. "client ke liye / freelancing me banaya"      -> project.client = true
+//   2. "X ko service / experience me dal"            -> move project to experience
+//   3. "X ko certificates me dal" (e.g. patent work) -> move entry to certifications
+//   4. "X ki jagah Y dal" / "replace X with Y"       -> drop X, ensure Y in projects
+//   5. "Y ko projects me dal"                        -> ensure Y is present in projects
+// ---------------------------------------------------------------------------
+function normalizeForMatch(str) {
+  return String(str || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function entityMatch(normChunk, key, core) {
+  if (!key || key.length < 3) return false;
+  if (normChunk.includes(key)) return true;
+  if (core && core.length >= 3 && normChunk.includes(core)) return true;
+  const tokens = key.split(' ').filter(t => t.length >= 4);
+  const hits = tokens.filter(t => normChunk.includes(t)).length;
+  return hits >= 2;
+}
+
+// "Bloom – AI-Powered..." -> core "bloom", "Smart Attendance System – ..." -> core "smart attendance system"
+function coreOfName(str) {
+  return normalizeForMatch(String(str || '').split(/[–—\-|:]/)[0]);
+}
+
+function applyResumeNotesDirectives(data, profile, notes) {
+  if (!data || typeof data !== 'object') return data;
+  const notesText = String(notes || '').trim();
+  if (!notesText) return data;
+
+  const chunks = notesText
+    .split(/[.;\n•▪\-]+/)
+    .map(normalizeForMatch)
+    .filter(c => c.length > 3);
+
+  const projects = Array.isArray(data.projects) ? data.projects : [];
+  const experience = Array.isArray(data.experience) ? data.experience : [];
+  const certifications = Array.isArray(data.certifications) ? data.certifications : [];
+  const profProjects = Array.isArray(profile?.projects) ? profile.projects : [];
+  const profExperience = Array.isArray(profile?.experience) ? profile.experience : [];
+
+  // Build a deduped entity index (data entries win over profile fallbacks).
+  const entities = [];
+  const pushEntity = (type, name, obj, source) => {
+    const key = normalizeForMatch(name);
+    if (!key || key.length < 3) return;
+    if (entities.find(e => e.type === type && e.key === key)) {
+      if (source === 'data') {
+        const old = entities.find(e => e.type === type && e.key === key);
+        old.obj = obj;
+        old.source = source;
+      }
+      return;
+    }
+    entities.push({ type, key, core: coreOfName(name), name, obj, source });
+  };
+  projects.forEach(p => pushEntity('project', p.title, p, 'data'));
+  profProjects.forEach(p => pushEntity('project', p.title, p, 'profile'));
+  experience.forEach(e => pushEntity('experience', `${e.role} ${e.company}`, e, 'data'));
+  profExperience.forEach(e => pushEntity('experience', `${e.role} ${e.company}`, e, 'profile'));
+
+  // Special alias: "patient/patent wala work" -> the Patent Office co-inventor entry.
+  const patentExp =
+    entities.find(e => e.type === 'experience' && /(patent|inventor|patented)/.test(e.key)) || null;
+
+  const toCert = new Set();
+  const toExp = new Set();
+  const removeFromProjects = new Set();
+  const ensureInProjects = new Set();
+
+  chunks.forEach(chunk => {
+    const hasClient = /(client|freelanc|dusre ke liye|dusro ke liye|dusre ka|paid|service work|service project|paying|client ke)/.test(chunk);
+    const hasExpHint = /(experience|service)\s+(me|mein|m|ma|ke|seats?|section|ko)\b/.test(chunk);
+    const hasCertHint = /certificat/.test(chunk);
+    const hasProjectsDest = /(projects?)\s+(me|mein|ma|m|ke)\b|\bin\s+projects\b/.test(chunk);
+    const hasReplaceHint = /(ki jagah|ki jaga|replace|hata do|remove)/.test(chunk);
+
+    let localChunk = chunk;
+    if (patentExp && /patient|patent/.test(localChunk) && hasCertHint) {
+      toCert.add(patentExp.key);
+      localChunk = localChunk.replace(/patient|patent/g, ' ');
+    }
+
+    const matched = entities
+      .filter(e => entityMatch(localChunk, e.key, e.core) && !toCert.has(e.key))
+      .filter(e => e.type === 'project' || hasExpHint || hasCertHint);
+
+    if (hasCertHint) {
+      matched.forEach(e => toCert.add(e.key));
+    } else if (hasExpHint) {
+      matched
+        .filter(e => e.type === 'project')
+        .forEach(e => toExp.add(e.key));
+    }
+
+    // "X ki jagah Y" / "replace X with Y" -> drop X, ensure Y in projects
+    if (hasReplaceHint) {
+      let leftPart = '';
+      let rightPart = '';
+      const jagah = localChunk.search(/ki jagah|ki jaga/);
+      if (jagah >= 0) {
+        leftPart = localChunk.slice(0, jagah);
+        rightPart = localChunk.slice(localChunk.search(/jagah|jaga/) + 5);
+      } else {
+        const rIdx = localChunk.indexOf('replace');
+        if (rIdx >= 0) {
+          const withIdx = localChunk.indexOf('with', rIdx);
+          if (withIdx >= 0) {
+            leftPart = localChunk.slice(rIdx + 7, withIdx);
+            rightPart = localChunk.slice(withIdx + 4);
+          }
+        }
+      }
+      const leftMatch = entities.find(e => e.type === 'project' && entityMatch(leftPart, e.key));
+      if (leftMatch) removeFromProjects.add(leftMatch.key);
+      const rightMatch = entities.find(e => e.type === 'project' && entityMatch(rightPart, e.key));
+      if (rightMatch) ensureInProjects.add(rightMatch.key);
+    }
+
+    // "X ko projects me dal" -> ensure X present in projects
+    if (hasProjectsDest) {
+      matched
+        .filter(e => e.type === 'project')
+        .forEach(e => ensureInProjects.add(e.key));
+    }
+
+    // Client classification only when the project stays a project
+    if (hasClient) {
+      matched
+        .filter(e => e.type === 'project' && !toExp.has(e.key) && !toCert.has(e.key))
+        .forEach(e => ensureClient(e));
+    }
+  });
+
+  function ensureClient(entity) {
+    const target =
+      projects.find(p => normalizeForMatch(p.title) === entity.key) || entity.obj;
+    if (target) target.client = true;
+  }
+
+  // Apply: move X to certifications
+  toCert.forEach(key => {
+    const entity = entities.find(e => e.key === key);
+    if (!entity) return;
+    const title = entity.type === 'experience'
+      ? `${entity.obj.role || ''}${entity.obj.bullets && entity.obj.bullets[0] ? ` — ${entity.obj.bullets[0]}` : ''}`.trim()
+      : `${entity.obj.title || ''}${entity.obj.bullets && entity.obj.bullets[0] ? ` — ${entity.obj.bullets[0]}` : ''}`.trim();
+    const issuer = entity.obj.company || entity.obj.issuer || '';
+    if (!certifications.find(c => normalizeForMatch(c.title) === normalizeForMatch(title))) {
+      certifications.push({ title: title.slice(0, 220), issuer });
+    }
+    if (entity.type === 'project') {
+      const idx = projects.findIndex(p => normalizeForMatch(p.title) === key);
+      if (idx >= 0) projects.splice(idx, 1);
+    } else {
+      const idx = experience.findIndex(e => normalizeForMatch(`${e.role} ${e.company}`) === key);
+      if (idx >= 0) experience.splice(idx, 1);
+    }
+  });
+
+  // Apply: move X to experience
+  toExp.forEach(key => {
+    const entity = entities.find(e => e.key === key);
+    if (!entity) return;
+    const src = entity.obj;
+    const existingRole = src.title || src.role;
+    if (!experience.find(e => normalizeForMatch(e.role) === normalizeForMatch(existingRole))) {
+      experience.push({
+        role: existingRole,
+        company: src.company || 'Freelance / Client Project',
+        duration: src.duration || '',
+        location: src.location || '',
+        bullets: Array.isArray(src.bullets) ? src.bullets.slice(0, 3) : []
+      });
+    }
+    const idx = projects.findIndex(p => normalizeForMatch(p.title) === key);
+    if (idx >= 0) projects.splice(idx, 1);
+  });
+
+  // Apply: remove projects
+  removeFromProjects.forEach(key => {
+    const idx = projects.findIndex(p => normalizeForMatch(p.title) === key);
+    if (idx >= 0 && !toExp.has(key) && !toCert.has(key)) projects.splice(idx, 1);
+  });
+
+  // Apply: ensure projects present
+  ensureInProjects.forEach(key => {
+    if (projects.findIndex(p => normalizeForMatch(p.title) === key) >= 0) return;
+    const entity = entities.find(e => e.type === 'project' && e.key === key);
+    if (entity && entity.obj && entity.obj.title) {
+      const p = entity.obj;
+      projects.push({
+        title: p.title,
+        techStack: p.techStack || [],
+        link: p.link || '',
+        client: Boolean(p.client),
+        bullets: p.bullets || []
+      });
+    }
+  });
+
+  return data;
+}
+
 /**
  * Step 1: Use LLM to structure all user data into high-converting ATS JSON
  */
@@ -132,7 +343,8 @@ RETURN ONLY A VALID JSON OBJECT (no markdown around it, no backticks, no comment
     throw new Error('Failed to parse structured resume data from AI');
   }
 
-  const data = JSON.parse(jsonMatch[0]);
+  let data = JSON.parse(jsonMatch[0]);
+  data = applyResumeNotesDirectives(data, profile, customInstructions);
   return { data, isTargeted };
 }
 
@@ -327,7 +539,7 @@ function buildDirectPdfBuffer(resumeData) {
         doc.font(linkedFont).fontSize(fontSize);
         const sepLen = doc.widthOfString(sep);
         const segs = links.map(l => ({
-          text: `${normalizeLinkLabel(l.label, l.url)}: ${shortLinkUrl(l.url)}`,
+          text: `${normalizeLinkLabel(l.label, l.url)}`,
           url: String(l.url || '').trim()
         }));
 
@@ -539,5 +751,6 @@ function buildDirectPdfBuffer(resumeData) {
 
 module.exports = {
   generateStructuredResumeData,
-  buildDirectPdfBuffer
+  buildDirectPdfBuffer,
+  applyResumeNotesDirectives
 };
