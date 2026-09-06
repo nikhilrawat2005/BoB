@@ -217,6 +217,67 @@ function applyResumeNotesDirectives(data, profile, notes) {
   return data;
 }
 
+// ---------------------------------------------------------------------------
+// Deterministic Showcase Polish — self-audit backstop
+// Guarantees "SELF-AUDIT & SHOWCASE" standards even if the LLM misses them:
+//   1. Weak/low competitive stats (a bare small LeetCode count) are re-framed
+//      into DSA topic-coverage + consistency language using ONLY the real count.
+//   2. Leaked ATS placeholder metrics ("X%", "Y users", "Lighthouse score of X")
+//      are stripped so a fabricated number NEVER reaches the final resume.
+// ---------------------------------------------------------------------------
+const PLACEHOLDER_RE = /(?:^|\s)(?:[XxYyZz][\s\-]?%|by an estimated [Xx]%|[XxYyZz](?:\s|-)?(?:users|students|alerts|hours?|days?|minutes?|pages?|points?|score|wins?|concurrent|active|daily|customers|records?|requests?|opportunities?)|lighthouse (?:score|scores?) of [XxYyZz])/i;
+
+function sanitizeBullet(b) {
+  const kept = String(b || '').split(',').filter(part => !PLACEHOLDER_RE.test(part));
+  let out = kept.join(',').replace(/\s{2,}/g, ' ').trim();
+  out = out.replace(/[,;\-]+$/, '').trim();
+  return out;
+}
+
+function applyShowcasePolish(data) {
+  if (!data || typeof data !== 'object') return data;
+
+  ['projects', 'experience'].forEach(sec => {
+    if (!Array.isArray(data[sec])) return;
+    data[sec].forEach(entry => {
+      if (entry && Array.isArray(entry.bullets)) {
+        entry.bullets = entry.bullets.map(sanitizeBullet).filter(Boolean);
+      }
+    });
+  });
+
+  if (Array.isArray(data.certifications)) {
+    data.certifications = data.certifications.map(c => {
+      if (c && c.title) {
+        const t = sanitizeBullet(c.title);
+        if (t) c.title = t;
+      }
+      return c;
+    }).filter(c => c && c.title);
+  }
+
+  if (Array.isArray(data.codingStats)) {
+    const DSA_COVERAGE = 'Building core DSA fundamentals across arrays, strings, hashing, recursion, two pointers and linked lists';
+    data.codingStats = data.codingStats.map(s => {
+      const platform = String(s.platform || '').toLowerCase();
+      const hl = String(s.highlight || '');
+      if (platform.includes('leetcode')) {
+        const m = hl.match(/(\d+)\s*(?:solved|problems|solutions)/i);
+        const solved = m ? parseInt(m[1], 10) : 0;
+        const range = hl.match(/\(\d+\s+Easy,\s*\d+\s+Medium\)/i);
+        const weak = solved > 0 && solved < 60;
+        const reframed = /array|string|hash|recursion|pointer|linked|dsa|topic|fundamental|coverage|foundation/i.test(hl);
+        if (weak && !reframed) {
+          s.highlight = `${DSA_COVERAGE} — ${solved} LeetCode problems solved${range ? ` (${range[0]})` : ''} (steady, consistent practice)`;
+        }
+      }
+      return s;
+    });
+  }
+
+  return data;
+}
+
 /**
  * Step 1: Use LLM to structure all user data into high-converting ATS JSON
  */
@@ -259,6 +320,11 @@ HOW TO APPLY THEM:
      • AWS: "Completed AWS Academy Graduate — Cloud Foundations, mastering cloud infrastructure, IAM security, and serverless compute" (Issuer: Amazon Web Services)
    - Respect any user request above to also move/duplicate a project into certifications.
 5. NO INVENTED CONTACT DETAILS: Use verified email, phone (+91-8700113731), location (Ghaziabad, India).
+6. SELF-AUDIT & SHOWCASE (MANDATORY FINAL PASS — fix the PRESENTATION, never the facts):
+   - WEAK COMPETITIVE STATS: A bare low numeric rank / solved-count is NOT recruiter-grade. NEVER surface it as a plain low number. Re-frame it with the candidate's REAL data into coverage & consistency language. Example: LeetCode "31 Solved (25 Easy, 6 Medium)" → "Built core DSA fundamentals across arrays, strings, hashing, recursion and two-pointer patterns with 31 LeetCode problems solved (25 Easy, 6 Medium)". Never increase or hide the actual count — only re-frame HOW it is presented. Same idea for any platform where the raw number is unimpressive (consistency, coverage, topics, effort).
+   - METRIC-READY BULLETS: Shape every bullet as ACTIVE VERB + TASK + OUTCOME using ONLY real numbers that actually exist in the candidate data (e.g. 210+ static pages, 36-hr hackathon, 31 problems, 1176 rating, 84.5% Class X, 25 Easy / 6 Medium).
+   - NEVER INVENT METRICS: Fake numbers AND X/Y/Z placeholders are FORBIDDEN in the final JSON (no "X% reduction", "Y users", "Z concurrent", "Lighthouse score of X", "by an estimated X%"). If a real metric is NOT available, do NOT add a number at all — close the bullet with a concrete outcome phrase instead (e.g. "enabling fast, searchable browsing across every destination page").
+   - WEAK VERB UPGRADE: Upgrade passive/weak verbs (Contributed to, Focused on, Assisted, Participated in, Was responsible for) to strong active verbs (Architected, Engineered, Implemented, Designed, Spearheaded, Automated) with the same factual meaning and the same real numbers only.
 
 ${isTargeted ? `TARGET JOB VACANCY / JD:
 """
@@ -313,8 +379,8 @@ RETURN ONLY A VALID JSON OBJECT (no markdown around it, no backticks, no comment
     }
   ],
   "codingStats": [
-    { "platform": "LeetCode", "highlight": "31 Solved (25 Easy, 6 Medium)" },
-    { "platform": "CodeChef", "highlight": "1176 Rating (Div 4 Contender)" }
+    { "platform": "LeetCode", "highlight": "Built core DSA fundamentals (arrays, strings, hashing, recursion, two pointers) — 31 problems solved (25 Easy, 6 Medium)" },
+    { "platform": "CodeChef", "highlight": "Active competitive programmer — CodeChef Rating 1176 (Div 4 Contender)" }
   ],
   "education": [
     {
@@ -345,6 +411,7 @@ RETURN ONLY A VALID JSON OBJECT (no markdown around it, no backticks, no comment
 
   let data = JSON.parse(jsonMatch[0]);
   data = applyResumeNotesDirectives(data, profile, customInstructions);
+  data = applyShowcasePolish(data);
   return { data, isTargeted };
 }
 
@@ -752,5 +819,6 @@ function buildDirectPdfBuffer(resumeData) {
 module.exports = {
   generateStructuredResumeData,
   buildDirectPdfBuffer,
-  applyResumeNotesDirectives
+  applyResumeNotesDirectives,
+  applyShowcasePolish
 };
