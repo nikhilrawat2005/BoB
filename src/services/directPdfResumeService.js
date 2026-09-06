@@ -140,17 +140,37 @@ RETURN ONLY A VALID JSON OBJECT (no markdown around it, no backticks, no comment
  * Step 2: Build ATS Jake's / Harvard Standard PDF Buffer using PDFKit
  */
 function buildDirectPdfBuffer(resumeData) {
-  return new Promise((resolve, reject) => {
+  const layoutFor = (compact) => (compact ? {
+    // Compact single-page layout (denser, still clean & recruiter-readable)
+    margins: { top: 22, bottom: 22, left: 30, right: 30 },
+    name: 17, title: 9.5, contact: 8.5,
+    link: 8, linkLineH: 11, section: 10, rule: 0.7,
+    summary: 8.8, skillCat: 8.6, skillBody: 8.6, stats: 8.6,
+    tLeft: 8.8, tRight: 8, tech: 8, company: 8, bullet: 8.2, cert: 8.2,
+    endYStep: 11
+  } : {
+    // Standard comfortable layout
+    margins: { top: 36, bottom: 36, left: 40, right: 40 },
+    name: 20, title: 10.5, contact: 9,
+    link: 8.5, linkLineH: 12, section: 11, rule: 0.75,
+    summary: 9.5, skillCat: 9, skillBody: 9, stats: 9,
+    tLeft: 9.5, tRight: 8.5, tech: 8.5, company: 8.5, bullet: 8.8, cert: 8.8,
+    endYStep: 12
+  });
+
+  const build = (compact) => new Promise((resolve, reject) => {
     try {
+      const L = layoutFor(compact);
       const doc = new PDFDocument({
         size: 'A4',
-        margins: { top: 36, bottom: 36, left: 40, right: 40 },
+        margins: L.margins,
         bufferPages: true
       });
 
+      let totalPages = 1;
       const buffers = [];
       doc.on('data', chunk => buffers.push(chunk));
-      doc.on('end', () => resolve(Buffer.concat(buffers)));
+      doc.on('end', () => resolve({ buffer: Buffer.concat(buffers), pages: totalPages }));
       doc.on('error', err => reject(err));
 
       const { basics, summary, skills, projects, experience, codingStats, education, certifications } = resumeData;
@@ -193,13 +213,13 @@ function buildDirectPdfBuffer(resumeData) {
         ensureSpace(34);
         doc.moveDown(0.5);
         doc.font('Helvetica-Bold')
-           .fontSize(11)
+           .fontSize(L.section)
            .fillColor(primaryColor)
            .text(title.toUpperCase(), { characterSpacing: 1 });
 
         const y = doc.y + 2;
         doc.strokeColor(ruleColor)
-           .lineWidth(0.75)
+           .lineWidth(L.rule)
            .moveTo(doc.page.margins.left, y)
            .lineTo(doc.page.margins.left + pageWidth, y)
            .stroke();
@@ -215,24 +235,24 @@ function buildDirectPdfBuffer(resumeData) {
         let rightText = '';
         let rightWidth = 0;
         if (right) {
-          rightText = fitTextWidth(right, 'Helvetica-Oblique', 8.5, Math.min(210, pageWidth * 0.4));
+          rightText = fitTextWidth(right, 'Helvetica-Oblique', L.tRight, Math.min(210, pageWidth * 0.4));
           rightWidth = doc.widthOfString(rightText);
         }
-        const gap = 10;
+        const gap = 8;
         const leftWidth = Math.max(90, pageWidth - rightWidth - gap);
 
-        let endY = y + 12;
+        let endY = y + L.endYStep;
         if (left) {
-          doc.font('Helvetica-Bold').fontSize(9.5).fillColor(primaryColor);
+          doc.font('Helvetica-Bold').fontSize(L.tLeft).fillColor(primaryColor);
           doc.text(left, doc.page.margins.left, y, { width: leftWidth, lineGap: 1 });
           endY = doc.y;
         }
         if (rightText) {
-          doc.font('Helvetica-Oblique').fontSize(8.5).fillColor(rightColor);
+          doc.font('Helvetica-Oblique').fontSize(L.tRight).fillColor(rightColor);
           const rightX = doc.page.margins.left + leftWidth + gap;
           doc.text(rightText, rightX, y, { lineBreak: false });
           if (rightUrl) {
-            doc.strokeColor(accentColor).lineWidth(0.5).moveTo(rightX, y + 9.3).lineTo(rightX + rightWidth, y + 9.3).stroke();
+            doc.strokeColor(accentColor).lineWidth(0.5).moveTo(rightX, y + L.tRight + 0.8).lineTo(rightX + rightWidth, y + L.tRight + 0.8).stroke();
             doc.link(rightX, y, rightWidth, 11, rightUrl);
           }
           endY = Math.max(endY, doc.y);
@@ -246,7 +266,7 @@ function buildDirectPdfBuffer(resumeData) {
         const b = String(text).trim().replace(/\.+$/, '');
         ensureSpace(14);
         doc.x = doc.page.margins.left;
-        doc.font('Helvetica').fontSize(8.8).fillColor(secondaryColor);
+        doc.font('Helvetica').fontSize(L.bullet).fillColor(secondaryColor);
         doc.text(`•  ${b}`, { indent: 10, lineGap: 1.2 });
       }
 
@@ -300,9 +320,9 @@ function buildDirectPdfBuffer(resumeData) {
       // --- Helper: Centered, wrapping row of clickable link segments ---
       function drawCenteredLinks(links) {
         const linkedFont = 'Helvetica';
-        const fontSize = 8.5;
+        const fontSize = L.link;
         const sep = '   |   ';
-        const lineH = 12;
+        const lineH = L.linkLineH;
 
         doc.font(linkedFont).fontSize(fontSize);
         const sepLen = doc.widthOfString(sep);
@@ -343,7 +363,7 @@ function buildDirectPdfBuffer(resumeData) {
             const w = doc.widthOfString(s.text);
             doc.font(linkedFont).fontSize(fontSize).fillColor(accentColor);
             doc.text(s.text, x, y, { lineBreak: false });
-            doc.strokeColor(accentColor).lineWidth(0.5).moveTo(x, y + 9.3).lineTo(x + w, y + 9.3).stroke();
+            doc.strokeColor(accentColor).lineWidth(0.5).moveTo(x, y + fontSize + 0.8).lineTo(x + w, y + fontSize + 0.8).stroke();
             doc.link(x, y, w, 11, s.url);
             x += w;
           });
@@ -356,14 +376,14 @@ function buildDirectPdfBuffer(resumeData) {
       const name = basics?.name || 'Full Name';
       ensureSpace(60);
       doc.font('Helvetica-Bold')
-         .fontSize(20)
+         .fontSize(L.name)
          .fillColor(primaryColor)
          .text(name, { align: 'center' });
 
       if (basics?.title) {
         doc.moveDown(0.15);
         doc.font('Helvetica')
-           .fontSize(10.5)
+           .fontSize(L.title)
            .fillColor(secondaryColor)
            .text(basics.title, { align: 'center' });
       }
@@ -377,7 +397,7 @@ function buildDirectPdfBuffer(resumeData) {
       if (contactItems.length > 0) {
         doc.moveDown(0.15);
         doc.font('Helvetica')
-           .fontSize(9)
+           .fontSize(L.contact)
            .fillColor(secondaryColor)
            .text(contactItems.join('  •  '), { align: 'center' });
       }
@@ -394,7 +414,7 @@ function buildDirectPdfBuffer(resumeData) {
         drawSectionHeader('Summary');
         ensureSpace(45);
         doc.font('Helvetica')
-           .fontSize(9.5)
+           .fontSize(L.summary)
            .fillColor(secondaryColor)
            .text(summary.trim(), { align: 'justify', lineGap: 1.5 });
       }
@@ -406,7 +426,7 @@ function buildDirectPdfBuffer(resumeData) {
           if (!Array.isArray(items) || items.length === 0) continue;
           ensureSpace(14);
           doc.font('Helvetica-Bold')
-             .fontSize(9)
+             .fontSize(L.skillCat)
              .fillColor(primaryColor)
              .text(`${category}: `, { continued: true });
           doc.font('Helvetica')
@@ -422,7 +442,7 @@ function buildDirectPdfBuffer(resumeData) {
         const statsLine = codingStats.map(s => `${s.platform}: ${s.highlight}`).join('   •   ');
         ensureSpace(20);
         doc.font('Helvetica')
-           .fontSize(9)
+           .fontSize(L.stats)
            .fillColor(secondaryColor)
            .text(statsLine, { lineGap: 1 });
       }
@@ -441,7 +461,7 @@ function buildDirectPdfBuffer(resumeData) {
 
           if (p.techStack && p.techStack.length > 0) {
             doc.font('Helvetica-Oblique')
-               .fontSize(8.5)
+               .fontSize(L.tech)
                .fillColor(secondaryColor)
                .text(`| ${p.techStack.join(', ')}`, { indent: 2, lineGap: 1 });
             doc.moveDown(0.1);
@@ -461,7 +481,7 @@ function buildDirectPdfBuffer(resumeData) {
 
           if (exp.company) {
             doc.font('Helvetica')
-               .fontSize(8.5)
+               .fontSize(L.company)
                .fillColor(secondaryColor)
                .text(exp.company, { lineGap: 1 });
             doc.moveDown(0.1);
@@ -481,7 +501,7 @@ function buildDirectPdfBuffer(resumeData) {
 
           if (edu.institution) {
             doc.font('Helvetica')
-               .fontSize(8.5)
+               .fontSize(L.company)
                .fillColor(secondaryColor)
                .text(edu.institution, { lineGap: 1 });
           }
@@ -494,16 +514,26 @@ function buildDirectPdfBuffer(resumeData) {
         certifications.forEach(c => {
           ensureSpace(13);
           doc.font('Helvetica')
-             .fontSize(8.8)
+             .fontSize(L.cert)
              .fillColor(secondaryColor)
              .text(`•  ${c.title}${c.issuer ? ` (${c.issuer})` : ''}`, { indent: 10, lineGap: 1 });
         });
       }
 
+      const range = doc.bufferedPageRange();
+      if (range && range.count) totalPages = range.count;
       doc.end();
     } catch (err) {
       reject(err);
     }
+  });
+
+  // Best-effort compact single-page: if the standard layout overflows to 2+
+  // pages, rebuild denser so everything packs into one page.
+  return build(false).then(result => {
+    if (result.pages <= 1) return result.buffer;
+    console.log(`[DirectPdfResume] ${result.pages} pages → rebuilding compact single-page layout`);
+    return build(true).then(r => r.buffer);
   });
 }
 
