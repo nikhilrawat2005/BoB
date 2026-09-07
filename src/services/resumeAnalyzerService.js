@@ -9,6 +9,15 @@ const PDFDocument = require('pdfkit');
 
 /**
  * Deep audit of resume text against industry ATS benchmarks (Hiration / Google standard)
+ *
+ * FIX HISTORY:
+ * - Bug #1: Prompt schema had hardcoded literal numbers ("atsScore": 72, breakdown: 65/88/78/95/75).
+ *   LLMs treat numbers in the "schema" as the desired output and copy them verbatim instead of
+ *   computing real values. Fixed by using descriptive instruction strings as placeholder values.
+ * - Bug #2: strengths/criticalNegatives had "(e.g. Published patent...)" text. LLMs sometimes
+ *   echo these example strings back in the output. Fixed by using instruction-style placeholder text.
+ * - Bug #3: max_tokens defaulted to 2000 which truncated the full JSON response mid-way through
+ *   bulletImprovements/actionPlan causing parse failures. Fixed by passing max_tokens: 4000.
  */
 async function auditResume({ resumeText, targetJobDescription = '' }) {
   if (!resumeText || resumeText.trim().length < 50) {
@@ -36,54 +45,73 @@ HIRATION AUDITING BENCHMARKS:
 4. Certifications: Active accolades with context, not just passive document titles.
 5. Overall ATS Score: 70-75% is standard for unquantified bullets; 80-88% for solid metrics; 90%+ ONLY if nearly every bullet has quantified XYZ outcomes.
 
-RETURN ONLY A VALID JSON OBJECT (no markdown around it, no backticks, no comments, raw JSON only) matching this exact schema:
+CRITICAL INSTRUCTION: Analyze the ACTUAL resume text above and compute REAL scores. Do NOT use example numbers. Every field must reflect your honest evaluation of THIS specific resume.
+
+RETURN ONLY A VALID JSON OBJECT (no markdown, no backticks, no comments, raw JSON only). All numeric values must be computed from the actual resume content:
 {
-  "atsScore": 72,
-  "verdict": "Tier-1 Ready | Strong Contender | Needs Polish | High Risk",
+  "atsScore": <compute the real overall ATS score for THIS resume — integer 0-100>,
+  "verdict": "<pick exactly one based on the actual score: Tier-1 Ready | Strong Contender | Needs Polish | High Risk>",
   "breakdown": {
-    "impactAndMetrics": 65,
-    "skillsRelevance": 88,
-    "actionVerbs": 78,
-    "formattingAndClarity": 95,
-    "experienceDepth": 75
+    "impactAndMetrics": <integer 0-100: rate how well THIS resume quantifies achievements with numbers, percentages, scale>,
+    "skillsRelevance": <integer 0-100: rate how relevant and comprehensive the tech stack is in THIS resume>,
+    "actionVerbs": <integer 0-100: rate the strength of action verbs in THIS resume's bullet points>,
+    "formattingAndClarity": <integer 0-100: rate the ATS-friendliness and clarity of THIS resume's format>,
+    "experienceDepth": <integer 0-100: rate the complexity, leadership, and impact depth of THIS resume's projects>
   },
-  "executiveSummary": "2-3 sentences summarizing overall impression and competitiveness for top tech roles.",
+  "executiveSummary": "<2-3 sentences describing THIS specific candidate — mention their actual projects, stack, and competitive standing>",
   "strengths": [
-    "Identified strength 1 (e.g. Published patent or competitive programming highlights)",
-    "Identified strength 2"
+    "<actual specific strength found in THIS resume — name the real project or skill>",
+    "<another genuine strength from THIS resume>",
+    "<third real strength if present>"
   ],
   "criticalNegatives": [
-    "Identified weakness or red flag 1 (e.g. Missing quantifiable metrics in project bullets)",
-    "Identified weakness or red flag 2"
+    "<actual specific weakness or red flag in THIS resume — name the real missing element or cite a problematic bullet>",
+    "<another actual weakness from THIS resume>",
+    "<third real weakness if present>"
   ],
   "atsKeywordsFound": [
-    "React", "Node.js", "Firebase", "Python"
+    "<technology or keyword that literally appears in this resume>"
   ],
   "missingRecommendedKeywords": [
-    "Docker", "CI/CD", "Unit Testing", "System Architecture"
+    "<important keyword NOT found in this resume but expected for the target role>"
   ],
   "bulletImprovements": [
     {
-      "original": "Worked on backend of the application and made APIs.",
-      "improved": "Architected RESTful microservices in Node.js, reducing API response latency by 35% across 10k daily requests"
+      "original": "<copy an actual bullet from this resume verbatim>",
+      "improved": "<rewrite using Google XYZ formula: Accomplished [X] as measured by [Y] by doing [Z] — include real metrics>"
+    },
+    {
+      "original": "<another actual bullet from this resume verbatim>",
+      "improved": "<XYZ formula rewrite with specific quantified impact>"
+    },
+    {
+      "original": "<third actual bullet from this resume verbatim>",
+      "improved": "<XYZ formula rewrite with specific quantified impact>"
     }
   ],
   "actionPlan": [
-    "Step 1: Quantify the outcomes in your secondary project...",
-    "Step 2: Add specific unit testing / CI-CD keywords in the skills section..."
+    "<Step 1: specific actionable improvement tailored to THIS candidate's actual resume gaps>",
+    "<Step 2: specific action based on THIS resume's actual weaknesses>",
+    "<Step 3: specific action based on THIS resume's actual weaknesses>",
+    "<Step 4: specific action based on THIS resume's actual weaknesses>"
   ]
 }`;
 
   const response = await callLLM({
     messages: [
-      { role: 'system', content: 'You are an expert ATS resume evaluator who returns strict valid JSON only.' },
+      { role: 'system', content: 'You are an expert ATS resume evaluator. Analyze the actual resume content provided and return a strict valid JSON object only. Compute all scores from the real resume — do not echo example numbers.' },
       { role: 'user', content: prompt }
     ],
-    temperature: 0.1
+    temperature: 0.1,
+    max_tokens: 4000
   });
 
   const rawText = (response && response.text) ? response.text : String(response);
-  const jsonMatch = rawText.match(/\{[\s\S]*\}/);
+
+  // Strip markdown code fences if the model wraps the JSON despite instructions
+  const stripped = rawText.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '').trim();
+
+  const jsonMatch = stripped.match(/\{[\s\S]*\}/);
   if (!jsonMatch) {
     throw new Error('Failed to parse ATS analysis from AI');
   }
