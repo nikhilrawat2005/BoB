@@ -18,6 +18,9 @@ const PDFDocument = require('pdfkit');
  *   echo these example strings back in the output. Fixed by using instruction-style placeholder text.
  * - Bug #3: max_tokens defaulted to 2000 which truncated the full JSON response mid-way through
  *   bulletImprovements/actionPlan causing parse failures. Fixed by passing max_tokens: 4000.
+ * - Bug #4: LLM was hallucinating projects ("Market Kingdom"), keywords (HTML5, NumPy) and bullets
+ *   that don't exist in the resume. Fixed by adding a strict grounding rule in both the system
+ *   prompt and user prompt.
  */
 async function auditResume({ resumeText, targetJobDescription = '' }) {
   if (!resumeText || resumeText.trim().length < 50) {
@@ -26,6 +29,13 @@ async function auditResume({ resumeText, targetJobDescription = '' }) {
 
   const prompt = `You are a Principal Tech Recruiter and Merciless Fortune 500 ATS Auditor (following strict Hiration & Google XYZ standards).
 Perform a deep, strict, zero-leniency review. Do NOT give generous scores. If bullets lack numbers, if certifications are passive without context, or if there are periods or vague verbs, score ruthlessly like Hiration.
+
+⚠️ STRICT GROUNDING RULE — ZERO HALLUCINATION:
+- Every project, keyword, bullet, and fact you reference MUST literally exist in the resume text below.
+- Do NOT mention any project that is not named in the resume.
+- Do NOT list any keyword in "atsKeywordsFound" that does not literally appear (as a word or phrase) in the resume text.
+- In "bulletImprovements", the "original" field MUST be copied verbatim from an actual bullet in the resume. Do NOT invent bullets.
+- If you are uncertain whether something exists in the resume, do NOT include it.
 
 RESUME CONTENT:
 """
@@ -45,7 +55,7 @@ HIRATION AUDITING BENCHMARKS:
 4. Certifications: Active accolades with context, not just passive document titles.
 5. Overall ATS Score: 70-75% is standard for unquantified bullets; 80-88% for solid metrics; 90%+ ONLY if nearly every bullet has quantified XYZ outcomes.
 
-CRITICAL INSTRUCTION: Analyze the ACTUAL resume text above and compute REAL scores. Do NOT use example numbers. Every field must reflect your honest evaluation of THIS specific resume.
+CRITICAL INSTRUCTION: Analyze the ACTUAL resume text above and compute REAL scores. Do NOT use example numbers. Every field must reflect your honest evaluation of THIS specific resume. Re-read the STRICT GROUNDING RULE above before writing atsKeywordsFound and bulletImprovements.
 
 RETURN ONLY A VALID JSON OBJECT (no markdown, no backticks, no comments, raw JSON only). All numeric values must be computed from the actual resume content:
 {
@@ -58,34 +68,34 @@ RETURN ONLY A VALID JSON OBJECT (no markdown, no backticks, no comments, raw JSO
     "formattingAndClarity": <integer 0-100: rate the ATS-friendliness and clarity of THIS resume's format>,
     "experienceDepth": <integer 0-100: rate the complexity, leadership, and impact depth of THIS resume's projects>
   },
-  "executiveSummary": "<2-3 sentences describing THIS specific candidate — mention their actual projects, stack, and competitive standing>",
+  "executiveSummary": "<2-3 sentences describing THIS specific candidate — mention their actual projects (only ones in resume), stack, and competitive standing>",
   "strengths": [
-    "<actual specific strength found in THIS resume — name the real project or skill>",
+    "<actual specific strength found in THIS resume — name the real project or skill that exists in the resume>",
     "<another genuine strength from THIS resume>",
     "<third real strength if present>"
   ],
   "criticalNegatives": [
-    "<actual specific weakness or red flag in THIS resume — name the real missing element or cite a problematic bullet>",
+    "<actual specific weakness or red flag in THIS resume — name the real missing element or cite a real problematic bullet>",
     "<another actual weakness from THIS resume>",
     "<third real weakness if present>"
   ],
   "atsKeywordsFound": [
-    "<technology or keyword that literally appears in this resume>"
+    "<technology or keyword that LITERALLY appears as text in this resume — verify before adding>"
   ],
   "missingRecommendedKeywords": [
     "<important keyword NOT found in this resume but expected for the target role>"
   ],
   "bulletImprovements": [
     {
-      "original": "<copy an actual bullet from this resume verbatim>",
+      "original": "<copy an actual bullet from this resume VERBATIM — must exist in the resume above>",
       "improved": "<rewrite using Google XYZ formula: Accomplished [X] as measured by [Y] by doing [Z] — include real metrics>"
     },
     {
-      "original": "<another actual bullet from this resume verbatim>",
+      "original": "<another actual bullet from this resume VERBATIM>",
       "improved": "<XYZ formula rewrite with specific quantified impact>"
     },
     {
-      "original": "<third actual bullet from this resume verbatim>",
+      "original": "<third actual bullet from this resume VERBATIM>",
       "improved": "<XYZ formula rewrite with specific quantified impact>"
     }
   ],
@@ -99,7 +109,10 @@ RETURN ONLY A VALID JSON OBJECT (no markdown, no backticks, no comments, raw JSO
 
   const response = await callLLM({
     messages: [
-      { role: 'system', content: 'You are an expert ATS resume evaluator. Analyze the actual resume content provided and return a strict valid JSON object only. Compute all scores from the real resume — do not echo example numbers.' },
+      {
+        role: 'system',
+        content: 'You are an expert ATS resume evaluator. STRICT RULE: Only reference projects, keywords, and bullets that LITERALLY EXIST in the resume provided. Never hallucinate projects or keywords. Compute all scores from the real resume — do not echo example numbers. Return strict valid JSON only.'
+      },
       { role: 'user', content: prompt }
     ],
     temperature: 0.1,

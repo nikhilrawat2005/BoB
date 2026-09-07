@@ -278,6 +278,243 @@ function applyShowcasePolish(data) {
   return data;
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// SELF-AUDIT REFINEMENT LOOP
+// Bob runs a real ATS audit on the resume it just generated, detects
+// CREATOR-SIDE issues (things Bob did wrong in the output, not the candidate's
+// raw data), sends targeted fix feedback back to the LLM, and loops until
+// the quality threshold is met or MAX_ITERATIONS is reached.
+//
+// Creator-side issues detected:
+//   1. Bullets ending with '.'              (ATS rule violation — Bob's job)
+//   2. X/Y/Z placeholder metrics left in   (NEVER INVENT METRICS rule broken)
+//   3. Weak/passive action verbs remaining  (Focused on, Contributed to, etc.)
+//   4. impactAndMetrics score < 55          (Bob needs to use real numbers better)
+//   5. Duplicate content (same text across  (Bob's structural problem)
+//      projects / certifications)
+// ─────────────────────────────────────────────────────────────────────────────
+const SELF_AUDIT_MAX_ITERATIONS = 3;
+const SELF_AUDIT_PASS_SCORE     = 78;   // atsScore threshold to stop looping
+const WEAK_VERB_RE = /^(Focused on|Contributed to|Assisted|Participated in|Was responsible for|Helped|Worked on|Supported|Involved in)/i;
+const PLACEHOLDER_METRIC_RE     = /\b[XxYyZz][0-9]*%|\bX%|\bY%|\bZ%|by [XxYy]%|by an estimated [Xx]%|\b[XxYyZz] users|\b[XxYyZz] students|\b[XxYyZz] concurrent|\bLighthouse score of [XxYyZz]/i;
+
+/**
+ * Convert a structured resume data object into a flat readable text
+ * that the ATS auditor can score.
+ */
+function resumeDataToText(data) {
+  const lines = [];
+  if (data.basics) {
+    lines.push(`${data.basics.name || ''} — ${data.basics.title || ''}`);
+    lines.push(`${data.basics.email || ''} | ${data.basics.phone || ''} | ${data.basics.location || ''}`);
+  }
+  if (data.summary) lines.push(`\nSUMMARY\n${data.summary}`);
+  if (data.skills) {
+    lines.push('\nSKILLS');
+    for (const [cat, vals] of Object.entries(data.skills)) {
+      lines.push(`${cat}: ${Array.isArray(vals) ? vals.join(', ') : vals}`);
+    }
+  }
+  if (Array.isArray(data.projects)) {
+    lines.push('\nPROJECTS');
+    data.projects.forEach(p => {
+      lines.push(`${p.title}${p.link ? ` | ${p.link}` : ''}`);
+      if (p.techStack) lines.push(`Stack: ${p.techStack.join(', ')}`);
+      (p.bullets || []).forEach(b => lines.push(`• ${b}`));
+    });
+  }
+  if (Array.isArray(data.experience) && data.experience.length > 0) {
+    lines.push('\nEXPERIENCE');
+    data.experience.forEach(e => {
+      lines.push(`${e.role} — ${e.company} (${e.duration || ''})`);
+      (e.bullets || []).forEach(b => lines.push(`• ${b}`));
+    });
+  }
+  if (Array.isArray(data.codingStats)) {
+    lines.push('\nCOMPETITIVE PROGRAMMING');
+    data.codingStats.forEach(s => lines.push(`${s.platform}: ${s.highlight}`));
+  }
+  if (Array.isArray(data.education)) {
+    lines.push('\nEDUCATION');
+    data.education.forEach(e => lines.push(`${e.degree} — ${e.institution} (${e.duration || ''}) ${e.score || ''}`));
+  }
+  if (Array.isArray(data.certifications)) {
+    lines.push('\nCERTIFICATIONS');
+    data.certifications.forEach(c => lines.push(`• ${c.title}${c.issuer ? ` — ${c.issuer}` : ''}`));
+  }
+  return lines.join('\n');
+}
+
+/**
+ * Collect all creator-side issues from the resume data (deterministic checks)
+ * and from the ATS audit result.
+ * Returns an array of specific issue strings, or [] if clean.
+ */
+function detectCreatorIssues(data, auditResult) {
+  const issues = [];
+
+  // 1. Bullets ending with period
+  const sectionsWithBullets = [
+    ...(data.projects || []),
+    ...(data.experience || [])
+  ];
+  const periodBullets = [];
+  sectionsWithBullets.forEach(entry => {
+    (entry.bullets || []).forEach(b => {
+      if (/\.\s*$/.test(String(b))) periodBullets.push(b.slice(0, 60));
+    });
+  });
+  if (periodBullets.length > 0) {
+    issues.push(`TRAILING PERIODS: ${periodBullets.length} bullet(s) still end with a period — remove all trailing '.' from bullets. Examples: "${periodBullets.slice(0,2).join('", "')}"`);
+  }
+
+  // 2. X/Y/Z placeholder metrics
+  const placeholderBullets = [];
+  sectionsWithBullets.forEach(entry => {
+    (entry.bullets || []).forEach(b => {
+      if (PLACEHOLDER_METRIC_RE.test(String(b))) placeholderBullets.push(b.slice(0, 80));
+    });
+  });
+  if (placeholderBullets.length > 0) {
+    issues.push(`PLACEHOLDER METRICS: ${placeholderBullets.length} bullet(s) contain forbidden X/Y/Z placeholders — replace with a real concrete outcome phrase or remove the metric entirely. Examples: "${placeholderBullets.slice(0,2).join('", "')}"`);
+  }
+
+  // 3. Weak / passive action verbs
+  const weakVerbBullets = [];
+  sectionsWithBullets.forEach(entry => {
+    (entry.bullets || []).forEach(b => {
+      if (WEAK_VERB_RE.test(String(b).trim())) weakVerbBullets.push(b.slice(0, 80));
+    });
+  });
+  if (weakVerbBullets.length > 0) {
+    issues.push(`WEAK VERBS: ${weakVerbBullets.length} bullet(s) start with passive/weak verbs — upgrade to strong action verbs (Architected, Engineered, Implemented, Spearheaded, Automated, Optimized). Examples: "${weakVerbBullets.slice(0,2).join('", "')}"`);
+  }
+
+  // 4. Low impactAndMetrics from audit
+  const impact = auditResult?.breakdown?.impactAndMetrics ?? 100;
+  if (impact < 55) {
+    issues.push(`LOW IMPACT SCORE (${impact}/100): Most bullets lack quantified outcomes. Use ONLY real numbers from the candidate profile (e.g. 210+ pages, 36-hr hackathon, 128-dimensional encoding, 1176 rating). Do NOT invent numbers — use concrete outcome phrases where no real number exists.`);
+  }
+
+  // 5. Duplicate content between projects and certifications
+  const projectTitles = (data.projects || []).map(p => (p.title || '').toLowerCase().trim());
+  const certTitles = (data.certifications || []).map(c => (c.title || '').toLowerCase().trim());
+  const duplicates = certTitles.filter(ct => projectTitles.some(pt => ct.includes(pt.split(' ')[0]) && pt.length > 4));
+  if (duplicates.length > 0) {
+    issues.push(`DUPLICATE CONTENT: Certifications section repeats project descriptions ("${duplicates.slice(0,2).join('", "')}"). Certifications should only list awards, licenses, and achievements — not project summaries.`);
+  }
+
+  return issues;
+}
+
+/**
+ * Run the self-audit loop: audit → detect creator issues → refine → repeat.
+ */
+async function selfAuditAndRefine(data, profile, customInstructions, isTargeted, jobDescription) {
+  const { auditResume } = require('./resumeAnalyzerService');
+
+  for (let iteration = 1; iteration <= SELF_AUDIT_MAX_ITERATIONS; iteration++) {
+    // Convert current resume to auditable text
+    const resumeText = resumeDataToText(data);
+
+    // Run the real ATS audit on Bob's own output
+    let auditResult;
+    try {
+      auditResult = await auditResume({ resumeText, targetJobDescription: jobDescription || '' });
+    } catch (auditErr) {
+      console.warn(`[selfAudit] Iteration ${iteration}: audit call failed (${auditErr.message}), skipping loop`);
+      break;
+    }
+
+    const score = auditResult?.atsScore ?? 0;
+    console.log(`[selfAudit] Iteration ${iteration}/${SELF_AUDIT_MAX_ITERATIONS}: atsScore=${score}, impactAndMetrics=${auditResult?.breakdown?.impactAndMetrics ?? '?'}`);
+
+    // Detect creator-side issues deterministically + from audit
+    const creatorIssues = detectCreatorIssues(data, auditResult);
+
+    // If score meets threshold and no critical creator issues → we're done
+    if (score >= SELF_AUDIT_PASS_SCORE && creatorIssues.length === 0) {
+      console.log(`[selfAudit] ✅ Quality passed at iteration ${iteration} (score=${score})`);
+      break;
+    }
+
+    // If no fixable issues detected even at low score, stop (can't improve)
+    if (creatorIssues.length === 0) {
+      console.log(`[selfAudit] ℹ️ No creator-side issues found at iteration ${iteration}. Score=${score}. Stopping.`);
+      break;
+    }
+
+    // On last iteration don't re-generate, just return what we have
+    if (iteration === SELF_AUDIT_MAX_ITERATIONS) {
+      console.log(`[selfAudit] ⚠️ Max iterations reached. Returning best version (score=${score})`);
+      break;
+    }
+
+    // Build targeted refinement prompt with specific issues
+    const issueList = creatorIssues.map((iss, i) => `${i + 1}. ${iss}`).join('\n');
+    console.log(`[selfAudit] 🔄 Refining iteration ${iteration} — ${creatorIssues.length} creator issues found:\n${issueList}`);
+
+    const refinementPrompt = `You are a World-Class Technical Resume Expert performing a TARGETED REFINEMENT PASS.
+You just generated a resume JSON that was internally audited (ATS Score: ${score}/100).
+The audit found CREATOR-SIDE issues — mistakes in how you wrote the resume (not the candidate's data limitations).
+
+CURRENT RESUME JSON:
+${JSON.stringify(data, null, 2)}
+
+CANDIDATE PROFILE (for reference — do NOT invent data not in here):
+${JSON.stringify(profile, null, 2)}
+
+CREATOR-SIDE ISSUES TO FIX (these are YOUR mistakes as the resume writer):
+${issueList}
+
+STRICT REFINEMENT RULES:
+- Fix ONLY the issues listed above. Do NOT restructure or remove valid content.
+- Do NOT invent metrics, numbers, or facts that are not in the candidate profile above.
+- Do NOT add X/Y/Z placeholder metrics — if a real number isn't available, use a concrete outcome phrase instead.
+- Remove trailing periods from ALL bullet points.
+- Upgrade any weak verbs (Focused on, Contributed to, Participated in) to strong action verbs.
+- Remove any duplicate project descriptions from the certifications section.
+- Keep all project titles, links, and tech stacks exactly as they are.
+${customInstructions && customInstructions.trim() ? `- User's custom instructions still apply:\n"""\n${customInstructions.trim()}\n"""` : ''}
+
+RETURN ONLY the corrected JSON object in the exact same schema as the input. Raw JSON only, no markdown, no backticks.`;
+
+    let refinedResponse;
+    try {
+      refinedResponse = await callLLM({
+        messages: [
+          { role: 'system', content: 'You are a resume refinement expert. Fix only the specific issues given. Return valid JSON only.' },
+          { role: 'user', content: refinementPrompt }
+        ],
+        temperature: 0.1,
+        max_tokens: 4000
+      });
+    } catch (llmErr) {
+      console.warn(`[selfAudit] Iteration ${iteration}: refinement LLM call failed (${llmErr.message}), stopping`);
+      break;
+    }
+
+    const refinedRaw = (refinedResponse && refinedResponse.text) ? refinedResponse.text : String(refinedResponse);
+    const refinedStripped = refinedRaw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '').trim();
+    const refinedMatch = refinedStripped.match(/\{[\s\S]*\}/);
+    if (!refinedMatch) {
+      console.warn(`[selfAudit] Iteration ${iteration}: could not parse refined JSON, keeping current version`);
+      break;
+    }
+
+    try {
+      const refinedData = JSON.parse(refinedMatch[0]);
+      // Apply deterministic polish on top of the LLM refinement
+      data = applyShowcasePolish(refinedData);
+    } catch (parseErr) {
+      console.warn(`[selfAudit] Iteration ${iteration}: JSON parse failed (${parseErr.message}), keeping current version`);
+      break;
+    }
+  }
+
+  return data;
+}
+
 /**
  * Step 1: Use LLM to structure all user data into high-converting ATS JSON
  */
@@ -412,6 +649,15 @@ RETURN ONLY A VALID JSON OBJECT (no markdown around it, no backticks, no comment
   let data = JSON.parse(jsonMatch[0]);
   data = applyResumeNotesDirectives(data, profile, customInstructions);
   data = applyShowcasePolish(data);
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // SELF-AUDIT REFINEMENT LOOP
+  // After generating the first draft, Bob audits its own work and identifies
+  // CREATOR-SIDE issues (things Bob did wrong, not the candidate's fault).
+  // It then re-generates with specific fix instructions until quality passes.
+  // ─────────────────────────────────────────────────────────────────────────
+  data = await selfAuditAndRefine(data, profile, customInstructions, isTargeted, jobDescription);
+
   return { data, isTargeted };
 }
 
