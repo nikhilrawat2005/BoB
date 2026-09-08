@@ -1,7 +1,7 @@
 const cheerio = require('cheerio');
 const { db } = require('../config/firebase');
 const memory = require('./memoryService');
-const { callLLM } = require('./llmService');
+const { callLLM, callLLMParallel } = require('./llmService');
 const { validatePublicUrl, fetchWithTimeout } = require('./crawlerService');
 
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
@@ -617,42 +617,78 @@ function scoreAudit(home, robots, broken) {
   return { score, breakdown, issues };
 }
 
-// ── Single LLM pass for summary + recommendations ────
+// ── Parallel per-pillar LLM pass for summary + recommendations ────
+// Master, safe fallback is still the single-pass callLLM.
 async function analyzeWithLLM(domain, url, audit) {
-  const compact = {
-    domain,
-    url,
-    score: audit.score,
-    breakdown: audit.breakdown,
-    issues: audit.issues.map((i) => `${i.severity}:${i.category}: ${i.text}`).slice(0, 12),
-  };
-  const messages = [
-    {
-      role: 'system',
-      content: 'You are an expert SEO auditor working inside Bob the Builder workspace. Reply ONLY with valid JSON, no markdown, no code fences. Format: {"summary": "2-3 line plain-language overview of this site\'s SEO state in Hinglish where natural", "recommendations": [{"priority": "high|medium|low", "issue": "short issue name", "fix": "specific actionable fix"}]} Max 6 recommendations. Base everything strictly on the provided audit data — never invent facts.',
-    },
-    { role: 'user', content: JSON.stringify(compact) },
-  ];
+  const categories = ['technical', 'onpage', 'content', 'links'];
+  const tasks = categories
+    .map((cat) => {
+      const catIssues = (audit.issues || []).filter((i) => i.category === cat);
+      if (catIssues.length === 0) return null;
+      return {
+        messages: [
+          {
+            role: 'system',
+            content: 'You are an expert SEO auditor working inside Bob the Builder workspace. Reply ONLY with valid JSON, no markdown, no code fences. Format: {"summary": "1-2 line plain-language overview of this pillar\'s SEO state in Hinglish where natural", "recommendations": [{"priority": "high|medium|low", "issue": "short issue name", "fix": "specific actionable fix"}]} Max 3 recommendations. Base everything strictly on the provided audit data — never invent facts.',
+          },
+          {
+            role: 'user',
+            content: JSON.stringify({
+              domain,
+              url,
+              category: cat,
+              score: audit.score,
+              breakdown: audit.breakdown,
+              issues: catIssues.map((i) => `${i.severity}: ${i.text}`).slice(0, 8),
+            }),
+          },
+        ],
+        temperature: 0.3,
+        max_tokens: 700,
+      };
+    })
+    .filter(Boolean);
   try {
-    const { text } = await callLLM({
-      role: 'builder',
-      persona: 'builder',
-      messages,
-      temperature: 0.3,
-      max_tokens: 900,
-    });
-    const cleaned = text.replace(/```json|```/gi, '').trim();
-    const parsed = JSON.parse(cleaned);
+    const results = await callLLMParallel(tasks, { role: 'seo', persona: 'builder', concurrencyPerKey: 2, model: 'gemini-3.6-flash' });
+    const parsed = [];
+    for (const r of results) {
+      if (!r || !r.text) continue;
+      try {
+        parsed.push(JSON.parse(r.text.replace(/```json|```/gi, '').trim()));
+      } catch { /* skip malformed */ }
+    }
+    const recommendations = [];
+    for (const p of parsed) {
+      if (Array.isArray(p.recommendations)) recommendations.push(...p.recommendations);
+    }
+    const summary = parsed.map((p) => p.summary).filter(Boolean).join(' ');
     return {
-      summary: parsed.summary || audit.issues[0]?.text || 'Audit done.',
-      recommendations: Array.isArray(parsed.recommendations) ? parsed.recommendations.slice(0, 6) : [],
+      summary,
+      recommendations: recommendations.slice(0, 6),
     };
   } catch (e) {
-    console.error('[seoService] LLM analyze failed:', e.message);
-    return {
-      summary: 'LLM analysis unavailable — deterministic audit results below.',
-      recommendations: audit.issues.slice(0, 6).map((i) => ({ priority: i.severity, issue: i.category, fix: i.text })),
-    };
+    console.error('[seoService] LLM parallel analyze failed — single-pass fallback:', e.message);
+    const messages = [
+      {
+        role: 'system',
+        content: 'You are an expert SEO auditor working inside Bob the Builder workspace. Reply ONLY with valid JSON, no markdown, no code fences. Format: {"summary": "2-3 line plain-language overview of this site\'s SEO state in Hinglish where natural", "recommendations": [{"priority": "high|medium|low", "issue": "short issue name", "fix": "specific actionable fix"}]} Max 6 recommendations. Base everything strictly on the provided audit data — never invent facts.',
+      },
+      { role: 'user', content: JSON.stringify({ domain, url, score: audit.score, breakdown: audit.breakdown, issues: audit.issues.map((i) => `${i.severity}:${i.category}: ${i.text}`).slice(0, 12) }) },
+    ];
+    try {
+      const { text } = await callLLM({ role: 'builder', persona: 'builder', messages, temperature: 0.3, max_tokens: 900 });
+      const parsed = JSON.parse(text.replace(/```json|```/gi, '').trim());
+      return {
+        summary: parsed.summary || audit.issues[0]?.text || 'Audit done.',
+        recommendations: Array.isArray(parsed.recommendations) ? parsed.recommendations.slice(0, 6) : [],
+      };
+    } catch (e2) {
+      console.error('[seoService] LLM analyze failed:', e2.message);
+      return {
+        summary: 'LLM analysis unavailable — deterministic audit results below.',
+        recommendations: audit.issues.slice(0, 6).map((i) => ({ priority: i.severity, issue: i.category, fix: i.text })),
+      };
+    }
   }
 }
 
@@ -1283,13 +1319,67 @@ Be crisp, technical, highly actionable, zero fluff. Do NOT wrap in JSON — retu
   ];
 
   try {
-    const { text } = await callLLM({
-      role: 'builder',
-      persona: 'builder',
-      messages,
-      temperature: 0.3,
-      max_tokens: 1500,
-    });
+    // Parallel 3-panelist dispatch: Verdict/QuickWins + Roadmap/ProblemFix + Sprint/NextStep.
+    const panelTasks = [
+      {
+        messages: [
+          {
+            role: 'system',
+            content: `You are Bob the Builder's Enterprise SEO Master AI for ${site.domain} (current audit score ${a.score}/100).
+Produce ONLY this section as RICH MARKDOWN (Hinglish+English tone), absolutely no preamble or code fences:
+# 🎯 Executive Verdict
+1-2 bold summary lines on the site's real standing and its #1 leverage point.
+## 📈 Score Potential
+Current **${a.score}/100** → realistic target **95+/100**. Mention which breakdown pillar (Technical/Onpage/Content/Links) needs the most work.
+## ⚡ Quick Wins (priority order)
+For each: a bold fix with expected score boost, e.g.:
+- **[+3 pts] Title tags 50-60 chars** — add unique titles to pages missing H1/meta (from crawl).
+- **[+2 pts] robots.txt + Sitemap** — reference whether robots/sitemap exist and exactly what to add.`,
+          },
+          { role: 'user', content: JSON.stringify(leanPayload) },
+        ],
+        temperature: 0.3,
+        max_tokens: 700,
+      },
+      {
+        messages: [
+          {
+            role: 'system',
+            content: `You are Bob the Builder's Enterprise SEO Master AI for ${site.domain} (current audit score ${a.score}/100).
+Produce ONLY this section as RICH MARKDOWN (Hinglish+English tone), absolutely no preamble or code fences:
+## 🏗️ Core Architecture Roadmap
+Numbered sections covering: **Core Web Vitals** (LCP/FCP/CLS/TBT from audit), **Security Headers** (HSTS/CSP/X-Frame), **Internal Link structure** (orphans count), **DOM optimization**.
+## 🗺 Problem & Fix Pass
+For the TOP 6 FAIL/WARN issues found, one line each:
+**Problem [severity]:** the issue -> **Fix:** the exact code/config change.`,
+          },
+          { role: 'user', content: JSON.stringify(leanPayload) },
+        ],
+        temperature: 0.3,
+        max_tokens: 800,
+      },
+      {
+        messages: [
+          {
+            role: 'system',
+            content: `You are Bob the Builder's Enterprise SEO Master AI for ${site.domain} (current audit score ${a.score}/100).
+Produce ONLY this section as RICH MARKDOWN (Hinglish+English tone), absolutely no preamble or code fences:
+## ✅ 30-Day Sprint Plan
+- **Week 1:** ...
+- **Week 2:** ...
+- **Week 3:** ...
+- **Week 4:** ...
+## 💡 Next Best Step For Developer
+One single crisp, bold, executable action.`,
+          },
+          { role: 'user', content: JSON.stringify(leanPayload) },
+        ],
+        temperature: 0.3,
+        max_tokens: 500,
+      },
+    ];
+    const panelResults = await callLLMParallel(panelTasks, { role: 'seo', persona: 'builder', concurrencyPerKey: 2, model: 'gemini-3.6-flash' });
+    const text = panelResults.map((r) => (r && r.text ? r.text.trim() : '')).filter(Boolean).join('\n\n');
 
     const sid = await ensureChatSession(userId, site);
     await memory.addMessage(userId, sid, 'assistant', text);
@@ -1550,6 +1640,9 @@ function generateSeoReport(site) {
 
   const sc = typeof a.score === 'number' ? a.score : null;
   const scolor = sc == null ? '#64748b' : sc >= 70 ? '#16a34a' : sc >= 50 ? '#d97706' : '#dc2626';
+  const sc_count = (a.crawl && typeof a.crawl.crawled === 'number') ? a.crawl.crawled : null;
+  const sc_cap = (a.crawl && typeof a.crawl.requested === 'number') ? a.crawl.requested : null;
+  const sc_took = (a.crawl && typeof a.crawl.tookMs === 'number') ? a.crawl.tookMs : null;
 
   return `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"/><title>SEO Report — ${escXml(site.domain || site.url)}</title></head><body style="margin:0;background:#f1f5f9;font-family:'Segoe UI',system-ui,sans-serif;color:#111827;">
 <div style="max-width:860px;margin:0 auto;padding:24px;">
@@ -1558,6 +1651,7 @@ function generateSeoReport(site) {
     <div style="font-size:13px;color:#94a3b8;margin-top:4px;">${escXml(site.domain || site.url)} · ${new Date(a.auditedAt || Date.now()).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })}</div>
     <div style="margin-top:14px;font-size:40px;font-weight:800;color:${scolor};">${sc != null ? sc + ' <span style="font-size:15px;color:#94a3b8;">/100</span>' : '—'}</div>
     <div style="font-size:12px;color:#94a3b8;margin-top:6px;">Score history: ${escXml(historyLine)}</div>
+    <div style="font-size:12px;color:#94a3b8;margin-top:4px;">Crawl: ${typeof sc_count === 'number' ? `${sc_count} page(s) fetched (cap ${typeof sc_cap === 'number' ? sc_cap : '—'}${a.crawl && a.crawl.truncated ? ' · capped/timeout' : ''}) in ${typeof sc_took === 'number' ? (sc_took / 1000).toFixed(1) + 's' : '—'}` : '—'}</div>
   </div>
 
   <div style="background:#fff;border-radius:12px;padding:16px 20px;margin-top:16px;">

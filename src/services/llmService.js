@@ -652,12 +652,13 @@ async function callLLMWithVision(opts) {
 // rate-limited key fails over automatically) with an OpenRouter fallback.
 // Each task: { messages, model?, temperature?, max_tokens? }.
 // Returns an array of results aligned with the input tasks order.
-async function callLLMParallel(tasks = [], { role = 'seo', persona, concurrencyPerKey = 2 } = {}) {
+async function callLLMParallel(tasks = [], { role = 'seo', persona, concurrencyPerKey = 2, model } = {}) {
   await _ensureInit();
   if (!Array.isArray(tasks) || tasks.length === 0) return [];
   const isNonContinuous = NON_CONTINUOUS_ROLES.has(role);
   if (isNonContinuous) {
     return geminiPool.runParallelGemini(tasks, {
+      model,
       concurrencyPerKey: Math.max(1, Number(concurrencyPerKey) || 2),
       fallbackFn: (task) => callOpenRouterDirect({ role, persona, ...task }),
     });

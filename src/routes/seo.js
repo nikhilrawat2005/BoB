@@ -71,7 +71,7 @@ router.get('/:id', requireAuth, async (req, res) => {
 // POST /api/seo/pump — background re-audit worker (GitHub Actions, every 5 min)
 router.post('/pump', cronAuth, async (req, res) => {
   try {
-    const results = await seo.processDueReAudits(1);
+    const results = await seo.processDueReAudits(3);
     res.json({ ok: true, audited: results });
   } catch (err) {
     res.status(500).json({ error: err.message });
