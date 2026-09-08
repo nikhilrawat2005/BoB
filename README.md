@@ -26,13 +26,15 @@ LLM orchestration • Structured memory • File vault • AI Resume/ATS engine 
 3. [Request Lifecycle](#-request-lifecycle)
 4. [Core Capabilities](#-core-capabilities)
 5. [Flagship Module — Resume Builder & ATS Engine](#-flagship-module--resume-builder--ats-engine)
-6. [Services Reference](#-services-reference)
-7. [API Endpoints Reference](#-api-endpoints-reference)
-8. [Data Model](#-data-model-firestore)
-9. [Getting Started](#-getting-started)
-10. [Deployment (Vercel)](#-deployment-vercel)
-11. [Security Notes](#-security-notes)
-12. [Project Rules](#-project-rules)
+6. [Hackathon Radar & Auto-Discovery — Deep Dive](#-hackathon-radar--auto-discovery--deep-dive)
+7. [SEO Beast Engine — Deep Dive](#-seo-beast-engine--deep-dive)
+8. [Services Reference](#-services-reference)
+9. [API Endpoints Reference](#-api-endpoints-reference)
+10. [Data Model](#-data-model-firestore)
+11. [Getting Started](#-getting-started)
+12. [Deployment (Vercel)](#-deployment-vercel)
+13. [Security Notes](#-security-notes)
+14. [Project Rules](#-project-rules)
 
 ---
 
@@ -233,8 +235,9 @@ Six long-term memory pillars, all Firestore-backed:
 ### 5. 🕵️ Stalker Intelligence & Deep Crawler
 - Crawls LinkedIn, GitHub, X, Instagram, and portfolio sites; extracts JSON-LD, tech stack signals, and bios.
 
-### 6. 🏆 Hackathon Tracker
-- Scrapes Devpost/Unstop listings for problem statements, requirements, and deadlines.
+### 6. 🏆 Hackathon Radar & Tracker
+- Autonomous discovery feeds (Devpost / Unstop / Devfolio) via Google CSE + LLM enrichment, auto-expiry, Live Pulse stats.
+- Each hackathon gets its own knowledge doc + strictly-scoped chat. See [deep dive](#-hackathon-radar--auto-discovery--deep-dive).
 
 ### 7. ⏰ Autonomous Routines & Scheduler
 - Cron-driven (`GET/POST /api/scheduler/tick`, triggered hourly by GitHub Actions) reminders and daily routines, secured via `CRON_SECRET`.
@@ -243,8 +246,9 @@ Six long-term memory pillars, all Firestore-backed:
 ### 8. 🔧 Self-Edit Engine
 - Bob can propose and log diffs to its own codebase (`selfEditService`), capped by `SELF_EDIT_MAX_DIFF_CHARS`.
 
-### 9. 📈 SEO Auditor
-- Tracks and audits sites on a schedule, with the same cron-or-Firebase-auth pattern as the scheduler.
+### 9. 📈 SEO Working & Diagnostics
+- Auto-audits up to **300 pages** (capped 500) per site with sitemap-seeded BFS, broken-link + PageSpeed checks, 4-pillar 100-scale scoring, keyword tracking, and a **self-healing re-audit pump**.
+- Parallel multi-key AI analysis → Hinglish summary, Level-4 action plan, deployable fix plan, full HTML report. See [deep dive](#-seo-beast-engine--deep-dive).
 
 ### 10. 📄 AI Resume Builder & ATS Engine *(flagship module — see deep dive below)*
 
@@ -359,6 +363,63 @@ Notes persist per profile and are re-sent on every generation.
 
 ---
 
+## 🏆 Hackathon Radar & Auto-Discovery — Deep Dive
+
+Two layers: an **autonomous discovery feed** (`hackathonDiscoveryService`) and a **tracker** (`hackathonService`) where each hackathon is its own object with scoped AI chat.
+
+**Discovery pipeline**
+```mermaid
+flowchart LR
+    GOOGLE[Google CSE<br/>Devpost/Unstop/Devfolio] --> FILTER1[quickCseFilter]
+    FILTER1 --> FILTER2["llmFilterCse<br/>(relevance scoring)"]
+    FILTER2 --> ENRICH["enrichItem<br/>deadline/prize/team/mode"]
+    ENRICH --> CARD[(up to 10 cards)]
+    CARD --> EXPIRE[auto-expire past deadlines]
+```
+
+- **Cadence** — auto-discovers roughly every 4 days (`DISCOVERY_INTERVAL_MS`), `MAX_CARDS = 10`, 15s per scrape, enabled/disabled toggle persisted.
+- **Live Pulse** — `GET /api/live/pulse` returns `stats { totalDiscovered, active (non-expired), enabled, nextRunAt, lastRunAt }` for the radar card.
+
+**Tracker + scoped chat** — each hackathon stores `knowledge { summary, dates[], prizes[], links[], scrapedAt }`, `participating`, `tracking`, `pastParticipation`, own `chatSessionId`. `refreshKnowledge` re-scrapes (handles login-redirect) and **protects user-set dates** from stale scrape values; pasted announcements can be parsed via `POST /api/hackathons/:id/knowledge-from-text`. Its chat is **strictly scoped** to that hackathon only, auto-detects pasted announcements, and can recover a lost session.
+
+**API surface**
+
+| Method | Endpoint | Purpose |
+|---|---|---|
+| `GET` | `/api/hackathons` | List tracked hackathons |
+| `POST` | `/api/hackathons` | Add hackathon |
+| `POST` | `/api/hackathons/parse` | Auto-parse pasted problem statement |
+| `GET/PATCH/DELETE` | `/api/hackathons/:id` | Get / update (tracking, dates, notes) / delete |
+| `POST` | `/api/hackathons/:id/scrape` | Re-scrape knowledge |
+| `POST` | `/api/hackathons/:id/knowledge-from-text` | Inject knowledge from pasted text |
+| `GET/POST` | `/api/hackathons/:id/chat` | Scoped hackathon chat |
+| `GET` | `/api/live/pulse` | Radar live pulse stats |
+| `GET/POST` | `/api/live/hackathon-discovery*` | List / run / save / dismiss / toggle discovery |
+
+---
+
+## 📈 SEO Beast Engine — Deep Dive
+
+A full **parallel, multi-key** SEO auditing stack: crawl → score → AI diagnose → plan → fixed files → HTML report, all self-healing on a cron pump.
+
+**Crawl** (`seoService.runAudit`)
+1. **Sitemap-seeded BFS** — seeds the crawl queue from `robots.sitemapUrls` first (same-host filtered), then homepage internal links (up to 150). BFS with **12 parallel fetches** (9s each), bounded queue, deduped visited set.
+2. **Up to 300 pages** (`maxPages`, clamped 10–500, default 300) within a 45s deadline — if either cap is hit, crawl stops cleanly and reports `crawl.truncated`.
+3. Per-page on-page audit via Cheerio: title/meta/H1, word count, meta description, h1/dup checks → **thin-content (<120 words)**, **orphan pages**, missing H1/meta, duplicate titles/H1 detection across the crawled set.
+
+**Scoring** — `score = round((technical + onpage + content + links) / 4)`, each pillar capped at 100; PageSpeed (mobile) fetched for the homepage; broken-link probe (max 6).
+
+**Parallel LLM diagnostics** (`callLLMParallel` → `geminiPoolService.runParallelGemini`)
+- `analyzeWithLLM` fans out **one task per issue category** (technical/onpage/content/links) across the Gemini key pool (load-balanced, `concurrencyPerKey = 2`), merges the per-category summaries, keeps ≤6 recommendations. Falls back to single-pass LLM, then deterministic issues-based summary.
+- `generateAiActionPlan` uses **3 parallel panelists** — Executive Verdict/Sprint/Architecture — targeting 95/100, joined into one roadmap, persisted next to the audit.
+- **Resilience** — per-key in-flight tracking, least-loaded pick, 60s quarantine on 429/quota, model-try chain (`gemma-4-26b-a4b-it` → `gemini-3.6-flash` → `gemini-2.5-flash`), OpenRouter fallback if the whole pool is busy.
+
+**Pump** — `POST /api/seo/pump` (CRON_SECRET or Firebase auth, GitHub Actions ~5-min) runs `processDueReAudits(3)` → up to **3 due sites audited concurrently**, 30-min stall guard, writes `history {score, delta, at}` per site.
+
+**Outputs** — `GET /api/seo/:id/actionplan` (Level-4 plan), `/fixplan` (deployable code), `/report` (self-contained HTML report incl. crawl line), `/chat` (isolated audit-aware chat). Sites tracked per user in `users/{userId}/seoSites`, keywords max 10 per site.
+
+---
+
 ## 🔧 Services Reference
 
 | Service | Responsibility |
@@ -381,13 +442,13 @@ Notes persist per profile and are re-sent on every generation.
 | `repoService.js` | GitHub repo reading for Builder self-awareness |
 | `builderService.js` / `builderKnowledgeService.js` / `builderTaskService.js` | Bob the Builder persona logic |
 | `selfEditService.js` | Self-edit proposal/diff/history tracking |
-| `hackathonService.js` / `hackathonDiscoveryService.js` | Devpost/Unstop scraping + hackathon discovery feeds |
+| `hackathonService.js` / `hackathonDiscoveryService.js` | Devpost/Unstop/Devfolio scraping + hackathon discovery feeds |
 | `stalkingService.js` | Multi-network profile discovery |
 | `instagramService.js` / `youtubeService.js` | Platform-specific scraping / transcripts |
 | `mediaDetector.js` | Detects media type/links in content |
 | `weatherService.js` / `newsService.js` / `stocksService.js` | Live data (Open-Meteo, RSS, Yahoo Finance) |
 | `webSearchService.js` | General web search for research |
-| `seoService.js` | Site SEO auditing |
+| `seoService.js` | Site SEO auditing (300-page parallel crawl, 4-pillar scoring, parallel LLM action plan/fix report) |
 | `routineService.js` / `schedulerService.js` | Daily routines and cron-driven tasks |
 | `statsService.js` | Usage/stat aggregation |
 
@@ -409,15 +470,15 @@ All `/api/*` routes (except `/api/health` and `/api/config`) require:
 | `/api/secret` | `secretVault.js` | PIN-protected vault |
 | `/api/notifications` | `notifications.js` | List/mark-read proactive notifications |
 | `/api/scheduler` | `scheduler.js` | Cron tick, reminders |
-| `/api/live` | `live.js` | Weather / news / stocks |
+| `/api/live` | `live.js` | Weather / news / stocks + Hackathon Radar pulse |
 | `/api/builder` | `builder.js` | Bob the Builder workspace |
-| `/api/hackathons` | `hackathons.js` | Hackathon list + scrape |
+| `/api/hackathons` | `hackathons.js` | Hackathon tracker + parse/scrape/knowledge/chat |
 | `/api/dossier`, `/api/stalking` | `stalking.js` | Profile list + deep crawl |
 | `/api/routines` | `routines.js` | Daily autonomous routines |
 | `/api/hq` | `hq.js` | Aggregated dashboard summary |
 | `/api/self-edit` | `selfEdit.js` | Self-edit history/diffs |
 | `/api/keys` | `keys.js` | Anonymized OpenRouter key health (raw keys never exposed) |
-| `/api/seo` | `seo.js` | SEO site tracking + audits (cron or user auth) |
+| `/api/seo` | `seo.js` | SEO audit (300-page crawl, keyword tracking, action plan, fix plan, HTML report, isolated chat) |
 | `/api/resume` | `resume.js` | AI Resume Builder & ATS Engine — see [§ Resume API surface](#37-resume-api-surface) |
 
 ---
