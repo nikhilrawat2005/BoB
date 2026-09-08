@@ -24,12 +24,12 @@ router.get('/', requireAuth, async (req, res) => {
   }
 });
 
-// POST /api/seo  { url } — add website + run audit
+// POST /api/seo  { url, maxPages? } — add website + run audit
 router.post('/', requireAuth, async (req, res) => {
-  const { url } = req.body || {};
+  const { url, maxPages } = req.body || {};
   if (!url || typeof url !== 'string') return res.status(400).json({ error: 'url is required' });
   try {
-    const site = await seo.createSite(req.userId, url);
+    const site = await seo.createSite(req.userId, url, { maxPages: Number(maxPages) || 300 });
     res.json({ site });
   } catch (err) {
     res.status(500).json({ error: err.message });

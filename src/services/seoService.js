@@ -316,7 +316,7 @@ function parsePage(html, origin, rawHeaders = {}) {
     internalCount: uniqueInternal.length,
     externalCount: externalLinks.length,
     externalUnsafeCount,
-    internalLinks: uniqueInternal.slice(0, 40),
+    internalLinks: uniqueInternal.slice(0, 120),
   };
 }
 
@@ -657,7 +657,7 @@ async function analyzeWithLLM(domain, url, audit) {
 }
 
 // ── Main audit pipeline ──────────────────────────────
-async function runAudit(originUrl, { skipLlm = false, keywords = [] } = {}) {
+async function runAudit(originUrl, { skipLlm = false, keywords = [], maxPages = 300, crawlDeadlineMs = 45000 } = {}) {
   const u = normalizeUrl(originUrl);
   const origin = u.origin;
   const domain = u.hostname.replace(/^www\./, '');
@@ -694,16 +694,24 @@ async function runAudit(originUrl, { skipLlm = false, keywords = [] } = {}) {
 
   const audit = scoreAudit(home, robots, broken);
 
-  // ── Level 2: 20-page BFS Site Architecture Crawler ─────────────────────
-  const MAX_PAGES = 50;
-  const CONCURRENCY = 6;
+  // ── Level 2: Site Architecture Crawler (parallel, sitemap-seeded) ─────
+  const pagesCap = Math.min(500, Math.max(10, Number(maxPages) || 300));
+  const CONCURRENCY = 12;
 
-  // BFS queue — start with homepage's internal links then expand
-  const crawlQueue = [...new Set(home.internalLinks)].slice(0, 40);
+  // Seed the BFS queue from sitemap URLs (canonical page list) first, then
+  // top internal links, so even link-dense sites are covered fuel-efficiently.
+  const sitemapSeeds = (robots.sitemapUrls || [])
+    .filter((s) => { try { return new URL(s).hostname === new URL(origin).hostname; } catch { return false; } })
+    .slice(0, pagesCap);
+  const internalSeeds = [...new Set(home.internalLinks)].slice(0, 150);
+  const crawlQueue = sitemapSeeds.slice();
+  for (const seed of internalSeeds) {
+    if (!crawlQueue.includes(seed) && crawlQueue.length < pagesCap) crawlQueue.push(seed);
+  }
   const crawlVisited = new Set([u.href, origin + '/', origin]);
   const pages = [];
 
-  // Concurrency-limited BFS fetch loop
+  // Concurrency-limited parallel BFS fetch
   async function crawlBatch(urls) {
     const results = await Promise.allSettled(urls.map(async (link) => {
       if (crawlVisited.has(link)) return null;
@@ -720,28 +728,33 @@ async function runAudit(originUrl, { skipLlm = false, keywords = [] } = {}) {
     return results.filter(r => r.status === 'fulfilled' && r.value).map(r => r.value);
   }
 
-  // BFS in batches — hard deadline so a slow site never blows the serverless
-  // request budget (50 pages can otherwise approach ~80s worst-case).
-  const crawlDeadlineMs = 25000;
+  // Parallel BFS in batches — a soft deadline keeps a slow site inside the
+  // serverless request budget; the crawl resumes next round without data loss
+  // because everything important is recomputed from the fetched pages.
   const crawlStart = Date.now();
   let cursor = 0;
-  while (pages.length < MAX_PAGES && cursor < crawlQueue.length && Date.now() - crawlStart < crawlDeadlineMs) {
+  let crawlFrames = 0;
+  let crawlFetches = 0;
+  while (pages.length < pagesCap && cursor < crawlQueue.length && Date.now() - crawlStart < crawlDeadlineMs) {
     const batch = crawlQueue.slice(cursor, cursor + CONCURRENCY);
     cursor += CONCURRENCY;
     const batchResults = await crawlBatch(batch);
+    crawlFrames++;
     for (const pg of batchResults) {
-      if (!pg || pages.length >= MAX_PAGES) break;
+      if (!pg || pages.length >= pagesCap) break;
+      crawlFetches++;
       pages.push(pg);
-      // Enqueue newly discovered links from this page
+      // Enqueue newly discovered links (bounded) to spread the crawl graph
       if (Array.isArray(pg.internalLinks)) {
         for (const link of pg.internalLinks) {
-          if (!crawlVisited.has(link) && !crawlQueue.includes(link)) {
+          if (!crawlVisited.has(link) && !crawlQueue.includes(link) && crawlQueue.length < pagesCap * 2) {
             crawlQueue.push(link);
           }
         }
       }
     }
   }
+  const crawlTookMs = Date.now() - crawlStart;
 
   // ── Per-page linkage map (for orphan detection) ──
   // Build a map of which pages receive links from other pages
@@ -892,6 +905,16 @@ async function runAudit(originUrl, { skipLlm = false, keywords = [] } = {}) {
     home,
     robotsMetrics: { robotsExists: !!robots.robotsExists, rulesPresent: !!robots.rulesPresent, sitemapFound: !!robots.sitemapFound, sitemapUrlCount: (robots.sitemapUrls || []).length, sitemapLastmod: robots.lastmodCount || 0, isSitemapIndex: !!robots.isSitemapIndex },
     pagesFound: pagesWithMeta ? pagesWithMeta.length : pages.length,
+    crawl: {
+      requested: pagesCap,
+      crawled: pages.length,
+      tookMs: crawlTookMs,
+      fetches: crawlFetches,
+      frames: crawlFrames,
+      seedsFromSitemap: sitemapSeeds.length,
+      seedsFromLinks: internalSeeds.length,
+      truncated: pages.length >= pagesCap || (Date.now() - crawlStart) >= crawlDeadlineMs,
+    },
     audit: {
       score: audit.score,
       breakdown: audit.breakdown,
@@ -920,7 +943,7 @@ async function runAudit(originUrl, { skipLlm = false, keywords = [] } = {}) {
         hasCanonical: !!p.canonical,
         blockingScripts: p.blockingScripts || 0,
         semanticCount: p.semanticCount || 0,
-      })).slice(0, 50),
+      })).slice(0, Math.min(pagesCap, 100)),
   };
 }
 
@@ -957,8 +980,9 @@ function withHistory(prev = [], audit) {
   return next;
 }
 
-async function createSite(userId, urlInput) {
-  const res = await runAudit(urlInput);
+async function createSite(userId, urlInput, { maxPages = 300 } = {}) {
+  const pagesCap = Math.min(500, Math.max(10, Number(maxPages) || 300));
+  const res = await runAudit(urlInput, { maxPages: pagesCap });
   const achievedAudit = { ...res.audit, keywordChecks: res.audit.keywordChecks };
   const ref = coll(userId).doc();
   const now = Date.now();
@@ -967,6 +991,7 @@ async function createSite(userId, urlInput) {
     domain: res.domain,
     url: res.url,
     title: res.home.title || res.domain,
+    maxPages: pagesCap,
     lastScore: res.audit.score,
     keywords: [],
     chatSessionId: null,
@@ -977,6 +1002,7 @@ async function createSite(userId, urlInput) {
       summary: res.audit.summary,
       recommendations: res.audit.recommendations,
       pagesFound: res.pagesFound,
+      crawl: res.crawl,
       homeUrl: res.url,
       techNotes: res.robotsMetrics,
       broken: res.broken,
@@ -998,7 +1024,8 @@ async function createSite(userId, urlInput) {
 async function reAudit(userId, id) {
   const site = await getSite(userId, id);
   if (!site) throw new Error('Site not found');
-  const res = await runAudit(site.url, { keywords: site.keywords || [] });
+  const pagesCap = Math.min(500, Math.max(10, Number(site.maxPages) || 300));
+  const res = await runAudit(site.url, { keywords: site.keywords || [], maxPages: pagesCap, crawlDeadlineMs: 55000 });
   const updated = {
     title: res.home.title || res.domain,
     lastScore: res.audit.score,
@@ -1009,6 +1036,7 @@ async function reAudit(userId, id) {
       summary: res.audit.summary,
       recommendations: res.audit.recommendations,
       pagesFound: res.pagesFound,
+      crawl: res.crawl,
       homeUrl: res.url,
       techNotes: res.robotsMetrics,
       broken: res.broken,
@@ -1066,7 +1094,7 @@ async function deleteSite(userId, id) {
 // ── Scheduled re-audit settings + background pump ──────
 const PUMP_COLL = () => db.collection('seoPumpQueue');
 
-async function updateSiteSettings(userId, id, { reAuditEnabled, reAuditIntervalHours }) {
+async function updateSiteSettings(userId, id, { reAuditEnabled, reAuditIntervalHours, maxPages }) {
   const site = await getSite(userId, id);
   if (!site) throw new Error('Site not found');
   const enabled = Boolean(reAuditEnabled);
@@ -1077,6 +1105,9 @@ async function updateSiteSettings(userId, id, { reAuditEnabled, reAuditIntervalH
     reAuditIntervalHours: enabled ? intervalHours : 0,
     updatedAt: now,
   };
+  if (maxPages !== undefined) {
+    patch.maxPages = Math.min(500, Math.max(10, Number(maxPages) || 300));
+  }
   await coll(userId).doc(id).set(patch, { merge: true });
 
   const qRef = PUMP_COLL().doc(id);
@@ -1094,7 +1125,8 @@ async function updateSiteSettings(userId, id, { reAuditEnabled, reAuditIntervalH
 
 // Background pump (POST /api/seo/pump, GitHub Actions every 5 min).
 // Re-audits at most `limit` sites whose nextDueAt has passed. One-failure
-// doesn't block the rest; inProgress + 10-min stall guard prevents double work.
+// doesn't block the rest; inProgress + 30-min stall guard prevents double work
+// while a 300-page parallel crawl runs inside one pump tick.
 async function processDueReAudits(limit = 1) {
   let due;
   try {
@@ -1107,7 +1139,7 @@ async function processDueReAudits(limit = 1) {
     const data = doc.data() || {};
     const { userId, siteId } = data;
     if (!userId || !siteId) { results.push({ siteId: doc.id, error: 'invalid queue entry' }); continue; }
-    if (data.inProgress && Date.now() - (data.lastStartedAt || 0) < 10 * 60 * 1000) {
+    if (data.inProgress && Date.now() - (data.lastStartedAt || 0) < 30 * 60 * 1000) {
       results.push({ siteId, skipped: 'in progress' });
       continue;
     }
