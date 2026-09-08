@@ -647,8 +647,28 @@ async function callLLMWithVision(opts) {
   return callLLM({ role: 'vision', ...opts });
 }
 
+// Parallel LLM dispatch: fans out `tasks` across the Gemini burst bag
+// (multiple keys — load is spread so no single key carries the batch, and a
+// rate-limited key fails over automatically) with an OpenRouter fallback.
+// Each task: { messages, model?, temperature?, max_tokens? }.
+// Returns an array of results aligned with the input tasks order.
+async function callLLMParallel(tasks = [], { role = 'seo', persona, concurrencyPerKey = 2 } = {}) {
+  await _ensureInit();
+  if (!Array.isArray(tasks) || tasks.length === 0) return [];
+  const isNonContinuous = NON_CONTINUOUS_ROLES.has(role);
+  if (isNonContinuous) {
+    return geminiPool.runParallelGemini(tasks, {
+      concurrencyPerKey: Math.max(1, Number(concurrencyPerKey) || 2),
+      fallbackFn: (task) => callOpenRouterDirect({ role, persona, ...task }),
+    });
+  }
+  // Continuous / interactive routes still use the OpenRouter bags, in parallel.
+  return Promise.all(tasks.map((task) => callOpenRouterDirect({ role, persona, ...task })));
+}
+
 module.exports = {
   callLLM,
+  callLLMParallel,
   callLLMWithVision,
   MODEL_ROLES,
   MODEL_CAPS,

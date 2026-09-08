@@ -1124,10 +1124,11 @@ async function updateSiteSettings(userId, id, { reAuditEnabled, reAuditIntervalH
 }
 
 // Background pump (POST /api/seo/pump, GitHub Actions every 5 min).
-// Re-audits at most `limit` sites whose nextDueAt has passed. One-failure
-// doesn't block the rest; inProgress + 30-min stall guard prevents double work
-// while a 300-page parallel crawl runs inside one pump tick.
-async function processDueReAudits(limit = 1) {
+// Re-audits at most `limit` sites whose nextDueAt has passed, processing them
+// CONCURRENTLY (up to `limit` in flight) so multiple 300-page crawls + LLM
+// calls run in parallel across the Gemini/OpenRouter key pools. One-failure
+// doesn't block the rest; inProgress + 30-min stall guard prevents double work.
+async function processDueReAudits(limit = 2) {
   let due;
   try {
     due = await PUMP_COLL().where('enabled', '==', true).where('nextDueAt', '<=', Date.now()).orderBy('nextDueAt', 'asc').limit(limit).get();
@@ -1135,13 +1136,14 @@ async function processDueReAudits(limit = 1) {
     throw new Error(`seoPumpQueue query failed (index missing?): ${e.message}`);
   }
   const results = [];
-  for (const doc of due.docs) {
+
+  const processOne = async (doc) => {
     const data = doc.data() || {};
     const { userId, siteId } = data;
-    if (!userId || !siteId) { results.push({ siteId: doc.id, error: 'invalid queue entry' }); continue; }
+    if (!userId || !siteId) { results.push({ siteId: doc.id, error: 'invalid queue entry' }); return; }
     if (data.inProgress && Date.now() - (data.lastStartedAt || 0) < 30 * 60 * 1000) {
       results.push({ siteId, skipped: 'in progress' });
-      continue;
+      return;
     }
     try {
       await PUMP_COLL().doc(doc.id).set({ inProgress: true, lastStartedAt: Date.now() }, { merge: true });
@@ -1149,7 +1151,7 @@ async function processDueReAudits(limit = 1) {
       if (!site) {
         await PUMP_COLL().doc(doc.id).delete().catch(() => {});
         results.push({ siteId, removed: true });
-        continue;
+        return;
       }
       const updated = await reAudit(userId, siteId);
       const intervalHours = Math.max(1, Number(site.reAuditIntervalHours) || 24);
@@ -1160,7 +1162,17 @@ async function processDueReAudits(limit = 1) {
       await PUMP_COLL().doc(doc.id).set({ inProgress: false }, { merge: true }).catch(() => {});
       results.push({ siteId, error: e.message });
     }
-  }
+  };
+
+  const concurrency = Math.max(1, Math.min(Number(limit) || 2, 5));
+  let cursor = 0;
+  const worker = async () => {
+    while (cursor < due.docs.length) {
+      const doc = due.docs[cursor++];
+      await processOne(doc);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(concurrency, due.docs.length) }, () => worker()));
   return results;
 }
 

@@ -260,6 +260,145 @@ async function callGeminiDirect({
   throw lastError || new Error('All Gemini keys failed.');
 }
 
+// ── Parallel Gemini Dispatch (load-spread across multiple keys) ──
+// Runs N LLM tasks concurrently. Each key allows at most `concurrencyPerKey`
+// in-flight calls; every task picks the least-loaded available key, so a
+// single key never carries the whole batch, and a rate-limited key fails
+// over to another one. Optional fallbackFn handles tasks that cannot be
+// served because every key is busy / rate-limited / exhausted.
+async function runParallelGemini(
+  tasks,
+  { model, temperature = 0.2, max_tokens = 2048, concurrencyPerKey = 2, fallbackFn } = {}
+) {
+  checkDailyReset();
+  const results = new Array(tasks.length);
+  if (tasks.length === 0) return results;
+
+  // Per-key in-flight counters (index 0-based, aligned with _keyStates).
+  const activePerKey = new Array(_keyStates.length).fill(0);
+
+  const pickKey = () => {
+    let best = null;
+    for (let i = 0; i < _keyStates.length; i++) {
+      const k = _keyStates[i];
+      if (k.status !== 'active' || k.requestsToday >= k.dailyLimit) continue;
+      if (activePerKey[i] >= concurrencyPerKey) continue;
+      if (
+        !best ||
+        activePerKey[i] < activePerKey[best.index - 1] ||
+        (activePerKey[i] === activePerKey[best.index - 1] && (k.lastUsedAt || 0) < (best.lastUsedAt || 0))
+      ) {
+        best = k;
+      }
+    }
+    return best;
+  };
+
+  const callWithKey = async (keyObj, task) => {
+    const modelsToTry = model ? [model, ...GEMINI_MODELS.filter(m => m !== model)] : GEMINI_MODELS;
+    const { systemInstruction, contents } = formatOpenAiToGemini(task.messages || []);
+    const body = {
+      contents,
+      generationConfig: {
+        temperature: Number(task.temperature) || Number(temperature) || 0.2,
+        maxOutputTokens: Number(task.max_tokens) || Number(max_tokens) || 2048,
+      },
+    };
+    if (systemInstruction) body.systemInstruction = systemInstruction;
+
+    let lastError = null;
+    for (const activeModel of modelsToTry) {
+      const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${activeModel}:generateContent?key=${keyObj.key}`;
+      try {
+        keyObj.lastUsedAt = Date.now();
+        const res = await fetch(endpoint, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+        const data = await res.json();
+
+        if (!res.ok || data.error) {
+          const errMsg = (data.error && data.error.message) || `HTTP ${res.status}`;
+          const isRateLimit = res.status === 429 || errMsg.includes('RESOURCE_EXHAUSTED') || errMsg.includes('Quota exceeded') || errMsg.includes('rate limit');
+          if (isRateLimit) {
+            markKeyRateLimited(keyObj, 60000, errMsg);
+            throw Object.assign(new Error(errMsg), { isRateLimit: true });
+          }
+          if (errMsg.includes('not found') || errMsg.includes('no longer available')) {
+            lastError = new Error(errMsg);
+            continue;
+          }
+          keyObj.lastError = errMsg;
+          throw new Error(`Gemini API error on Key #${keyObj.index}: ${errMsg}`);
+        }
+
+        const candidate = data.candidates && data.candidates[0];
+        if (!candidate || !candidate.content || !candidate.content.parts || !candidate.content.parts[0]) {
+          throw new Error('Gemini API returned an empty response.');
+        }
+
+        const outputText = candidate.content.parts.map(p => p.text || '').join('');
+        keyObj.requestsToday++;
+        return {
+          text: outputText,
+          model: activeModel,
+          usage: data.usageMetadata
+            ? {
+                prompt_tokens: data.usageMetadata.promptTokenCount || 0,
+                completion_tokens: data.usageMetadata.candidatesTokenCount || 0,
+                total_tokens: data.usageMetadata.totalTokenCount || 0,
+              }
+            : null,
+          provider: 'gemini',
+          keyIndex: keyObj.index,
+          keySuffix: keyObj.keySuffix,
+        };
+      } catch (err) {
+        if (err.isRateLimit) throw err;
+        if (err.name === 'AbortError' || err.message.includes('timeout')) {
+          markKeyRateLimited(keyObj, 30000, 'Request timeout');
+          throw Object.assign(new Error('Request timeout'), { isRateLimit: true });
+        }
+        lastError = err;
+      }
+    }
+    throw lastError || new Error('All Gemini models failed.');
+  };
+
+  const dispatchOne = async (task) => {
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const keyObj = pickKey();
+      if (!keyObj) break;
+      activePerKey[keyObj.index - 1]++;
+      try {
+        return await callWithKey(keyObj, task);
+      } catch (err) {
+        if (!err.isRateLimit) throw err;
+        // Rate-limit detected → release the slot and fail over to another key.
+      } finally {
+        activePerKey[keyObj.index - 1]--;
+      }
+    }
+    if (typeof fallbackFn === 'function') {
+      return fallbackFn(task);
+    }
+    throw new Error('All Gemini keys currently busy, rate-limited, or quota exhausted.');
+  };
+
+  const capacity = Math.max(1, (_keyStates.length || 1) * concurrencyPerKey);
+  const workerCount = Math.max(1, Math.min(tasks.length, capacity));
+  let cursor = 0;
+  const worker = async () => {
+    while (cursor < tasks.length) {
+      const idx = cursor++;
+      results[idx] = await dispatchOne(tasks[idx]);
+    }
+  };
+  await Promise.all(Array.from({ length: workerCount }, () => worker()));
+  return results;
+}
+
 // ── Master Caller with OpenRouter Fallback ────────────────────
 async function callGeminiWithFallback(opts = {}, openRouterFallbackFn) {
   try {
@@ -313,6 +452,7 @@ function getGeminiPoolHealth() {
 module.exports = {
   callGeminiDirect,
   callGeminiWithFallback,
+  runParallelGemini,
   getGeminiPoolHealth,
   loadGeminiKeys,
   _keyStates,
