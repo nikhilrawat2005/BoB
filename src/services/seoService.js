@@ -693,7 +693,7 @@ async function analyzeWithLLM(domain, url, audit) {
 }
 
 // ── Main audit pipeline ──────────────────────────────
-async function runAudit(originUrl, { skipLlm = false, keywords = [], maxPages = 300, crawlDeadlineMs = 45000 } = {}) {
+async function runAudit(originUrl, { skipLlm = false, keywords = [], maxPages = 300, crawlDeadlineMs = 90000 } = {}) {
   const u = normalizeUrl(originUrl);
   const origin = u.origin;
   const domain = u.hostname.replace(/^www\./, '');
@@ -979,7 +979,7 @@ async function runAudit(originUrl, { skipLlm = false, keywords = [], maxPages = 
         hasCanonical: !!p.canonical,
         blockingScripts: p.blockingScripts || 0,
         semanticCount: p.semanticCount || 0,
-      })).slice(0, Math.min(pagesCap, 100)),
+      })).slice(0, Math.min(pagesCap, 500)),
   };
 }
 
@@ -1061,7 +1061,7 @@ async function reAudit(userId, id) {
   const site = await getSite(userId, id);
   if (!site) throw new Error('Site not found');
   const pagesCap = Math.min(500, Math.max(10, Number(site.maxPages) || 300));
-  const res = await runAudit(site.url, { keywords: site.keywords || [], maxPages: pagesCap, crawlDeadlineMs: 55000 });
+  const res = await runAudit(site.url, { keywords: site.keywords || [], maxPages: pagesCap, crawlDeadlineMs: 110000 });
   const updated = {
     title: res.home.title || res.domain,
     lastScore: res.audit.score,
