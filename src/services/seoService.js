@@ -438,6 +438,19 @@ async function fetchGooglePageSpeed(targetUrl, timeoutMs = 8000) {
 function scoreAudit(home, robots, broken) {
   const issues = [];
 
+  // ── SITE INACCESSIBLE: homepage didn't return 200 → all element-level
+  //    scoring would be meaningless on an error page (403/404/5xx).
+  //    Return immediately with honest low score + clear issues.
+  if (home.status && home.status !== 200) {
+    issues.push({ severity: 'high', category: 'technical', text: `Homepage returned HTTP ${home.status} — site is inaccessible for direct crawl. This usually means bot protection (Cloudflare, etc.) is blocking the request.` });
+    issues.push({ severity: 'high', category: 'technical', text: `Crawler could not read any page content — title, meta, schema, links, and all on-page SEO signals are unmeasured.` });
+    if (home.https) issues.push({ severity: 'low', category: 'technical', text: 'HTTPS is active (confirmed by URL scheme), but page content could not be verified due to access block.' });
+    const breakdown = { technical: 8, onpage: 0, content: 0, links: 0 };
+    if (!home.https) breakdown.technical = 0;
+    const score = Math.round((breakdown.technical + breakdown.onpage + breakdown.content + breakdown.links) / 4);
+    return { score, breakdown, issues, siteAccessible: false };
+  }
+
   // Technical (100) — Stage 1: clean HTML + speed proxy + mobile basics + security + DOM complexity + Next-gen images
   let tech = 0;
   if (home.https) tech += 8; else issues.push({ severity: 'high', category: 'technical', text: 'Website HTTP pe hai — HTTPS pe shift karo (security + ranking).' });
@@ -619,6 +632,27 @@ function scoreAudit(home, robots, broken) {
 
 // ── Parallel per-pillar LLM pass for summary + recommendations ────
 // Master, safe fallback is still the single-pass callLLM.
+// ── LLM JSON parsing (robust) ─────────────────────────
+// LLM output is sometimes truncated or wrapped in extra text. Try full JSON
+// parse first; otherwise salvage summary + recommendation triplets via regex.
+function parseLooseSeoJson(text) {
+  const t = String(text || '').replace(/```json|```/gi, '').trim();
+  const m = t.match(/\{[\s\S]*\}/);
+  const candidate = m ? m[0] : t;
+  try {
+    const parsed = JSON.parse(candidate);
+    if (parsed && typeof parsed === 'object') return parsed;
+  } catch { /* fall through to salvage */ }
+  const s = t.match(/"summary"\s*:\s*"((?:[^"\\]|\\.)*)"/i);
+  const recommendations = [];
+  const re = /\{"priority"\s*:\s*"([^"]+)"\s*,\s*"issue"\s*:\s*"((?:[^"\\]|\\.)*)"\s*,\s*"fix"\s*:\s*"((?:[^"\\]|\\.)*)"\s*\}/gi;
+  let mm;
+  while ((mm = re.exec(t))) recommendations.push({ priority: mm[1], issue: mm[2], fix: mm[3] });
+  const summary = s ? s[1] : '';
+  if (!summary && recommendations.length === 0) return null;
+  return { summary, recommendations };
+}
+
 async function analyzeWithLLM(domain, url, audit) {
   const categories = ['technical', 'onpage', 'content', 'links'];
   const tasks = categories
@@ -653,9 +687,11 @@ async function analyzeWithLLM(domain, url, audit) {
     const parsed = [];
     for (const r of results) {
       if (!r || !r.text) continue;
-      try {
-        parsed.push(JSON.parse(r.text.replace(/```json|```/gi, '').trim()));
-      } catch { /* skip malformed */ }
+      const p = parseLooseSeoJson(r.text);
+      if (p) parsed.push(p);
+    }
+    if (parsed.length === 0) {
+      throw new Error('parallel analyze returned no valid JSON from any pillar');
     }
     const recommendations = [];
     for (const p of parsed) {
@@ -676,8 +712,9 @@ async function analyzeWithLLM(domain, url, audit) {
       { role: 'user', content: JSON.stringify({ domain, url, score: audit.score, breakdown: audit.breakdown, issues: audit.issues.map((i) => `${i.severity}:${i.category}: ${i.text}`).slice(0, 12) }) },
     ];
     try {
-      const { text } = await callLLM({ role: 'builder', persona: 'builder', messages, temperature: 0.3, max_tokens: 900 });
-      const parsed = JSON.parse(text.replace(/```json|```/gi, '').trim());
+      const fb = await callLLMParallel([{ messages, temperature: 0.3, max_tokens: 900 }], { role: 'seo', persona: 'builder', concurrencyPerKey: 2, model: 'gemini-3.6-flash' });
+      const parsed = (fb[0] && fb[0].text) ? parseLooseSeoJson(fb[0].text) : null;
+      if (!parsed) throw new Error('fallback LLM returned empty text');
       return {
         summary: parsed.summary || audit.issues[0]?.text || 'Audit done.',
         recommendations: Array.isArray(parsed.recommendations) ? parsed.recommendations.slice(0, 6) : [],
@@ -702,14 +739,73 @@ async function runAudit(originUrl, { skipLlm = false, keywords = [], maxPages = 
   const homepage = await fetchText(u.href, 12000).catch((e) => {
     throw new Error(`Could not fetch site: ${e.message}`);
   });
-  const home = {
-    https,
-    status: homepage.status,
-    ttfb: homepage.ttfb ?? 0,
-    loadMs: homepage.loadMs ?? 0,
-    htmlBytes: homepage.htmlBytes ?? Buffer.byteLength(homepage.text),
-    ...parsePage(homepage.text, origin, homepage.headers || {}),
-  };
+
+  const siteAccessible = homepage.status === 200;
+  const home = siteAccessible
+    ? {
+        https,
+        status: homepage.status,
+        ttfb: homepage.ttfb ?? 0,
+        loadMs: homepage.loadMs ?? 0,
+        htmlBytes: homepage.htmlBytes ?? Buffer.byteLength(homepage.text),
+        ...parsePage(homepage.text, origin, homepage.headers || {}),
+      }
+    : {
+        https,
+        status: homepage.status,
+        ttfb: 0,
+        loadMs: 0,
+        htmlBytes: 0,
+        title: '',
+        metaDescription: '',
+        h1Count: 0,
+        h2Count: 0,
+        wordCount: 0,
+        internalLinks: [],
+        internalCount: 0,
+        externalCount: 0,
+        hasSchema: false,
+        hasFavicon: false,
+        ogTitle: false,
+        ogImage: false,
+        twitterCard: false,
+        lang: '',
+        robotsMeta: '',
+        canonical: '',
+        viewport: '',
+        semanticCount: 0,
+        blockingScripts: 0,
+        imageCount: 0,
+        nextGenCoverage: 100,
+        altCoverage: 100,
+        missingDimensionsCount: 0,
+        deprecatedTags: [],
+        inlineStyleCount: 0,
+        duplicateIds: [],
+        domBloated: false,
+        totalDomNodes: 0,
+        maxDomDepth: 0,
+        hsts: false,
+        csp: false,
+        xFrame: false,
+        permissionsPolicy: false,
+        headingSkipped: false,
+        h1TypoFound: false,
+        h1TypoText: '',
+        isOgImageSmallOrLogo: false,
+        readability: 'Unknown',
+        avgWordsPerSentence: 0,
+        faqOpportunity: false,
+        reviewOpportunity: false,
+        mixedContent: [],
+        externalUnsafeCount: 0,
+        h1Texts: [],
+        scriptsSrc: [],
+        pageSpeedHint: null,
+        // Reset to 0 when site inaccessible
+        ttfbMs: 0,
+        loadMsMs: 0,
+      };
 
   const [robots, broken, pageSpeedRes] = await Promise.all([
     fetchRobotsAndSitemap(origin),
@@ -717,16 +813,20 @@ async function runAudit(originUrl, { skipLlm = false, keywords = [], maxPages = 
     fetchGooglePageSpeed(u.href, 8000),
   ]);
 
-  const pageSpeed = pageSpeedRes || {
-    perfScore: home.ttfb < 600 ? 90 : home.ttfb < 1500 ? 75 : 55,
-    lcp: `~${((home.loadMs || home.ttfb * 2 || 1200) / 1000).toFixed(1)} s`,
-    fcp: `~${((home.ttfb || 300) / 1000).toFixed(1)} s`,
-    cls: '0.01',
-    tbt: home.blockingScripts > 0 ? `${home.blockingScripts * 150} ms` : '0 ms',
-    speedIndex: `~${((home.loadMs || 1000) / 1000).toFixed(1)} s`,
-    fetched: false,
-    strategy: 'mobile (proxy)'
-  };
+  // When site is inaccessible, do NOT fake Core Web Vitals metrics —
+  // fabricating CLS/LCP/TBT/score was a source of the "fake SEO" output.
+  const pageSpeed = !siteAccessible
+    ? { perfScore: null, lcp: null, fcp: null, cls: null, tbt: null, speedIndex: null, fetched: false, strategy: 'unavailable (site blocked crawl)' }
+    : (pageSpeedRes || {
+        perfScore: home.ttfb < 600 ? 90 : home.ttfb < 1500 ? 75 : 55,
+        lcp: `~${((home.loadMs || home.ttfb * 2 || 1200) / 1000).toFixed(1)} s`,
+        fcp: `~${((home.ttfb || 300) / 1000).toFixed(1)} s`,
+        cls: '0.01',
+        tbt: home.blockingScripts > 0 ? `${home.blockingScripts * 150} ms` : '0 ms',
+        speedIndex: `~${((home.loadMs || 1000) / 1000).toFixed(1)} s`,
+        fetched: false,
+        strategy: 'mobile (proxy)'
+      });
 
   const audit = scoreAudit(home, robots, broken);
 
@@ -736,10 +836,14 @@ async function runAudit(originUrl, { skipLlm = false, keywords = [], maxPages = 
 
   // Seed the BFS queue from sitemap URLs (canonical page list) first, then
   // top internal links, so even link-dense sites are covered fuel-efficiently.
-  const sitemapSeeds = (robots.sitemapUrls || [])
-    .filter((s) => { try { return new URL(s).hostname === new URL(origin).hostname; } catch { return false; } })
-    .slice(0, pagesCap);
-  const internalSeeds = [...new Set(home.internalLinks)].slice(0, 150);
+  // SKIP CRAWL entirely when homepage is inaccessible — sub-pages will also
+  // be blocked by the same bot protection, so crawling wastes time.
+  const sitemapSeeds = siteAccessible
+    ? (robots.sitemapUrls || [])
+        .filter((s) => { try { return new URL(s).hostname === new URL(origin).hostname; } catch { return false; } })
+        .slice(0, pagesCap)
+    : [];
+  const internalSeeds = siteAccessible ? [...new Set(home.internalLinks)].slice(0, 150) : [];
   const crawlQueue = sitemapSeeds.slice();
   for (const seed of internalSeeds) {
     if (!crawlQueue.includes(seed) && crawlQueue.length < pagesCap) crawlQueue.push(seed);
@@ -796,6 +900,11 @@ async function runAudit(originUrl, { skipLlm = false, keywords = [], maxPages = 
   // Build a map of which pages receive links from other pages
   const receivesLinkFrom = {}; // url -> count of internal pages pointing to it
   const allCrawledUrls = [u.href, ...pages.map(p => p.url)];
+
+  // ── Issue detection across all crawled pages ──
+  // SKIP when site is inaccessible — all pages would be non-200 error pages
+  let pagesWithMeta = [];
+  if (siteAccessible && pages.length > 0) {
   for (const pg of pages) {
     for (const linked of (pg.internalLinks || [])) {
       if (allCrawledUrls.includes(linked)) {
@@ -807,7 +916,7 @@ async function runAudit(originUrl, { skipLlm = false, keywords = [], maxPages = 
   receivesLinkFrom[u.href] = (receivesLinkFrom[u.href] || 999);
 
   // Tag each page with orphan status + incoming link count
-  const pagesWithMeta = pages.map(pg => ({
+  pagesWithMeta = pages.map(pg => ({
     ...pg,
     incomingLinks: receivesLinkFrom[pg.url] || 0,
     isOrphan: !receivesLinkFrom[pg.url],
@@ -852,8 +961,22 @@ async function runAudit(originUrl, { skipLlm = false, keywords = [], maxPages = 
   if (dupH1s.length) {
     audit.issues.push({ severity: 'low', category: 'onpage', text: `Duplicate H1 tags across pages: ${[...new Set(dupH1s)].slice(0, 3).map(h => `"${h}"`).join(' | ')}` });
   }
+  } // end if (siteAccessible && pages.length > 0)
 
-  const llm = skipLlm ? null : await analyzeWithLLM(domain, u.href, audit);
+  // ── LLM pass ──
+  // When the site is inaccessible we do NOT ask the LLM to "analyze" an error
+  // page — that is exactly what produced invented/fake SEO advice before.
+  // Fall back to the deterministic issues only, flagged as such.
+  let llm = null;
+  if (siteAccessible && !skipLlm) {
+    llm = await analyzeWithLLM(domain, u.href, audit);
+  }
+  if (!siteAccessible) {
+    llm = {
+      summary: 'Site could not be crawled — the server returned HTTP ' + homepage.status + ' (likely bot protection like Cloudflare). Fix access/blocking first, then re-audit for a real SEO assessment.',
+      recommendations: audit.issues.slice(0, 4).map((i) => ({ priority: i.severity, issue: i.category, fix: i.text })),
+    };
+  }
 
   // Keyword presence check — target keywords appearing in title/meta/body text.
   const haystack = `${home.title || ''} ${home.metaDescription || ''} ${homepage.text || ''}`.toLowerCase();
@@ -938,15 +1061,16 @@ async function runAudit(originUrl, { skipLlm = false, keywords = [], maxPages = 
   return {
     domain,
     url: u.href,
+    siteAccessible,
     home,
     robotsMetrics: { robotsExists: !!robots.robotsExists, rulesPresent: !!robots.rulesPresent, sitemapFound: !!robots.sitemapFound, sitemapUrlCount: (robots.sitemapUrls || []).length, sitemapLastmod: robots.lastmodCount || 0, isSitemapIndex: !!robots.isSitemapIndex },
-    pagesFound: pagesWithMeta ? pagesWithMeta.length : pages.length,
+    pagesFound: siteAccessible ? (pagesWithMeta ? pagesWithMeta.length : pages.length) : 0,
     crawl: {
       requested: pagesCap,
-      crawled: pages.length,
+      crawled: siteAccessible ? pages.length : 0,
       tookMs: crawlTookMs,
-      fetches: crawlFetches,
-      frames: crawlFrames,
+      fetches: siteAccessible ? crawlFetches : 0,
+      frames: siteAccessible ? crawlFrames : 0,
       seedsFromSitemap: sitemapSeeds.length,
       seedsFromLinks: internalSeeds.length,
       truncated: pages.length >= pagesCap || (Date.now() - crawlStart) >= crawlDeadlineMs,
@@ -957,6 +1081,7 @@ async function runAudit(originUrl, { skipLlm = false, keywords = [], maxPages = 
       issues: audit.issues.slice(0, 20),
       summary: llm ? llm.summary : 'Deterministic audit (LLM analysis skipped for comparison).',
       recommendations: llm ? llm.recommendations : (audit.issues.slice(0, 5).map((i) => ({ priority: i.severity, issue: i.category, fix: i.text }))),
+      siteAccessible,
       auditedAt: Date.now(),
       pageSpeed,
       signals,
@@ -1448,14 +1573,14 @@ Your primary role:
 - Evaluate whole-website architecture (Clean HTML, indexability, speed, sitemaps, schema, mobile responsiveness).
 - Be analytical, sharp, and practical. Use Hinglish when natural. Never claim data you don't have.`;
 
-  const { text, model } = await callLLM({
-    role: 'builder',
-    persona: 'builder',
+  const fb = await callLLMParallel([{
     messages: [
       { role: 'system', content: systemPrompt },
       ...recent.filter((m) => m.role === 'user' || m.role === 'assistant').map((m) => ({ role: m.role, content: m.content })),
     ],
-  });
+  }], { role: 'seo', persona: 'builder', concurrencyPerKey: 2, model: 'gemini-3.6-flash' });
+  const text = (fb[0] && fb[0].text) || '';
+  const model = fb[0] && fb[0].model;
 
   await memory.addMessage(userId, sid, 'assistant', text);
   return { reply: text, model, sessionId: sid };
