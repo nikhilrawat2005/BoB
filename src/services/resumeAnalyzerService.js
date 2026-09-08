@@ -88,15 +88,23 @@ RETURN ONLY A VALID JSON OBJECT (no markdown, no backticks, no comments, raw JSO
   "bulletImprovements": [
     {
       "original": "<copy an actual bullet from this resume VERBATIM — must exist in the resume above>",
-      "improved": "<rewrite using Google XYZ formula: Accomplished [X] as measured by [Y] by doing [Z] — include real metrics>"
+      "improved": "<rewrite using Google XYZ formula — CRITICAL: do NOT use X%, Y users, Z% or any placeholder. If no real metric exists in the resume, end the bullet with a strong concrete outcome phrase like 'enabling real-time attendance automation' or 'streamlining the entire hiring pipeline'. Use ONLY real numbers that appear in the resume (e.g. 210+ pages, 128-dimensional, 36-hr, 1176 rating, 31 problems).>"
     },
     {
-      "original": "<another actual bullet from this resume VERBATIM>",
-      "improved": "<XYZ formula rewrite with specific quantified impact>"
+      "original": "<another actual bullet VERBATIM from this resume>",
+      "improved": "<XYZ rewrite — strong verb + task + real metric or concrete outcome. NO placeholders like X% or Y users.>"
     },
     {
-      "original": "<third actual bullet from this resume VERBATIM>",
-      "improved": "<XYZ formula rewrite with specific quantified impact>"
+      "original": "<third actual bullet VERBATIM from this resume>",
+      "improved": "<XYZ rewrite — strong verb + task + real metric or concrete outcome. NO placeholders.>"
+    },
+    {
+      "original": "<fourth actual bullet VERBATIM from this resume>",
+      "improved": "<XYZ rewrite>"
+    },
+    {
+      "original": "<fifth actual bullet VERBATIM from this resume>",
+      "improved": "<XYZ rewrite>"
     }
   ],
   "actionPlan": [

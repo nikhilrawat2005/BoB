@@ -1,4 +1,4 @@
-// ---------------------------------------------------------------------------
+﻿// ---------------------------------------------------------------------------
 // Bob Resume Intelligence — Direct PDF Generation Service (PDFKit Engine)
 // Builds high-quality, ATS-standard, beautifully formatted single/multi-page
 // technical resumes directly inside Node.js without any LaTeX compiler dependency.
@@ -280,28 +280,12 @@ function applyShowcasePolish(data) {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // SELF-AUDIT REFINEMENT LOOP
-// Bob runs a real ATS audit on the resume it just generated, detects
-// CREATOR-SIDE issues (things Bob did wrong in the output, not the candidate's
-// raw data), sends targeted fix feedback back to the LLM, and loops until
-// the quality threshold is met or MAX_ITERATIONS is reached.
-//
-// Creator-side issues detected:
-//   1. Bullets ending with '.'              (ATS rule violation — Bob's job)
-//   2. X/Y/Z placeholder metrics left in   (NEVER INVENT METRICS rule broken)
-//   3. Weak/passive action verbs remaining  (Focused on, Contributed to, etc.)
-//   4. impactAndMetrics score < 55          (Bob needs to use real numbers better)
-//   5. Duplicate content (same text across  (Bob's structural problem)
-//      projects / certifications)
 // ─────────────────────────────────────────────────────────────────────────────
 const SELF_AUDIT_MAX_ITERATIONS = 3;
-const SELF_AUDIT_PASS_SCORE     = 78;   // atsScore threshold to stop looping
+const SELF_AUDIT_PASS_SCORE     = 78;
 const WEAK_VERB_RE = /^(Focused on|Contributed to|Assisted|Participated in|Was responsible for|Helped|Worked on|Supported|Involved in)/i;
-const PLACEHOLDER_METRIC_RE     = /\b[XxYyZz][0-9]*%|\bX%|\bY%|\bZ%|by [XxYy]%|by an estimated [Xx]%|\b[XxYyZz] users|\b[XxYyZz] students|\b[XxYyZz] concurrent|\bLighthouse score of [XxYyZz]/i;
+const PLACEHOLDER_METRIC_RE = /\b[XxYyZz][0-9]*%|\bX%|\bY%|\bZ%|by [XxYy]%|by an estimated [Xx]%|\b[XxYyZz] users|\b[XxYyZz] students|\b[XxYyZz] concurrent|\bLighthouse score of [XxYyZz]|\bimpacting [XxYyZz]|\bengaging [XxYyZz]|\breaching [XxYyZz]/i;
 
-/**
- * Convert a structured resume data object into a flat readable text
- * that the ATS auditor can score.
- */
 function resumeDataToText(data) {
   const lines = [];
   if (data.basics) {
@@ -346,6 +330,130 @@ function resumeDataToText(data) {
 }
 
 /**
+ * Build a compact summary of real facts/numbers from the candidate profile.
+ * Used in refinement prompt so LLM knows what real metrics it can use.
+ */
+function buildProfileFactsSummary(profile) {
+  const facts = [];
+  if (profile.name) facts.push(`Candidate: ${profile.name}`);
+
+  const realNumbers = [];
+  // Pull real numbers from known profile fields
+  if (profile.developerPlatforms) {
+    const dp = profile.developerPlatforms;
+    if (dp.leetcode?.solved) realNumbers.push(`LeetCode: ${dp.leetcode.solved} problems solved`);
+    if (dp.codechef?.rating) realNumbers.push(`CodeChef Rating: ${dp.codechef.rating}`);
+    if (dp.github?.repos) realNumbers.push(`GitHub: ${dp.github.repos} public repos`);
+  }
+  if (Array.isArray(profile.projects)) {
+    profile.projects.forEach(p => {
+      if (p.title) {
+        const note = p.stats ? ` (${JSON.stringify(p.stats)})` : '';
+        realNumbers.push(`Project: ${p.title}${note}`);
+      }
+    });
+  }
+  if (Array.isArray(profile.certifications)) {
+    profile.certifications.forEach(c => {
+      if (c.title || c.name) realNumbers.push(`Award: ${c.title || c.name}`);
+    });
+  }
+
+  if (realNumbers.length > 0) {
+    facts.push('REAL NUMBERS/FACTS (ONLY these can be used as metrics):');
+    facts.push(...realNumbers);
+  }
+  facts.push('\nRULE: If no real number exists for a bullet, close with a strong concrete outcome phrase instead (e.g. "automating full attendance pipeline" or "eliminating manual tracking"). NEVER use X%, Y users, Z concurrent.');
+  return facts.join('\n');
+}
+
+/**
+ * Deterministically fix bullets BEFORE sending to LLM:
+ * - Strip trailing periods (guaranteed ATS fix, no LLM needed)
+ * - Strip X/Y/Z placeholder metric fragments
+ * - Filter out undefined/empty experience entries
+ */
+function applyDeterministicBulletFixes(data) {
+  // Fix 1: Filter undefined / ghost experience entries
+  if (Array.isArray(data.experience)) {
+    data.experience = data.experience.filter(e =>
+      e &&
+      e.role && String(e.role).trim() !== '' && String(e.role).toLowerCase() !== 'undefined' &&
+      e.company && String(e.company).trim() !== '' && String(e.company).toLowerCase() !== 'undefined'
+    );
+  }
+
+  // Fix 2: Strip trailing periods & X/Y/Z placeholders from bullets
+  ['projects', 'experience'].forEach(sec => {
+    if (!Array.isArray(data[sec])) return;
+    data[sec].forEach(entry => {
+      if (!Array.isArray(entry.bullets)) return;
+      entry.bullets = entry.bullets.map(b => {
+        let fixed = String(b || '').trim();
+        // Remove trailing period(s)
+        fixed = fixed.replace(/\.+\s*$/, '').trim();
+        // Strip comma-segments containing X/Y/Z placeholders
+        const parts = fixed.split(',');
+        const clean = parts.filter(part => !PLACEHOLDER_METRIC_RE.test(part));
+        fixed = (clean.length > 0 ? clean : parts).join(',').replace(/[,;\s]+$/, '').trim();
+        return fixed;
+      }).filter(Boolean);
+    });
+  });
+
+  return data;
+}
+
+/**
+ * From the audit's bulletImprovements, find which project/experience section
+ * contains each original bullet (fuzzy match) and build exact swap instructions.
+ * Skips improved bullets that still contain X/Y/Z placeholders.
+ * Returns: [{ sectionType, entryTitle, original, improved }]
+ */
+function mapBulletImprovementsToSections(data, bulletImprovements) {
+  if (!Array.isArray(bulletImprovements) || bulletImprovements.length === 0) return [];
+
+  const allEntries = [
+    ...(data.projects || []).map(p => ({ type: 'project', title: p.title || '', bullets: p.bullets || [] })),
+    ...(data.experience || []).map(e => ({ type: 'experience', title: `${e.role} at ${e.company}`, bullets: e.bullets || [] }))
+  ];
+
+  const mapped = [];
+  const usedOriginals = new Set();
+
+  for (const imp of bulletImprovements) {
+    if (!imp.original || !imp.improved) continue;
+    // Skip if improved still has placeholders
+    if (PLACEHOLDER_METRIC_RE.test(imp.improved)) continue;
+
+    const origNorm = String(imp.original).toLowerCase().replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim();
+    if (usedOriginals.has(origNorm)) continue;
+
+    for (const entry of allEntries) {
+      const match = entry.bullets.find(b => {
+        const bNorm = String(b).toLowerCase().replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim();
+        const origWords = origNorm.split(' ').filter(w => w.length > 3);
+        if (origWords.length === 0) return false;
+        const hits = origWords.filter(w => bNorm.includes(w)).length;
+        return hits / origWords.length >= 0.65;
+      });
+
+      if (match) {
+        usedOriginals.add(origNorm);
+        mapped.push({
+          sectionType: entry.type,
+          entryTitle: entry.title,
+          original: match,
+          improved: imp.improved
+        });
+        break;
+      }
+    }
+  }
+  return mapped;
+}
+
+/**
  * Collect all creator-side issues from the resume data (deterministic checks)
  * and from the ATS audit result.
  * Returns an array of specific issue strings, or [] if clean.
@@ -353,11 +461,12 @@ function resumeDataToText(data) {
 function detectCreatorIssues(data, auditResult) {
   const issues = [];
 
-  // 1. Bullets ending with period
   const sectionsWithBullets = [
     ...(data.projects || []),
     ...(data.experience || [])
   ];
+
+  // 1. Bullets ending with period (after deterministic fix should be 0)
   const periodBullets = [];
   sectionsWithBullets.forEach(entry => {
     (entry.bullets || []).forEach(b => {
@@ -365,7 +474,7 @@ function detectCreatorIssues(data, auditResult) {
     });
   });
   if (periodBullets.length > 0) {
-    issues.push(`TRAILING PERIODS: ${periodBullets.length} bullet(s) still end with a period — remove all trailing '.' from bullets. Examples: "${periodBullets.slice(0,2).join('", "')}"`);
+    issues.push(`TRAILING PERIODS: ${periodBullets.length} bullet(s) still end with '.' — remove ALL trailing periods. Examples: "${periodBullets.slice(0, 2).join('", "')}"`);
   }
 
   // 2. X/Y/Z placeholder metrics
@@ -376,7 +485,7 @@ function detectCreatorIssues(data, auditResult) {
     });
   });
   if (placeholderBullets.length > 0) {
-    issues.push(`PLACEHOLDER METRICS: ${placeholderBullets.length} bullet(s) contain forbidden X/Y/Z placeholders — replace with a real concrete outcome phrase or remove the metric entirely. Examples: "${placeholderBullets.slice(0,2).join('", "')}"`);
+    issues.push(`PLACEHOLDER METRICS: ${placeholderBullets.length} bullet(s) still have X/Y/Z placeholders — use concrete outcome phrases. NO invented numbers. Examples: "${placeholderBullets.slice(0, 2).join('", "')}"`);
   }
 
   // 3. Weak / passive action verbs
@@ -387,127 +496,163 @@ function detectCreatorIssues(data, auditResult) {
     });
   });
   if (weakVerbBullets.length > 0) {
-    issues.push(`WEAK VERBS: ${weakVerbBullets.length} bullet(s) start with passive/weak verbs — upgrade to strong action verbs (Architected, Engineered, Implemented, Spearheaded, Automated, Optimized). Examples: "${weakVerbBullets.slice(0,2).join('", "')}"`);
+    issues.push(`WEAK VERBS: ${weakVerbBullets.length} bullet(s) use passive verbs — upgrade to Architected/Engineered/Implemented/Spearheaded/Automated/Optimized. Examples: "${weakVerbBullets.slice(0, 2).join('", "')}"`);
   }
 
   // 4. Low impactAndMetrics from audit
   const impact = auditResult?.breakdown?.impactAndMetrics ?? 100;
-  if (impact < 55) {
-    issues.push(`LOW IMPACT SCORE (${impact}/100): Most bullets lack quantified outcomes. Use ONLY real numbers from the candidate profile (e.g. 210+ pages, 36-hr hackathon, 128-dimensional encoding, 1176 rating). Do NOT invent numbers — use concrete outcome phrases where no real number exists.`);
+  if (impact < 60) {
+    issues.push(`LOW IMPACT SCORE (${impact}/100): Bullets lack concrete outcomes. Use ONLY real numbers that exist in the candidate's data (210+ pages, 128-dimensional, 36-hr hackathon, 1176 CodeChef rating, 31 LeetCode problems). For everything else, use strong outcome phrases (e.g. "automating full student attendance pipeline" not "improving efficiency by X%").`);
   }
 
   // 5. Duplicate content between projects and certifications
   const projectTitles = (data.projects || []).map(p => (p.title || '').toLowerCase().trim());
   const certTitles = (data.certifications || []).map(c => (c.title || '').toLowerCase().trim());
-  const duplicates = certTitles.filter(ct => projectTitles.some(pt => ct.includes(pt.split(' ')[0]) && pt.length > 4));
+  const duplicates = certTitles.filter(ct =>
+    projectTitles.some(pt => pt.length > 4 && ct.includes(pt.split(' ')[0]))
+  );
   if (duplicates.length > 0) {
-    issues.push(`DUPLICATE CONTENT: Certifications section repeats project descriptions ("${duplicates.slice(0,2).join('", "')}"). Certifications should only list awards, licenses, and achievements — not project summaries.`);
+    issues.push(`DUPLICATE CONTENT: Certifications repeats project descriptions ("${duplicates.slice(0, 2).join('", "')}"). Certifications = only awards, accolades, licences — NOT project summaries.`);
   }
 
   return issues;
 }
 
 /**
- * Run the self-audit loop: audit → detect creator issues → refine → repeat.
- */
+ * Run the self-audit loop:
+ *   deterministic fixes → audit → map bulletImprovements → detect issues
+ *   → targeted LLM refinement with EXACT bullet swaps → repeat
+ *
+ * KEY: The audit returns exact original→improved bullet pairs.
+ *      We match them back to their project section and give the LLM
+ *      PRECISE "replace A with B in project X" instructions instead of
+ *      vague hints. No guessing required.
 async function selfAuditAndRefine(data, profile, customInstructions, isTargeted, jobDescription) {
   const { auditResume } = require('./resumeAnalyzerService');
 
   for (let iteration = 1; iteration <= SELF_AUDIT_MAX_ITERATIONS; iteration++) {
-    // Convert current resume to auditable text
+    // ── Step A: Apply deterministic fixes first (no LLM needed) ──────────────
+    data = applyDeterministicBulletFixes(data);
+
+    // ── Step B: Convert resume to auditable flat text ─────────────────────────
     const resumeText = resumeDataToText(data);
 
-    // Run the real ATS audit on Bob's own output
+    // ── Step C: Run real ATS audit on Bob's own output ────────────────────────
     let auditResult;
     try {
       auditResult = await auditResume({ resumeText, targetJobDescription: jobDescription || '' });
     } catch (auditErr) {
-      console.warn(`[selfAudit] Iteration ${iteration}: audit call failed (${auditErr.message}), skipping loop`);
+      console.warn(`[selfAudit] Iteration ${iteration}: audit failed (${auditErr.message}), stopping`);
       break;
     }
 
-    const score = auditResult?.atsScore ?? 0;
-    console.log(`[selfAudit] Iteration ${iteration}/${SELF_AUDIT_MAX_ITERATIONS}: atsScore=${score}, impactAndMetrics=${auditResult?.breakdown?.impactAndMetrics ?? '?'}`);
+    const score  = auditResult?.atsScore ?? 0;
+    const impact = auditResult?.breakdown?.impactAndMetrics ?? 0;
+    console.log(`[selfAudit] Iteration ${iteration}/${SELF_AUDIT_MAX_ITERATIONS}: atsScore=${score}, impactAndMetrics=${impact}`);
 
-    // Detect creator-side issues deterministically + from audit
+    // ── Step D: Map audit's bulletImprovements to exact resume sections ───────
+    // The audit already computed EXACTLY which bullets are weak and how to fix
+    // them. We match each one back to its project/experience entry so the LLM
+    // gets "replace X with Y in project Z" — no guessing needed.
+    const bulletMappings = mapBulletImprovementsToSections(data, auditResult?.bulletImprovements || []);
+
+    // ── Step E: Detect any remaining creator-side issues ─────────────────────
     const creatorIssues = detectCreatorIssues(data, auditResult);
 
-    // If score meets threshold and no critical creator issues → we're done
+    // ── Step F: Pass / fail check ─────────────────────────────────────────────
+    const hasWork = creatorIssues.length > 0 || bulletMappings.length > 0;
+    if (!hasWork) {
+      console.log(`[selfAudit] ℹ️ No creator issues + no bullet rewrites. Score=${score}. Stopping.`);
+      break;
+    }
     if (score >= SELF_AUDIT_PASS_SCORE && creatorIssues.length === 0) {
       console.log(`[selfAudit] ✅ Quality passed at iteration ${iteration} (score=${score})`);
       break;
     }
-
-    // If no fixable issues detected even at low score, stop (can't improve)
-    if (creatorIssues.length === 0) {
-      console.log(`[selfAudit] ℹ️ No creator-side issues found at iteration ${iteration}. Score=${score}. Stopping.`);
-      break;
-    }
-
-    // On last iteration don't re-generate, just return what we have
     if (iteration === SELF_AUDIT_MAX_ITERATIONS) {
-      console.log(`[selfAudit] ⚠️ Max iterations reached. Returning best version (score=${score})`);
+      console.log(`[selfAudit] ⚠️ Max iterations reached (score=${score}). Returning best version.`);
       break;
     }
 
-    // Build targeted refinement prompt with specific issues
-    const issueList = creatorIssues.map((iss, i) => `${i + 1}. ${iss}`).join('\n');
-    console.log(`[selfAudit] 🔄 Refining iteration ${iteration} — ${creatorIssues.length} creator issues found:\n${issueList}`);
+    // ── Step G: Build targeted refinement prompt with exact bullet swaps ──────
+    const issueList = creatorIssues.length > 0
+      ? `\nCREATOR-SIDE ISSUES TO FIX:\n${creatorIssues.map((iss, i) => `${i + 1}. ${iss}`).join('\n')}`
+      : '';
 
-    const refinementPrompt = `You are a World-Class Technical Resume Expert performing a TARGETED REFINEMENT PASS.
-You just generated a resume JSON that was internally audited (ATS Score: ${score}/100).
-The audit found CREATOR-SIDE issues — mistakes in how you wrote the resume (not the candidate's data limitations).
+    const bulletRewriteBlock = bulletMappings.length > 0
+      ? `\nEXACT BULLET REWRITES (apply these precisely — these came from the ATS audit):\n` +
+        bulletMappings.map((m, i) =>
+          `${i + 1}. In ${m.sectionType} "${m.entryTitle}":\n` +
+          `   FIND:    "${m.original}"\n` +
+          `   REPLACE: "${m.improved}"`
+        ).join('\n\n')
+      : '';
+
+    console.log(`[selfAudit] 🔄 Iteration ${iteration} — ${creatorIssues.length} issues + ${bulletMappings.length} exact bullet rewrites`);
+
+    const profileFacts = buildProfileFactsSummary(profile);
+
+    const refinementPrompt = `You are a World-Class Resume Expert doing a TARGETED REFINEMENT PASS.
+This resume was internally audited. ATS Score: ${score}/100. Fix the creator-side mistakes below.
 
 CURRENT RESUME JSON:
 ${JSON.stringify(data, null, 2)}
 
-CANDIDATE PROFILE (for reference — do NOT invent data not in here):
-${JSON.stringify(profile, null, 2)}
-
-CREATOR-SIDE ISSUES TO FIX (these are YOUR mistakes as the resume writer):
+CANDIDATE'S REAL FACTS (ONLY use these for any metrics — NEVER invent):
+${profileFacts}
+${bulletRewriteBlock}
 ${issueList}
 
-STRICT REFINEMENT RULES:
-- Fix ONLY the issues listed above. Do NOT restructure or remove valid content.
-- Do NOT invent metrics, numbers, or facts that are not in the candidate profile above.
-- Do NOT add X/Y/Z placeholder metrics — if a real number isn't available, use a concrete outcome phrase instead.
-- Remove trailing periods from ALL bullet points.
-- Upgrade any weak verbs (Focused on, Contributed to, Participated in) to strong action verbs.
-- Remove any duplicate project descriptions from the certifications section.
-- Keep all project titles, links, and tech stacks exactly as they are.
-${customInstructions && customInstructions.trim() ? `- User's custom instructions still apply:\n"""\n${customInstructions.trim()}\n"""` : ''}
+ABSOLUTE RULES:
+1. Apply the EXACT BULLET REWRITES above — find each matching bullet and replace it with the improved version.
+2. NEVER use X%, Y users, Z concurrent, or ANY placeholder metric.
+3. Remove ALL trailing periods from every bullet.
+4. Upgrade weak verbs (Focused on, Contributed to, Helped) → Architected/Engineered/Implemented/Automated.
+5. Remove certifications that are just project descriptions repeated.
+6. Keep all project titles, links, tech stacks, and structure identical.
+7. Do NOT invent any data not listed in the candidate facts above.
+${customInstructions && customInstructions.trim() ? `8. User's custom instructions still apply:\n"""\n${customInstructions.trim()}\n"""` : ''}
 
-RETURN ONLY the corrected JSON object in the exact same schema as the input. Raw JSON only, no markdown, no backticks.`;
+RETURN ONLY the corrected JSON in the exact same schema. Raw JSON only — no markdown, no backticks, no comments.`;
 
     let refinedResponse;
     try {
       refinedResponse = await callLLM({
         messages: [
-          { role: 'system', content: 'You are a resume refinement expert. Fix only the specific issues given. Return valid JSON only.' },
+          {
+            role: 'system',
+            content: 'You are a precise resume refinement expert. Apply exact bullet replacements as instructed. Never use placeholder metrics. Return valid JSON only.'
+          },
           { role: 'user', content: refinementPrompt }
         ],
-        temperature: 0.1,
+        temperature: 0.05,
         max_tokens: 4000
       });
     } catch (llmErr) {
-      console.warn(`[selfAudit] Iteration ${iteration}: refinement LLM call failed (${llmErr.message}), stopping`);
+      console.warn(`[selfAudit] Iteration ${iteration}: LLM call failed (${llmErr.message}), stopping`);
       break;
     }
 
     const refinedRaw = (refinedResponse && refinedResponse.text) ? refinedResponse.text : String(refinedResponse);
-    const refinedStripped = refinedRaw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '').trim();
-    const refinedMatch = refinedStripped.match(/\{[\s\S]*\}/);
+    // Strip markdown code fences (e.g. ```json ... ```) if model wraps JSON
+    let refinedClean = refinedRaw.trim();
+    if (refinedClean.startsWith('```')) {
+      const firstNewline = refinedClean.indexOf('\n');
+      if (firstNewline !== -1) refinedClean = refinedClean.slice(firstNewline + 1);
+      if (refinedClean.endsWith('```')) refinedClean = refinedClean.slice(0, refinedClean.lastIndexOf('```'));
+      refinedClean = refinedClean.trim();
+    }
+    const refinedMatch = refinedClean.match(/\{[\s\S]*\}/);
     if (!refinedMatch) {
-      console.warn(`[selfAudit] Iteration ${iteration}: could not parse refined JSON, keeping current version`);
+      console.warn(`[selfAudit] Iteration ${iteration}: could not parse refined JSON, keeping current`);
       break;
     }
 
     try {
       const refinedData = JSON.parse(refinedMatch[0]);
-      // Apply deterministic polish on top of the LLM refinement
       data = applyShowcasePolish(refinedData);
     } catch (parseErr) {
-      console.warn(`[selfAudit] Iteration ${iteration}: JSON parse failed (${parseErr.message}), keeping current version`);
+      console.warn(`[selfAudit] Iteration ${iteration}: JSON parse failed (${parseErr.message}), keeping current`);
       break;
     }
   }
@@ -1068,3 +1213,4 @@ module.exports = {
   applyResumeNotesDirectives,
   applyShowcasePolish
 };
+
