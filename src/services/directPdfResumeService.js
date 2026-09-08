@@ -676,7 +676,17 @@ CRITICAL RULES:
 1. LINKS INTEGRITY: ONLY include links that the candidate ACTUALLY has provided in their master profile, smartLinks array, or base resume (e.g. GitHub, LinkedIn, LeetCode, CodeChef, Portfolios). Do NOT hallucinate or insert links if the user has NOT provided them! Ensure link labels are clean and accurate.
 2. PROJECT PRESERVATION, CLASSIFICATION & HIRATION BULLETS:
    - The candidate's own named signature projects (BoB, The Falcon Tour, Bloom, Smart Attendance System, Market Kingdom, or any project named in their profile / base resume / notes) MUST all be preserved in the projects array with accurate titles — never drop them, never swap in hallucinated projects. If it is a lot of projects it is fine: this resume is built for high density.
-   - CLASSIFY PERSONAL VS CLIENT WORK: From the candidate's custom instructions/notes decide each project's client field. If the candidate says a project was built as freelancing / for a client / paid service work ("client ke liye banaya", "freelancing me"), set "client": true and phrase its bullets as a client-delivered engagement (business outcome, on-time delivery, stakeholder value). Otherwise keep "client": false (personal portfolio work).
+   - CLASSIFY PERSONAL vs FREELANCE/CLIENT WORK — CRITICAL ROUTING RULE:
+     * FREELANCING / CLIENT WORK → MUST go in "experience" array, NOT "projects" array.
+       If the candidate (or their custom instructions) says a project was freelancing, for a client, or paid service work — keywords: "client ke liye banaya", "freelancing me banaya", "service project", "client work" — place it in experience[] as:
+         "role": "Freelance Web Developer"  (adjust tech: Freelance Full-Stack / Freelance Frontend etc.)
+         "company": "[The client/project name, e.g. The Falcon Tour]"
+         "duration": "[Duration if stated, otherwise estimate e.g. 2023 – 2024]"
+         "location": "Remote"
+         "bullets": [client-delivery framing: deployed for client, business outcome, real users, on-time delivery, revenue/traffic impact]
+       Do NOT put this entry in projects[]. Do NOT duplicate it.
+     * PERSONAL / PORTFOLIO / HACKATHON → projects[] array only.
+       Personal side projects, open-source contributions, hackathon submissions stay in projects[].
    - HIRATION & GOOGLE XYZ FORMULA: Every bullet MUST start with a strong active verb (e.g. Architected, Engineered, Implemented, Spearheaded, Optimized), contain a clear technical task, and end with a quantified metric or measurable outcome (e.g. 'reducing latency by 40%', 'processing 500+ records with 99.2% accuracy', 'generating 210+ static pages').
    - MAXIMIZE ATS KEYWORD COVERAGE: Weave the candidate's actual languages, frameworks, platforms and tools (e.g. React, Node.js, Firebase, Cloudinary, Gemini AI, Next.js, REST APIs, Computer Vision) into project titles, tech stacks and bullets so ATS keyword matching is maximised. Never use a keyword the candidate has not actually used.
    - NO ENDING PERIODS: Do NOT put a period '.' at the end of any bullet point (as per modern ATS / Hiration resume standards).
@@ -687,7 +697,7 @@ ${customInstructions && customInstructions.trim().length > 0 ? `USER'S OWN RESUM
 ${customInstructions.trim()}
 """
 HOW TO APPLY THEM:
-   - If the user says a project was freelance / client / paid-service work ("client ke liye", "freelancing me banaya", "service project"), set that project's "client": true and describe it as a client engagement so a recruiter understands it is real professional/client work, not a class assignment.
+   - If the user says a project was freelance / client / paid-service work ("client ke liye", "freelancing me banaya", "service project"), MOVE that project to the experience[] array. Use role="Freelance [Tech] Developer", company=the project/client name, and write bullets as client-delivery outcomes. Do NOT put it in projects[].
    - If the user says "replace X with Y", drop project X and put project Y in exactly that position.
    - If the user says to add something to certifications ("certificates mein dalna"), add it as a certifications entry (action-oriented title + issuer).
    - If the user gives a personal overview / story / context, weave the meaningful parts naturally into the summary and project descriptions without inventing any facts or metrics.
