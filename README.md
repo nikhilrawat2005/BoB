@@ -247,7 +247,7 @@ Six long-term memory pillars, all Firestore-backed:
 - Bob can propose and log diffs to its own codebase (`selfEditService`), capped by `SELF_EDIT_MAX_DIFF_CHARS`.
 
 ### 9. 📈 SEO Working & Diagnostics
-- Auto-audits up to **300 pages** (capped 500) per site with sitemap-seeded BFS, broken-link + PageSpeed checks, 4-pillar 100-scale scoring, keyword tracking, and a **self-healing re-audit pump**.
+- Crawls **every discoverable page** per site (no artificial cap — only a wall-clock deadline) with sitemap-seeded parallel BFS, broken-link + PageSpeed checks, 4-pillar 100-scale scoring, keyword tracking, honest blocked-site detection, and a **self-healing re-audit pump**.
 - Parallel multi-key AI analysis → Hinglish summary, Level-4 action plan, deployable fix plan, full HTML report. See [deep dive](#-seo-beast-engine--deep-dive).
 
 ### 10. 📄 AI Resume Builder & ATS Engine *(flagship module — see deep dive below)*
@@ -318,17 +318,21 @@ A per-profile **free-text notes box** treated as the highest-priority instructio
 
 Notes persist per profile and are re-sent on every generation.
 
+**Deterministic directive engine** — beyond prompting the LLM, a code-level `applyResumeNotesDirectives` runs *after* generation to guarantee the instructions land: it client-ifies freelance/service work, moves named projects into Experience or Certifications on demand, replaces one project with another at the exact position, and re-adds projects pulled from your profile — so note-based changes are never left to chance (12/12 directive scenarios covered by tests).
+
 ### 3.3 The LLM prompt rules Bob lives by
 - **Project preservation** — signature projects (`BoB`, `The Falcon Tour`, `Bloom`, `Smart Attendance System`, `Market Kingdom`, or anything in your profile/notes) are never dropped or hallucinated.
 - **Hiration / Google-XYZ bullets** — active verb → technical task → quantifiable outcome.
 - **Max ATS keyword coverage** — real languages/frameworks/tools woven into titles, tech stacks, bullets.
 - **No invented contacts** — email/phone/location only from real profile data.
 - **Clean bullet style** — no ending periods, single focus per bullet (modern ATS/Harvard standard).
+- **Self-audit & showcase polish (mandatory final pass)** — weak competitive numbers are reframed, never shown as bare lows (e.g. `LeetCode 31 Solved (25 Easy, 6 Medium)` becomes *"Built core DSA fundamentals across arrays, strings, hashing, recursion and two-pointer patterns with 31 LeetCode problems solved"*); every bullet is shaped as **active verb + task + outcome using ONLY real numbers** from the candidate's data.
+- **Never invent metrics** — `X%`, `Y users`, `Z concurrent`, `Lighthouse score of X`, `by an estimated X%` placeholders are **forbidden**; a bullet without a real metric closes with a concrete outcome phrase instead. Weak verbs are upgraded (Contributed to / Focused on → Architected / Engineered / Implemented / Designed / Spearheaded). A deterministic `applyShowcasePolish` backstop strips any leaked placeholder clauses from the final JSON.
 
 ### 3.4 Rendering the PDF
-- **Direct PDFKit engine** (`directPdfResumeService.js`) — zero LaTeX dependency, streams a valid PDF straight from Node.
+- **Direct PDFKit engine** (`directPdfResumeService.js`) — streams a valid PDF straight from Node (no external template engine).
 - **Smart one-page layout** — renders standard first; auto-rebuilds in a compact layout (tighter margins + smaller fonts) if it overflows.
-- **Clickable hyperlinks** — real PDF link annotations with manual underlines, host-name-mapped labels, never overlapping the left column.
+- **Clickable hyperlinks** — real PDF link annotations with manual underlines, host-name-mapped labels, never overlapping the left column. The header contact bar renders **clean labels only** (`GitHub | LinkedIn | LeetCode | CodeChef`) — the full URL never leaks visually, but each label remains a fully clickable, correctly-typed link annotation.
 - **Overlap-proof layout math** — reserved-width wrapping, truncated right-side dates/links, `doc.x` reset after right-aligned draws, "keep inside printable area" checks that add a page before clipping.
 - **PDF metadata** — title/author/creator set from candidate name.
 
@@ -403,9 +407,11 @@ flowchart LR
 A full **parallel, multi-key** SEO auditing stack: crawl → score → AI diagnose → plan → fixed files → HTML report, all self-healing on a cron pump.
 
 **Crawl** (`seoService.runAudit`)
-1. **Sitemap-seeded BFS** — seeds the crawl queue from `robots.sitemapUrls` first (same-host filtered), then homepage internal links (up to 150). BFS with **12 parallel fetches** (9s each), bounded queue, deduped visited set.
-2. **Up to 300 pages** (`maxPages`, clamped 10–500, default 300) within a 45s deadline — if either cap is hit, crawl stops cleanly and reports `crawl.truncated`.
+1. **Sitemap-seeded BFS** — seeds the crawl queue from `robots.sitemapUrls` first (same-host filtered, up to the safety cap), then **all** unique homepage internal links. BFS with **12 parallel fetches** (9s each), deduped visited set.
+2. **No artificial page cap** — every discovered unique page is crawled until the wall-clock deadline: **90s for a new audit, 110s for a re-audit** (memory-guarded at 10,000 pages). If the deadline hits first, the crawl stops cleanly and reports `crawl.truncated: true`; page details are persisted up to 1,000 entries (`crawledPages`).
 3. Per-page on-page audit via Cheerio: title/meta/H1, word count, meta description, h1/dup checks → **thin-content (<120 words)**, **orphan pages**, missing H1/meta, duplicate titles/H1 detection across the crawled set.
+
+**Blocked sites (honest audits)** — if the homepage returns anything other than HTTP 200 (e.g. Cloudflare/nginx bot protection), Bob sets `siteAccessible: false`, shows the real HTTP status, reports a **zero-fabricated score**, skips the crawl and the LLM pass entirely, and returns a deterministic *"site could not be crawled — fix access first, then re-audit"* note. It never scores a 403 error page as if it were the real site, and never invents PageSpeed/CWV numbers for inaccessible domains.
 
 **Scoring** — `score = round((technical + onpage + content + links) / 4)`, each pillar capped at 100; PageSpeed (mobile) fetched for the homepage; broken-link probe (max 6).
 
@@ -425,11 +431,11 @@ A full **parallel, multi-key** SEO auditing stack: crawl → score → AI diagno
 | Service | Responsibility |
 |---|---|
 | `llmService.js` | OpenRouter orchestration, key rotation, model routing/fallback |
-| `geminiPoolService.js` | Gemini API key pool with rate-limit/daily-quota handling + fallback to OpenRouter |
+| `geminiPoolService.js` | Multi-key Gemini pool — rate-limit/quota rotation, `runParallelGemini` load-balanced parallel dispatch, fallback to OpenRouter |
 | `resumeProfileService.js` | Career profile CRUD, GitHub crawler, coding-stats sync, resume parsing, smart-links sync, shared-file-aware deletion |
 | `directPdfResumeService.js` | LLM resume structuring + direct PDFKit ATS PDF engine with auto compact single-page layout |
 | `resumeAnalyzerService.js` | ATS audit scoring of resumes + audit PDF generation |
-| `latexResumeService.js` | Legacy LaTeX ATS templates & JD tailoring (backward compatibility) |
+| `latexResumeService.js` | Legacy PDF builder (kept for backward compatibility; no longer used for resumes) |
 | `fileService.js` | Cloudinary upload/delete with SHA-256 deduplication & Firestore sync |
 | `documentReaderService.js` | Extracts text from PDF/DOCX/XLSX/code & zero-token local table query engine |
 | `documentGenerator.js` | Generates real `.xlsx/.docx/.pdf/.pptx` files |
@@ -448,7 +454,7 @@ A full **parallel, multi-key** SEO auditing stack: crawl → score → AI diagno
 | `mediaDetector.js` | Detects media type/links in content |
 | `weatherService.js` / `newsService.js` / `stocksService.js` | Live data (Open-Meteo, RSS, Yahoo Finance) |
 | `webSearchService.js` | General web search for research |
-| `seoService.js` | Site SEO auditing (300-page parallel crawl, 4-pillar scoring, parallel LLM action plan/fix report) |
+| `seoService.js` | Site SEO auditing (cap-free parallel crawl — every discovered page within a time deadline, 4-pillar scoring, parallel multi-key LLM analysis/action plan/fix report) |
 | `routineService.js` / `schedulerService.js` | Daily routines and cron-driven tasks |
 | `statsService.js` | Usage/stat aggregation |
 
@@ -478,7 +484,7 @@ All `/api/*` routes (except `/api/health` and `/api/config`) require:
 | `/api/hq` | `hq.js` | Aggregated dashboard summary |
 | `/api/self-edit` | `selfEdit.js` | Self-edit history/diffs |
 | `/api/keys` | `keys.js` | Anonymized OpenRouter key health (raw keys never exposed) |
-| `/api/seo` | `seo.js` | SEO audit (300-page crawl, keyword tracking, action plan, fix plan, HTML report, isolated chat) |
+| `/api/seo` | `seo.js` | SEO audit (cap-free crawl of every discovered page, keyword tracking, action plan, fix plan, HTML report, isolated chat) |
 | `/api/resume` | `resume.js` | AI Resume Builder & ATS Engine — see [§ Resume API surface](#37-resume-api-surface) |
 
 ---
