@@ -5147,7 +5147,7 @@ function renderSeoAudit(site) {
         <div style="font-size:44px;font-weight:800;color:${seoScoreColor(score)};line-height:1.1;">${typeof score === 'number' ? score + '<span style="font-size:16px;">/100</span>' : '—'}</div>
         ${seoSparkline(site.history)}
         <div style="font-size:11px;color:var(--text3);">${typeof a.pagesFound === 'number' ? a.pagesFound + ' pages audited · ' : ''}${a.auditedAt ? new Date(a.auditedAt).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }) : ''}</div>
-        ${a.crawl && a.crawl.crawled != null ? `<div style="font-size:11px;color:var(--text3);margin-top:2px;">Crawl: ${a.crawl.crawled} page(s) fetched${a.crawl.requested ? ' (cap ' + a.crawl.requested + ')' : ''}${a.crawl.truncated ? ' · ⚠ capped' : ''}${a.crawl.tookMs ? ' · ' + (a.crawl.tookMs / 1000).toFixed(1) + 's' : ''} | sitemap seeds ${a.crawl.seedsFromSitemap || 0} · internal seeds ${a.crawl.seedsFromLinks || 0}</div>` : ''}
+        ${a.crawl && a.crawl.crawled != null ? `<div style="font-size:11px;color:var(--text3);margin-top:2px;">Crawl: ${a.crawl.crawled} page(s) crawled${a.crawl.truncated ? ' · ⚠ time limit hit' : ' · all discovered pages' }${a.crawl.tookMs ? ' · ' + (a.crawl.tookMs / 1000).toFixed(1) + 's' : ''} | ${a.crawl.seedsFromSitemap || 0} from sitemap · ${a.crawl.seedsFromLinks || 0} from homepage links</div>` : ''}
       </div>
       <!-- ✨ Level 4: Token-Optimized AI Action Plan -->
       <div class="ws-kb-block" style="background: linear-gradient(135deg, rgba(var(--accent-rgb),0.1), rgba(0,0,0,0.3)); border: 1px solid rgba(var(--accent-rgb),0.25); border-radius: 8px; padding: 12px;">
@@ -5158,7 +5158,7 @@ function renderSeoAudit(site) {
         <div style="font-size:11px;color:var(--text2);margin-zero:6px 0 10px;line-height:1.45;">
           ${(a.aiActionPlan) 
             ? 'Pura roadmap niche preview hai — chat section mein bhi available. Re-generate for fresh plan.' 
-            : 'Master Bob website ke 300+ pages, Core Web Vitals aur vulnerabilities ko analyze karke action plan dega.'}
+            : 'Master Bob website ke saare pages, Core Web Vitals aur vulnerabilities ko analyze karke action plan dega.'}
         </div>
         ${(a.aiActionPlan && a.aiActionPlan.text)
           ? `<div class="md-content" style="max-height:230px;overflow-y:auto;margin-bottom:10px;font-size:11.5px;color:var(--text1);line-height:1.55;background:rgba(0,0,0,0.28);border:1px solid rgba(var(--accent-rgb),0.2);border-radius:6px;padding:10px 12px;">${renderTextContent(a.aiActionPlan.text)}</div>`
@@ -6150,14 +6150,10 @@ async function addSeoSiteFromInput() {
   const addBtn = document.getElementById('seo-add-btn');
   const url = (input.value || '').trim();
   if (!url) return;
-  const maxPagesInput = document.getElementById('seo-maxpages-input');
-  let maxPages = parseInt(String(maxPagesInput ? maxPagesInput.value || '' : ''), 10);
-  if (isNaN(maxPages) || maxPages < 10) maxPages = 300;
-  if (maxPages > 500) maxPages = 500;
   input.disabled = true;
   if (addBtn) { addBtn.disabled = true; addBtn.textContent = '⏳'; }
   try {
-    const { site } = await apiFetch('/api/seo', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url, maxPages }) });
+    const { site } = await apiFetch('/api/seo', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url }) });
     seoSitesCache.unshift(site);
     renderSeoList();
     input.value = '';

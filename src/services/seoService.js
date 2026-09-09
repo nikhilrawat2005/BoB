@@ -730,7 +730,7 @@ async function analyzeWithLLM(domain, url, audit) {
 }
 
 // ── Main audit pipeline ──────────────────────────────
-async function runAudit(originUrl, { skipLlm = false, keywords = [], maxPages = 300, crawlDeadlineMs = 90000 } = {}) {
+async function runAudit(originUrl, { skipLlm = false, keywords = [], crawlDeadlineMs = 90000 } = {}) {
   const u = normalizeUrl(originUrl);
   const origin = u.origin;
   const domain = u.hostname.replace(/^www\./, '');
@@ -831,7 +831,10 @@ async function runAudit(originUrl, { skipLlm = false, keywords = [], maxPages = 
   const audit = scoreAudit(home, robots, broken);
 
   // ── Level 2: Site Architecture Crawler (parallel, sitemap-seeded) ─────
-  const pagesCap = Math.min(500, Math.max(10, Number(maxPages) || 300));
+  // No artificial page cap — the time deadline (crawlDeadlineMs) is the only
+  // real limit. Bob discovers and crawls as many pages as exist on the site
+  // within the time budget. Safety limit of 10000 prevents memory explosion.
+  const SAFETY_CAP = 10000;
   const CONCURRENCY = 12;
 
   // Seed the BFS queue from sitemap URLs (canonical page list) first, then
@@ -841,12 +844,11 @@ async function runAudit(originUrl, { skipLlm = false, keywords = [], maxPages = 
   const sitemapSeeds = siteAccessible
     ? (robots.sitemapUrls || [])
         .filter((s) => { try { return new URL(s).hostname === new URL(origin).hostname; } catch { return false; } })
-        .slice(0, pagesCap)
     : [];
-  const internalSeeds = siteAccessible ? [...new Set(home.internalLinks)].slice(0, 150) : [];
+  const internalSeeds = siteAccessible ? [...new Set(home.internalLinks)] : [];
   const crawlQueue = sitemapSeeds.slice();
   for (const seed of internalSeeds) {
-    if (!crawlQueue.includes(seed) && crawlQueue.length < pagesCap) crawlQueue.push(seed);
+    if (!crawlQueue.includes(seed)) crawlQueue.push(seed);
   }
   const crawlVisited = new Set([u.href, origin + '/', origin]);
   const pages = [];
@@ -875,19 +877,19 @@ async function runAudit(originUrl, { skipLlm = false, keywords = [], maxPages = 
   let cursor = 0;
   let crawlFrames = 0;
   let crawlFetches = 0;
-  while (pages.length < pagesCap && cursor < crawlQueue.length && Date.now() - crawlStart < crawlDeadlineMs) {
+  while (cursor < crawlQueue.length && pages.length < SAFETY_CAP && Date.now() - crawlStart < crawlDeadlineMs) {
     const batch = crawlQueue.slice(cursor, cursor + CONCURRENCY);
     cursor += CONCURRENCY;
     const batchResults = await crawlBatch(batch);
     crawlFrames++;
     for (const pg of batchResults) {
-      if (!pg || pages.length >= pagesCap) break;
+      if (!pg || pages.length >= SAFETY_CAP) break;
       crawlFetches++;
       pages.push(pg);
       // Enqueue newly discovered links (bounded) to spread the crawl graph
       if (Array.isArray(pg.internalLinks)) {
         for (const link of pg.internalLinks) {
-          if (!crawlVisited.has(link) && !crawlQueue.includes(link) && crawlQueue.length < pagesCap * 2) {
+          if (!crawlVisited.has(link) && !crawlQueue.includes(link) && crawlQueue.length < SAFETY_CAP * 2) {
             crawlQueue.push(link);
           }
         }
@@ -1066,14 +1068,14 @@ async function runAudit(originUrl, { skipLlm = false, keywords = [], maxPages = 
     robotsMetrics: { robotsExists: !!robots.robotsExists, rulesPresent: !!robots.rulesPresent, sitemapFound: !!robots.sitemapFound, sitemapUrlCount: (robots.sitemapUrls || []).length, sitemapLastmod: robots.lastmodCount || 0, isSitemapIndex: !!robots.isSitemapIndex },
     pagesFound: siteAccessible ? (pagesWithMeta ? pagesWithMeta.length : pages.length) : 0,
     crawl: {
-      requested: pagesCap,
+      discovered: crawlQueue.length + pages.length,
       crawled: siteAccessible ? pages.length : 0,
       tookMs: crawlTookMs,
       fetches: siteAccessible ? crawlFetches : 0,
       frames: siteAccessible ? crawlFrames : 0,
       seedsFromSitemap: sitemapSeeds.length,
       seedsFromLinks: internalSeeds.length,
-      truncated: pages.length >= pagesCap || (Date.now() - crawlStart) >= crawlDeadlineMs,
+      truncated: (Date.now() - crawlStart) >= crawlDeadlineMs,
     },
     audit: {
       score: audit.score,
@@ -1104,7 +1106,7 @@ async function runAudit(originUrl, { skipLlm = false, keywords = [], maxPages = 
         hasCanonical: !!p.canonical,
         blockingScripts: p.blockingScripts || 0,
         semanticCount: p.semanticCount || 0,
-      })).slice(0, Math.min(pagesCap, 500)),
+      })).slice(0, 1000),
   };
 }
 
@@ -1141,9 +1143,8 @@ function withHistory(prev = [], audit) {
   return next;
 }
 
-async function createSite(userId, urlInput, { maxPages = 300 } = {}) {
-  const pagesCap = Math.min(500, Math.max(10, Number(maxPages) || 300));
-  const res = await runAudit(urlInput, { maxPages: pagesCap });
+async function createSite(userId, urlInput, opts = {}) {
+  const res = await runAudit(urlInput);
   const achievedAudit = { ...res.audit, keywordChecks: res.audit.keywordChecks };
   const ref = coll(userId).doc();
   const now = Date.now();
@@ -1152,7 +1153,6 @@ async function createSite(userId, urlInput, { maxPages = 300 } = {}) {
     domain: res.domain,
     url: res.url,
     title: res.home.title || res.domain,
-    maxPages: pagesCap,
     lastScore: res.audit.score,
     keywords: [],
     chatSessionId: null,
@@ -1185,8 +1185,7 @@ async function createSite(userId, urlInput, { maxPages = 300 } = {}) {
 async function reAudit(userId, id) {
   const site = await getSite(userId, id);
   if (!site) throw new Error('Site not found');
-  const pagesCap = Math.min(500, Math.max(10, Number(site.maxPages) || 300));
-  const res = await runAudit(site.url, { keywords: site.keywords || [], maxPages: pagesCap, crawlDeadlineMs: 110000 });
+  const res = await runAudit(site.url, { keywords: site.keywords || [], crawlDeadlineMs: 110000 });
   const updated = {
     title: res.home.title || res.domain,
     lastScore: res.audit.score,
@@ -1255,7 +1254,7 @@ async function deleteSite(userId, id) {
 // ── Scheduled re-audit settings + background pump ──────
 const PUMP_COLL = () => db.collection('seoPumpQueue');
 
-async function updateSiteSettings(userId, id, { reAuditEnabled, reAuditIntervalHours, maxPages }) {
+async function updateSiteSettings(userId, id, { reAuditEnabled, reAuditIntervalHours }) {
   const site = await getSite(userId, id);
   if (!site) throw new Error('Site not found');
   const enabled = Boolean(reAuditEnabled);
@@ -1266,9 +1265,6 @@ async function updateSiteSettings(userId, id, { reAuditEnabled, reAuditIntervalH
     reAuditIntervalHours: enabled ? intervalHours : 0,
     updatedAt: now,
   };
-  if (maxPages !== undefined) {
-    patch.maxPages = Math.min(500, Math.max(10, Number(maxPages) || 300));
-  }
   await coll(userId).doc(id).set(patch, { merge: true });
 
   const qRef = PUMP_COLL().doc(id);
