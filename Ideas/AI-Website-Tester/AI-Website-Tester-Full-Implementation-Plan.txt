@@ -1,0 +1,180 @@
+====================================================================
+AUTONOMOUS AI WEBSITE TESTER
+FULL IMPLEMENTATION PLAN (HOLD - NOT STARTED)
+====================================================================
+Status        : PLANNING COMPLETE - DEVELOPMENT ON HOLD (user decision)
+Source doc    : ai-website-tester-plan.md (same folder)
+Owner         : bob-backend (web app only, no mobile)
+Last updated  : 09-09-2026
+
+--------------------------------------------------------------------
+1. WHAT THIS IS
+--------------------------------------------------------------------
+Given a website URL, Bob explores it like a real human tester inside a
+REAL BROWSER (Playwright), infers what the site claims/should do, then
+compares claim vs reality and produces an evidence-based bug report.
+Covers: functional bugs, UX/visual issues, cross-page inconsistencies,
+false claims (e.g. "AI-powered"), broken flows, network errors.
+
+--------------------------------------------------------------------
+2. WHAT WE REUSE (AS-IS, NO CHANGES)
+--------------------------------------------------------------------
+- geminiPoolService.js     : multi-key Gemini pool (11 keys), rate-limit/
+                             quota rotation, runParallelGemini for parallel
+                             dispatch, fallback to OpenRouter.
+- llmService.js            : builder bucket (19 OpenRouter keys incl. Claude),
+                             callLLMParallel, callGeminiWithFallback.
+- documentGenerator.js     : generatePdf(text, opts) -> PDF buffer (line 189,
+                             exported line 276).
+- fileService.js           : store generated PDFs per user.
+- schedulerService.js      : createTask / claimTask / fireTask / tick (line 151)
+                             as the pattern for optional periodic re-tests.
+- hq.js                    : cards object at line 28 (keys: hackathons,
+                             stalking, routines, notifications, facts, months,
+                             files, selfEdits, discovery). Pattern for adding
+                             a new "websiteTests" card; response res.json({cards}).
+
+DO NOT REUSE crawlerService.js (cheerio static-HTML only; 5 other services
+depend on it). Static crawl cannot capture DOM/visual correctness nor
+network request/response integrity.
+
+--------------------------------------------------------------------
+3. NEW THINGS WE ADD
+--------------------------------------------------------------------
+- npm dependency : playwright (+ Chromium browser download).
+  CAVEAT: Chromium in Vercel serverless is 50-80MB and often times out.
+  Decision: run this feature on a Node runtime / background worker, or
+  local dev only. Never place inside a default Vercel function.
+- src/services/websiteTesterService.js   : the 6-phase engine.
+- src/routes/websiteTester.js            : REST API.
+- hq.js card addition                    : small "🧪 Idea: Website Tester"
+  surface (later, real Builder UI).
+- Builder UI (optional later phase).
+
+--------------------------------------------------------------------
+4. GOVERNING PRINCIPLE
+--------------------------------------------------------------------
+Upgrade an existing service ONLY if strictly better. Otherwise create an
+isolated new implementation. This keeps existing features stable.
+
+--------------------------------------------------------------------
+5. WHY CRAWLER IS NOT A TESTER
+--------------------------------------------------------------------
+Crawler = fetch HTML + parse with cheerio. Misses:
+- real browser DOM + JS execution
+- visual/layout defects
+- console errors, failed network requests
+- interaction bugs (forms, clicks, navigation)
+- responsive/mobile issues
+Backend-hidden correctness of a site's API calls also needs a real browser
+to observe request/response.
+
+--------------------------------------------------------------------
+6. THE 6-PHASE PIPELINE
+--------------------------------------------------------------------
+PHASE 1 - DISCOVERY CRAWL (Playwright)
+  - Launch Chromium, visit start URL.
+  - Build navigation map: visible + hidden links, sitemap hint.
+  - NO fixed page cap (mirror seoService): SAFETY_CAP 10,000 + wall-clock
+    deadline (configurable, default ~60s). crawl.truncated flag on deadline.
+  - Record per-page: URL, title, internal links, assets.
+
+PHASE 2 - PURPOSE INFERENCE (Gemini)
+  - One parallel batch (runParallelGemini).
+  - Input: homepage text + discovered page titles + nav structure.
+  - Output JSON: { purpose, primaryUserJourneys[], claimedFeatures[],
+    explicitClaims[], contentTypes }. Anything the site SAYS it should do.
+
+PHASE 3 - SEQUENTIAL EXPLORATION (browser, ONE page at a time)
+  - For each discovered page / journey:
+    * happy-path walk + invalid/boundary inputs
+    * repeat actions, back/refresh, multiple viewports (desktop/mobile)
+  - Capture PER ACTION: screenshot, console messages, network requests/
+    responses (status, timing), page timing, accessibility snapshot.
+  - Browser is sequential by design (real-testing semantics).
+
+PHASE 4 - BULK TRIAGE (Gemini, parallel)
+  - Analyse captured evidence in batches (4 tasks = 2 Gemini + 2 builder
+    split, parallel via runParallelGemini / callLLMParallel).
+  - Detect: duplicate images, layout/font issues, empty sections,
+    broken responsive, dead CTAs, cross-page content/pricing inconsistencies.
+
+PHASE 5 - DEEP CLAIM VERIFICATION (Claude / builder bucket)
+  - For each claim from Phase 2, run a controlled experiment.
+  - Root-cause + severity + confidence per finding.
+  - Buckets: confirmed / likely / UX / capability-verification.
+
+PHASE 6 - REPORT ASSEMBLY
+  - Structured finding: { url, action, expected, actual, evidence,
+    category, severity, confidence }.
+  - HQ card + detailed view + PDF via documentGenerator.generatePdf
+    + stored via fileService.
+
+--------------------------------------------------------------------
+7. DATA MODEL
+--------------------------------------------------------------------
+Firestore: users/{userId}/website_tests/{testId}
+  testId = generated at start.
+Fields:
+  { url, status: 'queued'|'running'|'done'|'failed',
+    progress: { phase, done, total },
+    startedAt, finishedAt,
+    site: { title, pageCount, truncated, tookMs },
+    purpose: { summary, journeys[], claims[] },
+    findings: [ { url, action, expected, actual, evidence,
+                  category, severity, confidence } ],
+    evidence: { screenshots: [], console: [], network: [] },
+    reportPdf: { fileId, url },
+    summary, error }
+
+--------------------------------------------------------------------
+8. REST API (routes/websiteTester.js)
+--------------------------------------------------------------------
+POST   /api/website-tester            { url }           -> start (return testId)
+GET    /api/website-tester            -> history list
+GET    /api/website-tester/:id        -> status + results (live progress)
+GET    /api/website-tester/:id/pdf    -> stored report PDF
+DELETE /api/website-tester/:id        -> delete test + evidence files
+(optional) POST /api/website-tester/:id/rerun
+
+--------------------------------------------------------------------
+9. JOB LIFECYCLE
+--------------------------------------------------------------------
+queued -> running (Phase 1..6, progress updated per phase)
+       -> done   (results + PDF stored, summary written)
+       -> failed (error message + partial evidence kept)
+Simple polling from the frontend: GET /:id every 2-3s.
+
+--------------------------------------------------------------------
+10. LLM KEY STRATEGY
+--------------------------------------------------------------------
+- Parallelism ONLY at LLM level, browser stays sequential.
+- Batch = 4 tasks: 2 Gemini keys + 2 builder keys simultaneously.
+- Reuse runParallelGemini(tasks, {concurrencyPerKey:2, fallbackFn, model})
+  and callLLMParallel with role split.
+- Failover automatic: 429/quota -> next key -> OpenRouter fallback.
+
+--------------------------------------------------------------------
+11. SCHEDULER (optional Phase 5 of build)
+--------------------------------------------------------------------
+schedulerService.createTask pattern for periodic re-testing
+(e.g. weekly URL monitoring, retirement after N results).
+
+--------------------------------------------------------------------
+12. EXECUTION ORDER (when we start)
+--------------------------------------------------------------------
+Commit 1 : package.json + playwright install + test browser launch,
+           .gitignore note (no playwright artifacts committed).
+Commit 2 : websiteTesterService.js core - Phase 1+2 (discovery + purpose),
+           Firestore lifecycle.
+Commit 3 : Phase 3 exploration + evidence capture.
+Commit 4 : Phase 4 triage + Phase 5 deep verification.
+Commit 5 : Phase 6 report + PDF + fileService; routes + UI card.
+Commit 6 : README deep-dive for Website Tester + final polish.
+
+--------------------------------------------------------------------
+13. OPEN ITEMS / DEFERRED
+--------------------------------------------------------------------
+- Auth / login-gated flows deferred (V1 = public/guest sites only).
+- Mobile app testing deferred (web app only).
+- Retry/scheduler final knob default values TBD at build time.
