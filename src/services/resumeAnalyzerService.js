@@ -130,15 +130,54 @@ RETURN ONLY A VALID JSON OBJECT (no markdown, no backticks, no comments, raw JSO
 
   const rawText = (response && response.text) ? response.text : String(response);
 
-  // Strip markdown code fences if the model wraps the JSON despite instructions
-  const stripped = rawText.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '').trim();
+  // ── Robust JSON extraction ──────────────────────────────────────────────────
+  // 1. Strip BOM and common invisible / zero-width unicode chars
+  let cleaned = rawText
+    .replace(/^\uFEFF/, '')           // UTF-8 BOM
+    .replace(/[\u200B-\u200D\uFEFF\u00A0]/g, '') // zero-width spaces, NBSP
+    .trim();
 
-  const jsonMatch = stripped.match(/\{[\s\S]*\}/);
+  // 2. Strip markdown code fences (```json … ``` or ``` … ```)
+  cleaned = cleaned
+    .replace(/^```(?:json)?\s*/im, '')
+    .replace(/\s*```\s*$/m, '')
+    .trim();
+
+  // 3. Strip single-line // comments and block /* */ comments that
+  //    some models insert even when asked for "strict JSON"
+  cleaned = cleaned
+    .replace(/\/\/[^\n]*/g, '')       // // line comments
+    .replace(/\/\*[\s\S]*?\*\//g, '') // /* block comments */
+    .trim();
+
+  // 4. Extract the first complete JSON object
+  const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
   if (!jsonMatch) {
-    throw new Error('Failed to parse ATS analysis from AI');
+    throw new Error(`Failed to parse ATS analysis from AI. Raw response snippet: ${rawText.slice(0, 200)}`);
   }
 
-  return JSON.parse(jsonMatch[0]);
+  let jsonStr = jsonMatch[0];
+
+  // 5. Attempt JSON.parse; if it fails try progressively more aggressive fixes
+  try {
+    return JSON.parse(jsonStr);
+  } catch (firstErr) {
+    // 5a. Replace any remaining non-printable control chars (except \n \r \t)
+    jsonStr = jsonStr.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '');
+    try {
+      return JSON.parse(jsonStr);
+    } catch (secondErr) {
+      // 5b. Last resort – strip everything before the first '{' and after the last '}'
+      const start = jsonStr.indexOf('{');
+      const end   = jsonStr.lastIndexOf('}');
+      if (start !== -1 && end !== -1 && end > start) {
+        try {
+          return JSON.parse(jsonStr.slice(start, end + 1));
+        } catch (_) { /* fall through */ }
+      }
+      throw new Error(`Audit JSON parse failed: ${firstErr.message}. Snippet: ${jsonStr.slice(0, 200)}`);
+    }
+  }
 }
 
 /**
