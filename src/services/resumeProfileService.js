@@ -212,12 +212,29 @@ async function syncGitHubProjects(username) {
             const rawPkg = JSON.parse(Buffer.from(pkgData.content, 'base64').toString('utf8'));
             const deps = Object.keys({ ...(rawPkg.dependencies || {}), ...(rawPkg.devDependencies || {}) });
             // Filter common high-signal frameworks and libraries
+            // Filter common high-signal frameworks and libraries
             const highSignal = deps.filter(d => !d.startsWith('@types/') && !['eslint', 'prettier', 'nodemon'].includes(d)).slice(0, 10);
             extraDependencies.push(...highSignal);
           }
         }
       } catch (err) {
         // Ignore pkg fail
+      }
+
+      // 3. Inspect high-signal architecture signatures (Docker, CI/CD, Prisma, Database)
+      const archKeywords = [];
+      try {
+        const treeRes = await fetch(`https://api.github.com/repos/${username}/${repo.name}/git/trees/${repo.default_branch || 'main'}`, { headers });
+        if (treeRes.ok) {
+          const treeData = await treeRes.json();
+          const paths = (treeData.tree || []).map(t => (t.path || '').toLowerCase());
+          if (paths.some(p => p.includes('dockerfile') || p.includes('docker-compose'))) archKeywords.push('Docker');
+          if (paths.some(p => p.includes('.github/workflows') || p.includes('jenkins'))) archKeywords.push('CI/CD');
+          if (paths.some(p => p.includes('prisma') || p.includes('schema.prisma'))) archKeywords.push('Prisma ORM');
+          if (paths.some(p => p.includes('tests') || p.includes('jest') || p.includes('vitest'))) archKeywords.push('Unit Testing');
+        }
+      } catch (err) {
+        // Ignore tree fail
       }
 
       try {
@@ -242,6 +259,7 @@ async function syncGitHubProjects(username) {
       const combinedStack = Array.from(new Set([
         ...languages,
         ...extraDependencies,
+        ...archKeywords,
         ...(repo.language ? [repo.language] : [])
       ])).slice(0, 10);
 

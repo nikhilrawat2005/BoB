@@ -1,4 +1,4 @@
-﻿// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
 // Bob Resume Intelligence — Direct PDF Generation Service (PDFKit Engine)
 // Builds high-quality, ATS-standard, beautifully formatted single/multi-page
 // technical resumes directly inside Node.js without any LaTeX compiler dependency.
@@ -282,7 +282,7 @@ function applyShowcasePolish(data) {
 // SELF-AUDIT REFINEMENT LOOP
 // ─────────────────────────────────────────────────────────────────────────────
 const SELF_AUDIT_MAX_ITERATIONS = 3;
-const SELF_AUDIT_PASS_SCORE     = 78;
+const SELF_AUDIT_PASS_SCORE     = 85;
 const WEAK_VERB_RE = /^(Focused on|Contributed to|Assisted|Participated in|Was responsible for|Helped|Worked on|Supported|Involved in)/i;
 const PLACEHOLDER_METRIC_RE = /\b[XxYyZz][0-9]*%|\bX%|\bY%|\bZ%|by [XxYy]%|by an estimated [Xx]%|\b[XxYyZz] users|\b[XxYyZz] students|\b[XxYyZz] concurrent|\bLighthouse score of [XxYyZz]|\bimpacting [XxYyZz]|\bengaging [XxYyZz]|\breaching [XxYyZz]/i;
 
@@ -454,6 +454,35 @@ function mapBulletImprovementsToSections(data, bulletImprovements) {
 }
 
 /**
+ * Apply bullet swaps DIRECTLY in memory (0ms, 100% deterministic, no LLM needed).
+ * Ensures Google XYZ rewrites from the ATS audit are permanently applied to the resume data.
+ */
+function applyDirectBulletSwaps(data, bulletMappings) {
+  if (!Array.isArray(bulletMappings) || bulletMappings.length === 0) return data;
+  let swappedCount = 0;
+
+  ['projects', 'experience'].forEach(sec => {
+    if (!Array.isArray(data[sec])) return;
+    data[sec].forEach(entry => {
+      if (!Array.isArray(entry.bullets)) return;
+      entry.bullets = entry.bullets.map(b => {
+        const mapping = bulletMappings.find(m => m.original === b || m.original.trim() === b.trim());
+        if (mapping && mapping.improved) {
+          swappedCount++;
+          return mapping.improved.replace(/\.+\s*$/, '').trim(); // Jake standard: no trailing period
+        }
+        return b;
+      });
+    });
+  });
+
+  if (swappedCount > 0) {
+    console.log(`[selfAudit] ⚡ Successfully auto-swapped ${swappedCount} weak bullets with Google XYZ ATS upgrades directly!`);
+  }
+  return data;
+}
+
+/**
  * Collect all creator-side issues from the resume data (deterministic checks)
  * and from the ATS audit result.
  * Returns an array of specific issue strings, or [] if clean.
@@ -551,11 +580,12 @@ async function selfAuditAndRefine(data, profile, customInstructions, isTargeted,
     const impact = auditResult?.breakdown?.impactAndMetrics ?? 0;
     console.log(`[selfAudit] Iteration ${iteration}/${SELF_AUDIT_MAX_ITERATIONS}: atsScore=${score}, impactAndMetrics=${impact}`);
 
-    // ── Step D: Map audit's bulletImprovements to exact resume sections ───────
-    // The audit already computed EXACTLY which bullets are weak and how to fix
-    // them. We match each one back to its project/experience entry so the LLM
-    // gets "replace X with Y in project Z" — no guessing needed.
+    // ── Step D: Apply Google XYZ bullet rewrites DIRECTLY in memory ──────────
     const bulletMappings = mapBulletImprovementsToSections(data, auditResult?.bulletImprovements || []);
+    if (bulletMappings.length > 0) {
+      data = applyDirectBulletSwaps(data, bulletMappings);
+      data = applyDeterministicBulletFixes(data);
+    }
 
     // ── Step E: Detect any remaining creator-side issues ─────────────────────
     const creatorIssues = detectCreatorIssues(data, auditResult);
