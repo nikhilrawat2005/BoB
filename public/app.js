@@ -7524,18 +7524,81 @@ document.getElementById('resume-base-input')?.addEventListener('change', async (
   }
 });
 
+// High-Efficiency Client-Side Image Compressor
+// Automatically scales huge camera / scanner PNGs/JPEGs (e.g. 13MB) down to crisp ~500KB - 1.2MB web files
+async function compressImageFile(file, maxDimension = 2000, quality = 0.85) {
+  if (!file || !file.type || !file.type.startsWith('image/')) return file;
+  // If file is already small (< 1MB), no compression needed
+  if (file.size <= 1024 * 1024) return file;
+
+  return new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onload = () => {
+        let width = img.width;
+        let height = img.height;
+
+        if (width > maxDimension || height > maxDimension) {
+          if (width > height) {
+            height = Math.round((height * maxDimension) / width);
+            width = maxDimension;
+          } else {
+            width = Math.round((width * maxDimension) / height);
+            height = maxDimension;
+          }
+        }
+
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, width, height);
+
+        // Convert to JPEG at 0.85 quality for massive compression with high visual fidelity
+        canvas.toBlob(
+          (blob) => {
+            if (!blob || blob.size >= file.size) {
+              resolve(file); // fallback to original if compression didn't help
+            } else {
+              const cleanName = file.name.replace(/\.[^/.]+$/, '') + '.jpg';
+              const compressedFile = new File([blob], cleanName, {
+                type: 'image/jpeg',
+                lastModified: Date.now(),
+              });
+              console.log(`[Compression] Reduced "${file.name}" from ${(file.size / (1024 * 1024)).toFixed(1)}MB -> ${(compressedFile.size / (1024 * 1024)).toFixed(1)}MB`);
+              resolve(compressedFile);
+            }
+          },
+          'image/jpeg',
+          quality
+        );
+      };
+      img.onerror = () => resolve(file);
+      img.src = e.target.result;
+    };
+    reader.onerror = () => resolve(file);
+    reader.readAsDataURL(file);
+  });
+}
+
 // Certificates & Academic Marksheets Batch Upload
 document.getElementById('resume-cert-input')?.addEventListener('change', async (e) => {
-  const files = Array.from(e.target.files || []);
-  if (files.length === 0) return;
+  const rawFiles = Array.from(e.target.files || []);
+  if (rawFiles.length === 0) return;
   const countEl = document.getElementById('resume-cert-count');
-  countEl.textContent = `⏳ Uploading ${files.length} document(s)...`;
-
-  const formData = new FormData();
-  files.forEach(f => formData.append('files', f));
-  formData.append('profileId', activeCandidateProfileId);
+  countEl.textContent = `⏳ Optimizing & compressing ${rawFiles.length} document(s)...`;
 
   try {
+    // Compress any large images before sending over network
+    const processedFiles = await Promise.all(rawFiles.map(f => compressImageFile(f)));
+
+    countEl.textContent = `⏳ Uploading ${processedFiles.length} document(s)...`;
+
+    const formData = new FormData();
+    processedFiles.forEach(f => formData.append('files', f));
+    formData.append('profileId', activeCandidateProfileId);
+
     const token = await auth.currentUser.getIdToken();
     const res = await fetch(API + `/api/resume/upload/documents?profileId=${encodeURIComponent(activeCandidateProfileId)}`, {
       method: 'POST',
@@ -7546,12 +7609,12 @@ document.getElementById('resume-cert-input')?.addEventListener('change', async (
     let data = {};
     try { data = JSON.parse(text); } catch {
       if (res.status === 413 || text.includes('Request Entity')) {
-        throw new Error('Batch upload size too large. Try uploading fewer certificates at once or files under 25MB.');
+        throw new Error('Upload size too large. Individual files must be under 25MB.');
       }
       throw new Error(text.slice(0, 150) || `HTTP ${res.status}`);
     }
     if (!res.ok) throw new Error(data.error || 'Upload failed');
-    countEl.textContent = `✅ Uploaded ${data.added?.length || files.length} document(s)!`;
+    countEl.textContent = `✅ Uploaded ${data.added?.length || processedFiles.length} document(s)!`;
     await loadResumeProfile(activeCandidateProfileId);
   } catch (err) {
     countEl.textContent = `❌ Error: ${err.message}`;
