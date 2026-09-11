@@ -132,7 +132,7 @@ All numeric values must be computed from the actual resume content:
       { role: 'user', content: prompt }
     ],
     temperature: 0.1,
-    max_tokens: 4000
+    max_tokens: 8000
   });
 
   const rawText = (response && response.text) ? response.text : String(response);
@@ -176,35 +176,111 @@ All numeric values must be computed from the actual resume content:
     );
   }
 
-  // 5. Attempt JSON.parse; if it fails try progressively more aggressive fixes
-  try {
-    return JSON.parse(jsonStr);
-  } catch (firstErr) {
-    // 5a. Auto-quote bare keys (LLM returned JS object notation like { foo: 1 })
-    try {
-      return JSON.parse(fixBareKeys(jsonStr));
-    } catch (_) { /* continue */ }
+  function cleanTrailingCommas(str) {
+    return str.replace(/,\s*([\]}])/g, '$1');
+  }
 
-    // 5b. Strip non-printable control chars then retry with and without key fix
-    jsonStr = jsonStr.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '');
-    try {
-      return JSON.parse(jsonStr);
-    } catch (_) { /* continue */ }
-    try {
-      return JSON.parse(fixBareKeys(jsonStr));
-    } catch (_) { /* continue */ }
+  function tryRepairTruncatedJson(str) {
+    let s = str.trim();
+    // Remove incomplete trailing tokens at the end
+    s = s.replace(/,\s*$/, '');
+    s = s.replace(/:\s*$/, ': null');
+    s = s.replace(/("[^"\\]*(?:\\.[^"\\]*)*)$/, ''); // unterminated string
+    s = s.replace(/,\s*$/, '');
 
-    // 5c. Last resort – slice from first '{' to last '}' then retry
-    const start = jsonStr.indexOf('{');
-    const end   = jsonStr.lastIndexOf('}');
-    if (start !== -1 && end !== -1 && end > start) {
-      const sliced = jsonStr.slice(start, end + 1);
-      try { return JSON.parse(sliced); }              catch (_) { /* continue */ }
-      try { return JSON.parse(fixBareKeys(sliced)); } catch (_) { /* continue */ }
+    // Balance open quotes, brackets, braces
+    let openBraces = 0;
+    let openBrackets = 0;
+    let inString = false;
+    let escape = false;
+
+    for (let i = 0; i < s.length; i++) {
+      const ch = s[i];
+      if (escape) {
+        escape = false;
+        continue;
+      }
+      if (ch === '\\') {
+        escape = true;
+        continue;
+      }
+      if (ch === '"') {
+        inString = !inString;
+        continue;
+      }
+      if (!inString) {
+        if (ch === '{') openBraces++;
+        else if (ch === '}') openBraces = Math.max(0, openBraces - 1);
+        else if (ch === '[') openBrackets++;
+        else if (ch === ']') openBrackets = Math.max(0, openBrackets - 1);
+      }
     }
 
-    throw new Error(`Audit JSON parse failed: ${firstErr.message}. Snippet: ${jsonStr.slice(0, 200)}`);
+    if (inString) s += '"';
+    s = cleanTrailingCommas(s);
+    while (openBrackets > 0) {
+      s += ']';
+      openBrackets--;
+    }
+    while (openBraces > 0) {
+      s += '}';
+      openBraces--;
+    }
+    return cleanTrailingCommas(s);
   }
+
+  function attemptParse(text) {
+    if (!text) return null;
+    const candidates = [
+      text,
+      fixBareKeys(text),
+      cleanTrailingCommas(text),
+      cleanTrailingCommas(fixBareKeys(text)),
+      tryRepairTruncatedJson(text),
+      tryRepairTruncatedJson(fixBareKeys(text))
+    ];
+    for (const cand of candidates) {
+      try {
+        return JSON.parse(cand);
+      } catch (_) {}
+    }
+    return null;
+  }
+
+  // 5. Attempt multi-stage robust parse
+  let parsed = attemptParse(jsonStr);
+  if (parsed && typeof parsed === 'object') {
+    return parsed;
+  }
+
+  // 5a. Strip non-printable control chars
+  const sanitized = jsonStr.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '');
+  parsed = attemptParse(sanitized);
+  if (parsed && typeof parsed === 'object') {
+    return parsed;
+  }
+
+  // 5b. Slice from first { to last }
+  const start = jsonStr.indexOf('{');
+  const end = jsonStr.lastIndexOf('}');
+  if (start !== -1 && end !== -1 && end > start) {
+    const sliced = jsonStr.slice(start, end + 1);
+    parsed = attemptParse(sliced);
+    if (parsed && typeof parsed === 'object') {
+      return parsed;
+    }
+  }
+
+  // 5c. Try repairing from start index to end of string
+  if (start !== -1) {
+    const fromStart = jsonStr.slice(start);
+    parsed = attemptParse(fromStart);
+    if (parsed && typeof parsed === 'object') {
+      return parsed;
+    }
+  }
+
+  throw new Error(`Audit JSON parse failed. Snippet: ${jsonStr.slice(0, 240)}`);
 }
 
 /**

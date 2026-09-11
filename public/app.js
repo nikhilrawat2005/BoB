@@ -7934,6 +7934,7 @@ document.getElementById('resume-audit-generated-btn')?.addEventListener('click',
   btn.disabled = true;
 
   const spinner = document.getElementById('resume-analyzer-spinner');
+  clearAuditError();
   if (spinner) spinner.style.display = 'block';
 
   try {
@@ -7953,7 +7954,7 @@ document.getElementById('resume-audit-generated-btn')?.addEventListener('click',
     }
   } catch (err) {
     console.error('Audit generated resume error:', err);
-    alert(`Audit Error: ${err.message}`);
+    showAuditError(`⚠️ ATS Audit Warning: ${err.message}`);
   } finally {
     btn.innerHTML = originalText;
     btn.disabled = false;
@@ -7961,8 +7962,35 @@ document.getElementById('resume-audit-generated-btn')?.addEventListener('click',
   }
 });
 
+// Helper to show audit error cleanly inside the page
+function showAuditError(msg) {
+  let errBox = document.getElementById('resume-analyzer-error');
+  if (!errBox) {
+    const spinner = document.getElementById('resume-analyzer-spinner');
+    if (spinner && spinner.parentNode) {
+      errBox = document.createElement('div');
+      errBox.id = 'resume-analyzer-error';
+      errBox.style.cssText = 'font-size: 13px; color: #ef4444; margin-top: 10px; padding: 12px 14px; background: rgba(239, 68, 68, 0.08); border: 1px solid rgba(239, 68, 68, 0.25); border-radius: 8px; line-height: 1.4;';
+      spinner.parentNode.insertBefore(errBox, spinner.nextSibling);
+    }
+  }
+  if (errBox) {
+    errBox.innerHTML = `<strong>ATS Audit Notice:</strong> ${msg}`;
+    errBox.style.display = 'block';
+    errBox.scrollIntoView({ behavior: 'smooth' });
+  } else {
+    alert(`Audit Error: ${msg}`);
+  }
+}
+
+function clearAuditError() {
+  const errBox = document.getElementById('resume-analyzer-error');
+  if (errBox) errBox.style.display = 'none';
+}
+
 // Run audit on uploaded file (or fallback to base resume)
 document.getElementById('resume-analyzer-run-btn')?.addEventListener('click', async () => {
+  clearAuditError();
   const btn = document.getElementById('resume-analyzer-run-btn');
   const originalText = btn.innerHTML;
   const spinner = document.getElementById('resume-analyzer-spinner');
@@ -7997,7 +8025,7 @@ document.getElementById('resume-analyzer-run-btn')?.addEventListener('click', as
     document.getElementById('resume-audit-results')?.scrollIntoView({ behavior: 'smooth' });
   } catch (err) {
     console.error('Run audit error:', err);
-    alert(`Audit Error: ${err.message}`);
+    showAuditError(err.message);
   } finally {
     btn.innerHTML = originalText;
     btn.disabled = false;

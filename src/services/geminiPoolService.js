@@ -186,11 +186,12 @@ async function callGeminiDirect({
     }
 
     const { systemInstruction, contents } = formatOpenAiToGemini(messages);
+    const requestedMaxTokens = Number(max_tokens) || 4096;
     const body = {
       contents,
       generationConfig: {
         temperature: Number(temperature) || 0.2,
-        maxOutputTokens: Number(max_tokens) || 2048,
+        maxOutputTokens: Math.max(requestedMaxTokens, 4096),
         responseMimeType: 'application/json',
       },
     };
@@ -299,11 +300,12 @@ async function runParallelGemini(
   const callWithKey = async (keyObj, task) => {
     const modelsToTry = model ? [model, ...GEMINI_MODELS.filter(m => m !== model)] : GEMINI_MODELS;
     const { systemInstruction, contents } = formatOpenAiToGemini(task.messages || []);
+    const requestedMaxTokens = Number(task.max_tokens) || Number(max_tokens) || 4096;
     const body = {
       contents,
       generationConfig: {
         temperature: Number(task.temperature) || Number(temperature) || 0.2,
-        maxOutputTokens: Number(task.max_tokens) || Number(max_tokens) || 2048,
+        maxOutputTokens: Math.max(requestedMaxTokens, 4096),
         responseMimeType: 'application/json',
       },
     };
