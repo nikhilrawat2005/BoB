@@ -57,7 +57,14 @@ HIRATION AUDITING BENCHMARKS:
 
 CRITICAL INSTRUCTION: Analyze the ACTUAL resume text above and compute REAL scores. Do NOT use example numbers. Every field must reflect your honest evaluation of THIS specific resume. Re-read the STRICT GROUNDING RULE above before writing atsKeywordsFound and bulletImprovements.
 
-RETURN ONLY A VALID JSON OBJECT (no markdown, no backticks, no comments, raw JSON only). All numeric values must be computed from the actual resume content:
+RETURN ONLY A VALID JSON OBJECT. Strict JSON formatting rules — violating ANY of these will break parsing:
+1. ALL object keys MUST be wrapped in double-quotes: write "atsScore" NOT atsScore
+2. NO markdown code fences (no \`\`\`json or \`\`\`)
+3. NO JavaScript comments (no // or /* */)
+4. NO trailing commas
+5. NO backticks, no extra text before or after the JSON
+Start your response with '{' and end it with '}'. Nothing else.
+All numeric values must be computed from the actual resume content:
 {
   "atsScore": <compute the real overall ATS score for THIS resume — integer 0-100>,
   "verdict": "<pick exactly one based on the actual score: Tier-1 Ready | Strong Contender | Needs Polish | High Risk>",
@@ -120,7 +127,7 @@ RETURN ONLY A VALID JSON OBJECT (no markdown, no backticks, no comments, raw JSO
     messages: [
       {
         role: 'system',
-        content: 'You are an expert ATS resume evaluator. STRICT RULE: Only reference projects, keywords, and bullets that LITERALLY EXIST in the resume provided. Never hallucinate projects or keywords. Compute all scores from the real resume — do not echo example numbers. Return strict valid JSON only.'
+        content: 'You are an expert ATS resume evaluator. STRICT RULES: (1) Only reference projects, keywords, and bullets that LITERALLY EXIST in the resume. Never hallucinate. (2) Return STRICT VALID JSON only — ALL keys MUST be double-quoted (write \\"atsScore\\" not atsScore). Never use JavaScript object notation. No code fences, no comments, no trailing commas. Start response with { and end with }.'
       },
       { role: 'user', content: prompt }
     ],
@@ -158,25 +165,45 @@ RETURN ONLY A VALID JSON OBJECT (no markdown, no backticks, no comments, raw JSO
 
   let jsonStr = jsonMatch[0];
 
+  /**
+   * Quote bare JS object keys so  { foo: 1 }  →  { "foo": 1 }
+   * Handles the common case where the LLM returns JS object literal
+   * notation instead of strict JSON.
+   */
+  function fixBareKeys(str) {
+    return str.replace(/([{,\[]\s*|^\s*)([A-Za-z_$][A-Za-z0-9_$]*)(\s*:)/gm,
+      (match, pre, key, colon) => `${pre}"${key}"${colon}`
+    );
+  }
+
   // 5. Attempt JSON.parse; if it fails try progressively more aggressive fixes
   try {
     return JSON.parse(jsonStr);
   } catch (firstErr) {
-    // 5a. Replace any remaining non-printable control chars (except \n \r \t)
+    // 5a. Auto-quote bare keys (LLM returned JS object notation like { foo: 1 })
+    try {
+      return JSON.parse(fixBareKeys(jsonStr));
+    } catch (_) { /* continue */ }
+
+    // 5b. Strip non-printable control chars then retry with and without key fix
     jsonStr = jsonStr.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '');
     try {
       return JSON.parse(jsonStr);
-    } catch (secondErr) {
-      // 5b. Last resort – strip everything before the first '{' and after the last '}'
-      const start = jsonStr.indexOf('{');
-      const end   = jsonStr.lastIndexOf('}');
-      if (start !== -1 && end !== -1 && end > start) {
-        try {
-          return JSON.parse(jsonStr.slice(start, end + 1));
-        } catch (_) { /* fall through */ }
-      }
-      throw new Error(`Audit JSON parse failed: ${firstErr.message}. Snippet: ${jsonStr.slice(0, 200)}`);
+    } catch (_) { /* continue */ }
+    try {
+      return JSON.parse(fixBareKeys(jsonStr));
+    } catch (_) { /* continue */ }
+
+    // 5c. Last resort – slice from first '{' to last '}' then retry
+    const start = jsonStr.indexOf('{');
+    const end   = jsonStr.lastIndexOf('}');
+    if (start !== -1 && end !== -1 && end > start) {
+      const sliced = jsonStr.slice(start, end + 1);
+      try { return JSON.parse(sliced); }              catch (_) { /* continue */ }
+      try { return JSON.parse(fixBareKeys(sliced)); } catch (_) { /* continue */ }
     }
+
+    throw new Error(`Audit JSON parse failed: ${firstErr.message}. Snippet: ${jsonStr.slice(0, 200)}`);
   }
 }
 
