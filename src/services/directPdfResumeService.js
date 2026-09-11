@@ -1224,6 +1224,6 @@ module.exports = {
   generateStructuredResumeData,
   buildDirectPdfBuffer,
   applyResumeNotesDirectives,
-  applyShowcasePolish
+  applyShowcasePolish,
+  resumeDataToText,
 };
-

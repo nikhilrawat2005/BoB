@@ -443,7 +443,7 @@ router.post('/analyze-generated', requireAuth, async (req, res) => {
     }
 
     // Convert structured JSON to readable text for deep evaluation
-    const resumeText = JSON.stringify(data, null, 2);
+    const resumeText = directPdfService.resumeDataToText ? directPdfService.resumeDataToText(data) : JSON.stringify(data, null, 2);
     const audit = await resumeAnalyzer.auditResume({
       resumeText,
       targetJobDescription: targetJobDescription || ''
