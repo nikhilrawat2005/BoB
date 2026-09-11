@@ -300,7 +300,7 @@ flowchart LR
 
 ### 3.1 Feeding data — no more manual typing
 - **GitHub & Coding card** — one input for the GitHub handle, one paste box for profile links. Bob auto-detects each URL and gives it a **clean recruiter-friendly label** (`LeetCode`, `CodeChef`, `Codeforces`, `GitHub`, `LinkedIn`, `DEV.to`, `Portfolio`, …).
-- **One sync button**: `🔄 Sync GitHub + Links` — (1) saves your feed to the profile, (2) crawls GitHub repos *and performs deep code inspection*: reads `package.json` to extract actual production dependencies (`techStack`) and extracts rich README descriptions up to **3,500 characters**, (3) crawls each pasted link for coding stats/badges. Generate does this automatically too.
+- **One sync button**: `🔄 Sync GitHub + Links` — (1) saves your feed to the profile, (2) crawls GitHub repos *and performs deep code inspection*: reads `package.json` to extract actual production dependencies (`techStack`) and extracts rich README descriptions up to **70,000 characters** (over 2x BoB's entire README, reading full architectural docs without truncation), (3) crawls each pasted link for coding stats/badges. Generate does this automatically too.
 - **Self-Aware Repo Inspection** — Bob can read and deeply analyze his own codebase (`nikhilrawat2005/BoB`) or any of Master Nikhil's projects directly in chat or builder when asked (e.g. *"meri repo dekh"*, *"bob repo padh"*).
 - **Base resume PDF** — upload your own PDF; Bob extracts contact info, projects, achievements to reuse.
 - **Certificates & documents vault** — batch upload marksheets/certs up to 25MB per file with safe 50MB payload limits; documents are auto-saved to Cloudinary with SHA-256 deduplication and feed directly into "Certifications & Academics."

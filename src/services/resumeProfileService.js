@@ -226,11 +226,12 @@ async function syncGitHubProjects(username) {
           const readmeData = await readmeRes.json();
           if (readmeData.content) {
             const rawReadme = Buffer.from(readmeData.content, 'base64').toString('utf8');
-            // Clean markdown links and preserve rich feature descriptions up to 3500 chars
+            // Clean markdown links and preserve rich feature descriptions up to 70000 chars
+            // (More than 2x the size of BoB's ~33.8k README so comprehensive repos are fully read)
             readmeSummary = rawReadme
               .replace(/#+\s+/g, '')
               .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
-              .slice(0, 3500)
+              .slice(0, 70000)
               .trim();
           }
         }

@@ -10,10 +10,10 @@ const RAW = 'https://raw.githubusercontent.com';
 const CACHE_TTL = 30 * 60 * 1000; // 30 min
 const cache = new Map();
 
-const MAX_FILES = 30;        // max files to actually read
-const MAX_TOTAL_BYTES = 150 * 1024; // 150 KB of file content total
-const MAX_FILE_BYTES = 120 * 1024;  // single file cap
-const MAX_DISPLAY_FILE = 4500;      // chars shown per file in context
+const MAX_FILES = 40;        // max files to actually read
+const MAX_TOTAL_BYTES = 300 * 1024; // 300 KB of file content total
+const MAX_FILE_BYTES = 150 * 1024;  // single file cap
+const MAX_DISPLAY_FILE = 70000;     // chars shown per file in context (2x BoB's ~33.8k README)
 
 const SKIP_DIRS = ['node_modules', '.git', '.next', '.nuxt', 'dist', 'build', 'out', 'vendor', 'coverage', '.cache', 'public/build', '__pycache__', '.venv', 'venv', 'target', '.github/workflows'];
 const SKIP_FILES = ['package-lock.json', 'yarn.lock', 'pnpm-lock.yaml', 'bun.lock', 'composer.lock', 'poetry.lock', 'Cargo.lock', 'Gemfile.lock', 'go.sum'];
