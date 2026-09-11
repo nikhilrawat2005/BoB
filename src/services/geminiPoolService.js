@@ -11,9 +11,9 @@ const path = require('path');
  */
 
 const GEMINI_MODELS = [
-  process.env.GEMINI_MODEL || 'gemma-4-26b-a4b-it',
-  'gemini-3.6-flash',
-  'gemini-2.5-flash',
+  process.env.GEMINI_MODEL || 'gemini-2.5-flash',
+  'gemini-2.5-flash-lite-preview-06-17',
+  'gemini-2.0-flash',
 ];
 const DAILY_LIMIT_PER_KEY = Number(process.env.GEMINI_DAILY_LIMIT_PER_KEY || 1000);
 
@@ -191,6 +191,7 @@ async function callGeminiDirect({
       generationConfig: {
         temperature: Number(temperature) || 0.2,
         maxOutputTokens: Number(max_tokens) || 2048,
+        responseMimeType: 'application/json',
       },
     };
     if (systemInstruction) body.systemInstruction = systemInstruction;
@@ -303,6 +304,7 @@ async function runParallelGemini(
       generationConfig: {
         temperature: Number(task.temperature) || Number(temperature) || 0.2,
         maxOutputTokens: Number(task.max_tokens) || Number(max_tokens) || 2048,
+        responseMimeType: 'application/json',
       },
     };
     if (systemInstruction) body.systemInstruction = systemInstruction;
