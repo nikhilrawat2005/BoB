@@ -3,14 +3,13 @@ const router = express.Router();
 const multer = require('multer');
 const { requireAuth } = require('../middleware/auth');
 const resumeProfile = require('../services/resumeProfileService');
-const latexService = require('../services/latexResumeService');
 const directPdfService = require('../services/directPdfResumeService');
 const resumeAnalyzer = require('../services/resumeAnalyzerService');
 const fileService = require('../services/fileService');
 
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 15 * 1024 * 1024 } // 15 MB
+  limits: { fileSize: 25 * 1024 * 1024 } // 25 MB
 });
 
 /**
@@ -280,7 +279,7 @@ router.post(['/upload/certificate', '/upload/documents'], requireAuth, upload.ar
 });
 
 /**
- * 7. POST /api/resume/generate — Generate Tailored LaTeX Resume & Compile to PDF
+ * 7. POST /api/resume/generate — Generate Tailored Direct ATS Resume & Compile to PDF (PDFKit)
  */
 router.post('/generate', requireAuth, async (req, res) => {
   try {

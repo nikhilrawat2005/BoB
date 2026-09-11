@@ -193,8 +193,13 @@ async function runBuilderTurn(userId, session, message, sender) {
 
   // GitHub repo self-read
   let repoAnalysis = null;
-  if (repo.extractRepoUrls(message).length) {
-    repoAnalysis = await repo.analyzeRepo(message).catch(err => ({ status: 'error', message: err.message }));
+  let targetUrls = repo.extractRepoUrls(message);
+  if (!targetUrls.length && /\b(?:bob\s*(?:ki|ka)?\s*repo|meri\s+repo|apni\s+repo|bob\s+codebase|bob\s+repository)\b/i.test(message)) {
+    const owner = process.env.GITHUB_USERNAME || 'nikhilrawat2005';
+    targetUrls = [{ owner, repo: 'BoB', url: `https://github.com/${owner}/BoB` }];
+  }
+  if (targetUrls.length) {
+    repoAnalysis = await repo.analyzeRepo(targetUrls[0].url).catch(err => ({ status: 'error', message: err.message }));
   }
   if (repoAnalysis) {
     if (repoAnalysis.status === 'ok') {

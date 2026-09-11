@@ -527,6 +527,7 @@ function detectCreatorIssues(data, auditResult) {
  *      We match them back to their project section and give the LLM
  *      PRECISE "replace A with B in project X" instructions instead of
  *      vague hints. No guessing required.
+ */
 async function selfAuditAndRefine(data, profile, customInstructions, isTargeted, jobDescription) {
   const { auditResume } = require('./resumeAnalyzerService');
 
@@ -618,6 +619,7 @@ RETURN ONLY the corrected JSON in the exact same schema. Raw JSON only — no ma
     let refinedResponse;
     try {
       refinedResponse = await callLLM({
+        role: 'resume',
         messages: [
           {
             role: 'system',
@@ -788,6 +790,7 @@ RETURN ONLY A VALID JSON OBJECT (no markdown around it, no backticks, no comment
 }`;
 
   const response = await callLLM({
+    role: 'resume',
     messages: [
       { role: 'system', content: 'You are a career expert that outputs strict, valid JSON resumes only.' },
       { role: 'user', content: prompt }

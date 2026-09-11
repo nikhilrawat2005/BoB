@@ -381,6 +381,8 @@ const MODEL_ROLES = {
   research: process.env.RESEARCH_MODEL || 'google/gemini-2.5-flash',
   seo:      process.env.SEO_MODEL      || 'google/gemini-2.5-flash',
   review:   process.env.REVIEW_MODEL   || 'google/gemini-2.5-flash',
+  resume:   process.env.RESUME_MODEL   || 'google/gemini-2.5-flash',
+  repoAnalysis: process.env.REPO_MODEL || 'google/gemini-2.5-flash',
 };
 
 const FALLBACK_MODEL = process.env.FALLBACK_MODEL || 'google/gemini-2.5-flash-lite';
@@ -504,6 +506,8 @@ const NON_CONTINUOUS_ROLES = new Set([
   'memorySummarize',
   'writer',
   'router',
+  'resume',
+  'repoAnalysis',
 ]);
 
 async function callOpenRouterDirect({

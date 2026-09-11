@@ -25,7 +25,8 @@ const resumeRoute        = require('./routes/resume');
 const app = express();
 
 app.use(cors({ origin: process.env.ALLOWED_ORIGIN || '*' }));
-app.use(express.json({ limit: '2mb' }));
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
 // Minimal security headers (no extra dependency)
 app.use((req, res, next) => {
@@ -128,8 +129,14 @@ app.use('/api', (req, res) => {
 
 // Catch-all error handler
 app.use((err, req, res, next) => {
-  console.error(err);
-  res.status(500).json({ error: 'Internal server error' });
+  console.error('[Server Error]', err);
+  if (err.type === 'entity.too.large' || err.status === 413 || err.statusCode === 413) {
+    return res.status(413).json({ error: 'Payload too large. Please upload smaller files or batches.' });
+  }
+  if (err.code === 'LIMIT_FILE_SIZE') {
+    return res.status(413).json({ error: 'File size too large. Individual file limit exceeded.' });
+  }
+  res.status(err.status || err.statusCode || 500).json({ error: err.message || 'Internal server error' });
 });
 
 const PORT = process.env.PORT || 3000;

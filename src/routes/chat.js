@@ -210,12 +210,19 @@ function searchIntent(m) {
 
 async function fetchGitHub(message, docContext) {
   const m = String(message || '');
-  if (!/\bgithub\b|\brepos?\b|\brepositories\b|\bprofile\b/i.test(m) && !searchIntent(m)) return null;
+  const hasGitMention = /\bgithub\b|\brepos?\b|\brepositories\b|\bprofile\b|\bbob\b/i.test(m);
+  if (!hasGitMention && !searchIntent(m)) return null;
   const blocks = [];
 
+  // 1) Specific repo link(s) pasted or named repo mentioned (e.g. BoB, nikhilrawat2005/BoB)?
+  let repoUrls = repoService.extractRepoUrls(m).slice(0, 2);
+  
+  // Auto-resolve user's own primary repo if mentioning "bob repo", "meri repo", "bob ki repo"
+  if (!repoUrls.length && /\b(?:bob\s*(?:ki|ka)?\s*repo|meri\s+repo|apni\s+repo|bob\s+codebase|bob\s+repository)\b/i.test(m)) {
+    const owner = process.env.GITHUB_USERNAME || 'nikhilrawat2005';
+    repoUrls = [{ owner, repo: 'BoB', url: `https://github.com/${owner}/BoB` }];
+  }
 
-  // 1) Specific repo link(s) pasted? → read the ACTUAL code of the repo.
-  const repoUrls = repoService.extractRepoUrls(m).slice(0, 2);
   if (repoUrls.length) {
     for (const r of repoUrls) {
       const analysis = await repoService.analyzeRepo(r.url).catch(err => ({ status: 'error', message: err.message }));

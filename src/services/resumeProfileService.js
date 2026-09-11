@@ -191,17 +191,33 @@ async function syncGitHubProjects(username) {
 
     // 2. Deep inspect repos (fetch languages & README snippets)
     const projectPromises = relevantRepos.map(async (repo) => {
-      let languages = [];
-      let readmeSummary = '';
-
+      // 2. Deep inspect repos (fetch languages, README, package.json dependencies)
       try {
         const langRes = await fetch(repo.languages_url, { headers });
         if (langRes.ok) {
           const langData = await langRes.json();
-          languages = Object.keys(langData).slice(0, 5);
+          languages = Object.keys(langData).slice(0, 6);
         }
       } catch (err) {
         // Ignore language fail
+      }
+
+      let extraDependencies = [];
+      try {
+        // Inspect package.json if present
+        const pkgRes = await fetch(`https://api.github.com/repos/${username}/${repo.name}/contents/package.json`, { headers });
+        if (pkgRes.ok) {
+          const pkgData = await pkgRes.json();
+          if (pkgData && pkgData.content) {
+            const rawPkg = JSON.parse(Buffer.from(pkgData.content, 'base64').toString('utf8'));
+            const deps = Object.keys({ ...(rawPkg.dependencies || {}), ...(rawPkg.devDependencies || {}) });
+            // Filter common high-signal frameworks and libraries
+            const highSignal = deps.filter(d => !d.startsWith('@types/') && !['eslint', 'prettier', 'nodemon'].includes(d)).slice(0, 10);
+            extraDependencies.push(...highSignal);
+          }
+        }
+      } catch (err) {
+        // Ignore pkg fail
       }
 
       try {
@@ -210,11 +226,11 @@ async function syncGitHubProjects(username) {
           const readmeData = await readmeRes.json();
           if (readmeData.content) {
             const rawReadme = Buffer.from(readmeData.content, 'base64').toString('utf8');
-            // Clean markdown links and preserve rich feature descriptions up to 1800 chars
+            // Clean markdown links and preserve rich feature descriptions up to 3500 chars
             readmeSummary = rawReadme
               .replace(/#+\s+/g, '')
               .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
-              .slice(0, 1800)
+              .slice(0, 3500)
               .trim();
           }
         }
@@ -222,12 +238,18 @@ async function syncGitHubProjects(username) {
         // Ignore readme fail
       }
 
+      const combinedStack = Array.from(new Set([
+        ...languages,
+        ...extraDependencies,
+        ...(repo.language ? [repo.language] : [])
+      ])).slice(0, 10);
+
       return {
         title: repo.name,
         description: repo.description || '',
         githubUrl: repo.html_url,
         liveUrl: repo.homepage || '',
-        techStack: languages.length > 0 ? languages : [repo.language].filter(Boolean),
+        techStack: combinedStack.length > 0 ? combinedStack : ['General Software'],
         stars: repo.stargazers_count,
         summary: readmeSummary || repo.description || ''
       };

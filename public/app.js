@@ -7508,7 +7508,14 @@ document.getElementById('resume-base-input')?.addEventListener('change', async (
       headers: { Authorization: `Bearer ${token}` },
       body: formData
     });
-    const data = await res.json();
+    const text = await res.text();
+    let data = {};
+    try { data = JSON.parse(text); } catch {
+      if (res.status === 413 || text.includes('Request Entity')) {
+        throw new Error('PDF file size is too large. Please upload a file under 25MB.');
+      }
+      throw new Error(text.slice(0, 150) || `HTTP ${res.status}`);
+    }
     if (!res.ok) throw new Error(data.error || 'Upload failed');
     statusEl.innerHTML = `✅ <a href="${data.baseResume.url}" target="_blank" style="color:var(--accent);">View Uploaded PDF</a>`;
     await loadResumeProfile(activeCandidateProfileId);
@@ -7535,7 +7542,14 @@ document.getElementById('resume-cert-input')?.addEventListener('change', async (
       headers: { Authorization: `Bearer ${token}` },
       body: formData
     });
-    const data = await res.json();
+    const text = await res.text();
+    let data = {};
+    try { data = JSON.parse(text); } catch {
+      if (res.status === 413 || text.includes('Request Entity')) {
+        throw new Error('Batch upload size too large. Try uploading fewer certificates at once or files under 25MB.');
+      }
+      throw new Error(text.slice(0, 150) || `HTTP ${res.status}`);
+    }
     if (!res.ok) throw new Error(data.error || 'Upload failed');
     countEl.textContent = `✅ Uploaded ${data.added?.length || files.length} document(s)!`;
     await loadResumeProfile(activeCandidateProfileId);

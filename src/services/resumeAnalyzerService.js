@@ -116,6 +116,7 @@ RETURN ONLY A VALID JSON OBJECT (no markdown, no backticks, no comments, raw JSO
 }`;
 
   const response = await callLLM({
+    role: 'resume',
     messages: [
       {
         role: 'system',
