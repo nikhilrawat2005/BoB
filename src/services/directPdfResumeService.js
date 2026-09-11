@@ -218,6 +218,117 @@ function applyResumeNotesDirectives(data, profile, notes) {
 }
 
 // ---------------------------------------------------------------------------
+// Robust Self-Healing JSON Parser
+// Handles LLM JSON syntax errors (missing commas, trailing tokens, unclosed braces)
+// ---------------------------------------------------------------------------
+function parseStructuredResumeJson(rawText) {
+  if (!rawText) throw new Error('Empty response from AI resume generator');
+  let cleaned = String(rawText)
+    .replace(/^\uFEFF/, '')
+    .replace(/[\u200B-\u200D\uFEFF\u00A0]/g, '')
+    .trim();
+
+  // Strip code fences
+  if (cleaned.startsWith('```')) {
+    const firstNewline = cleaned.indexOf('\n');
+    if (firstNewline !== -1) cleaned = cleaned.slice(firstNewline + 1);
+    if (cleaned.endsWith('```')) cleaned = cleaned.slice(0, cleaned.lastIndexOf('```'));
+    cleaned = cleaned.trim();
+  }
+
+  // Strip comments
+  cleaned = cleaned
+    .replace(/\/\/[^\n]*/g, '')
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .trim();
+
+  const startIdx = cleaned.indexOf('{');
+  const endIdx = cleaned.lastIndexOf('}');
+  if (startIdx === -1 || endIdx === -1 || endIdx <= startIdx) {
+    throw new Error('No valid JSON object boundaries found in AI resume generation');
+  }
+
+  const jsonStr = cleaned.slice(startIdx, endIdx + 1);
+
+  function fixBareKeys(str) {
+    return str.replace(/([{,\[]\s*|^\s*)([A-Za-z_$][A-Za-z0-9_$]*)(\s*:)/gm,
+      (match, pre, key, colon) => `${pre}"${key}"${colon}`
+    );
+  }
+
+  function cleanTrailingCommas(str) {
+    return str.replace(/,\s*([\]}])/g, '$1');
+  }
+
+  function repairArrayCommas(str) {
+    // Inserts missing comma between array elements e.g. "bullet 1"\n "bullet 2"
+    return str.replace(/"\s*[\r\n]+\s*"/g, '",\n"');
+  }
+
+  function tryRepairTruncatedJson(str) {
+    let s = str.trim();
+    s = s.replace(/,\s*$/, '');
+    s = s.replace(/:\s*$/, ': null');
+    s = s.replace(/("[^"\\]*(?:\\.[^"\\]*)*)$/, '');
+    s = s.replace(/,\s*$/, '');
+
+    let openBraces = 0;
+    let openBrackets = 0;
+    let inString = false;
+    let escape = false;
+
+    for (let i = 0; i < s.length; i++) {
+      const ch = s[i];
+      if (escape) { escape = false; continue; }
+      if (ch === '\\') { escape = true; continue; }
+      if (ch === '"') { inString = !inString; continue; }
+      if (!inString) {
+        if (ch === '{') openBraces++;
+        else if (ch === '}') openBraces = Math.max(0, openBraces - 1);
+        else if (ch === '[') openBrackets++;
+        else if (ch === ']') openBrackets = Math.max(0, openBrackets - 1);
+      }
+    }
+
+    if (inString) s += '"';
+    s = cleanTrailingCommas(s);
+    while (openBrackets > 0) { s += ']'; openBrackets--; }
+    while (openBraces > 0) { s += '}'; openBraces--; }
+    return cleanTrailingCommas(s);
+  }
+
+  const candidates = [
+    jsonStr,
+    repairArrayCommas(jsonStr),
+    cleanTrailingCommas(jsonStr),
+    repairArrayCommas(cleanTrailingCommas(jsonStr)),
+    fixBareKeys(jsonStr),
+    cleanTrailingCommas(fixBareKeys(jsonStr)),
+    tryRepairTruncatedJson(jsonStr),
+    tryRepairTruncatedJson(repairArrayCommas(jsonStr)),
+    tryRepairTruncatedJson(fixBareKeys(jsonStr))
+  ];
+
+  for (const cand of candidates) {
+    try {
+      const parsed = JSON.parse(cand);
+      if (parsed && typeof parsed === 'object') return parsed;
+    } catch (_) {}
+  }
+
+  // Final attempt: strip non-printable ASCII
+  const sanitized = jsonStr.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '');
+  for (const cand of [sanitized, repairArrayCommas(sanitized), tryRepairTruncatedJson(sanitized)]) {
+    try {
+      const parsed = JSON.parse(cand);
+      if (parsed && typeof parsed === 'object') return parsed;
+    } catch (_) {}
+  }
+
+  throw new Error(`Resume JSON parsing failed near snippet: ${jsonStr.slice(0, 180)}`);
+}
+
+// ---------------------------------------------------------------------------
 // Deterministic Showcase Polish — self-audit backstop
 // Guarantees "SELF-AUDIT & SHOWCASE" standards even if the LLM misses them:
 //   1. Weak/low competitive stats (a bare small LeetCode count) are re-framed
@@ -665,23 +776,8 @@ RETURN ONLY the corrected JSON in the exact same schema. Raw JSON only — no ma
       break;
     }
 
-    const refinedRaw = (refinedResponse && refinedResponse.text) ? refinedResponse.text : String(refinedResponse);
-    // Strip markdown code fences (e.g. ```json ... ```) if model wraps JSON
-    let refinedClean = refinedRaw.trim();
-    if (refinedClean.startsWith('```')) {
-      const firstNewline = refinedClean.indexOf('\n');
-      if (firstNewline !== -1) refinedClean = refinedClean.slice(firstNewline + 1);
-      if (refinedClean.endsWith('```')) refinedClean = refinedClean.slice(0, refinedClean.lastIndexOf('```'));
-      refinedClean = refinedClean.trim();
-    }
-    const refinedMatch = refinedClean.match(/\{[\s\S]*\}/);
-    if (!refinedMatch) {
-      console.warn(`[selfAudit] Iteration ${iteration}: could not parse refined JSON, keeping current`);
-      break;
-    }
-
     try {
-      const refinedData = JSON.parse(refinedMatch[0]);
+      const refinedData = parseStructuredResumeJson(refinedRaw);
       data = applyShowcasePolish(refinedData);
     } catch (parseErr) {
       console.warn(`[selfAudit] Iteration ${iteration}: JSON parse failed (${parseErr.message}), keeping current`);
@@ -829,12 +925,7 @@ RETURN ONLY A VALID JSON OBJECT (no markdown around it, no backticks, no comment
   });
 
   const rawText = (response && response.text) ? response.text : String(response);
-  const jsonMatch = rawText.match(/\{[\s\S]*\}/);
-  if (!jsonMatch) {
-    throw new Error('Failed to parse structured resume data from AI');
-  }
-
-  let data = JSON.parse(jsonMatch[0]);
+  let data = parseStructuredResumeJson(rawText);
   data = applyResumeNotesDirectives(data, profile, customInstructions);
   data = applyShowcasePolish(data);
 
