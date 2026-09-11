@@ -242,13 +242,15 @@ function parseStructuredResumeJson(rawText) {
     .replace(/\/\*[\s\S]*?\*\//g, '')
     .trim();
 
-  const startIdx = cleaned.indexOf('{');
-  const endIdx = cleaned.lastIndexOf('}');
-  if (startIdx === -1 || endIdx === -1 || endIdx <= startIdx) {
+  let startIdx = cleaned.indexOf('{');
+  let endIdx = cleaned.lastIndexOf('}');
+  if (startIdx === -1) {
     throw new Error('No valid JSON object boundaries found in AI resume generation');
   }
 
-  const jsonStr = cleaned.slice(startIdx, endIdx + 1);
+  // If there's no closing brace, or the last closing brace belongs to an inner object
+  // before the root ends, treat the substring from startIdx onwards as a candidate for truncation repair.
+  let jsonStr = (endIdx > startIdx) ? cleaned.slice(startIdx, endIdx + 1) : cleaned.slice(startIdx);
 
   function fixBareKeys(str) {
     return str.replace(/([{,\[]\s*|^\s*)([A-Za-z_$][A-Za-z0-9_$]*)(\s*:)/gm,
@@ -297,6 +299,7 @@ function parseStructuredResumeJson(rawText) {
     return cleanTrailingCommas(s);
   }
 
+  const rawCandidate = cleaned.slice(startIdx);
   const candidates = [
     jsonStr,
     repairArrayCommas(jsonStr),
@@ -306,7 +309,10 @@ function parseStructuredResumeJson(rawText) {
     cleanTrailingCommas(fixBareKeys(jsonStr)),
     tryRepairTruncatedJson(jsonStr),
     tryRepairTruncatedJson(repairArrayCommas(jsonStr)),
-    tryRepairTruncatedJson(fixBareKeys(jsonStr))
+    tryRepairTruncatedJson(fixBareKeys(jsonStr)),
+    tryRepairTruncatedJson(rawCandidate),
+    tryRepairTruncatedJson(repairArrayCommas(rawCandidate)),
+    tryRepairTruncatedJson(cleanTrailingCommas(rawCandidate))
   ];
 
   for (const cand of candidates) {
@@ -318,7 +324,13 @@ function parseStructuredResumeJson(rawText) {
 
   // Final attempt: strip non-printable ASCII
   const sanitized = jsonStr.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '');
-  for (const cand of [sanitized, repairArrayCommas(sanitized), tryRepairTruncatedJson(sanitized)]) {
+  const sanitizedRaw = rawCandidate.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '');
+  for (const cand of [
+    sanitized,
+    repairArrayCommas(sanitized),
+    tryRepairTruncatedJson(sanitized),
+    tryRepairTruncatedJson(sanitizedRaw)
+  ]) {
     try {
       const parsed = JSON.parse(cand);
       if (parsed && typeof parsed === 'object') return parsed;
@@ -776,6 +788,7 @@ RETURN ONLY the corrected JSON in the exact same schema. Raw JSON only — no ma
       break;
     }
 
+    const refinedRaw = (refinedResponse && refinedResponse.text) ? refinedResponse.text : String(refinedResponse || '');
     try {
       const refinedData = parseStructuredResumeJson(refinedRaw);
       data = applyShowcasePolish(refinedData);
@@ -794,11 +807,29 @@ RETURN ONLY the corrected JSON in the exact same schema. Raw JSON only — no ma
 async function generateStructuredResumeData({ profile, jobDescription = '', customInstructions = '' }) {
   const isTargeted = Boolean(jobDescription && jobDescription.trim().length > 20);
 
+  // Prune heavy/irrelevant properties to avoid massive token bloat and truncation
+  const safeProfile = { ...profile };
+  if (safeProfile.rawText && typeof safeProfile.rawText === 'string' && safeProfile.rawText.length > 2000) {
+    safeProfile.rawText = safeProfile.rawText.slice(0, 2000) + '... [truncated]';
+  }
+  if (safeProfile.fileBuffer) delete safeProfile.fileBuffer;
+  if (Array.isArray(safeProfile.githubProjects)) {
+    safeProfile.githubProjects = safeProfile.githubProjects.map(proj => ({
+      name: proj.name,
+      description: proj.description,
+      language: proj.language,
+      languages: Array.isArray(proj.languages) ? proj.languages.slice(0, 10) : proj.languages,
+      stars: proj.stars,
+      topics: proj.topics,
+      readmeSummary: proj.readmeSummary ? String(proj.readmeSummary).slice(0, 1500) : ''
+    }));
+  }
+
   const prompt = `You are a World-Class Technical Career Strategist and Harvard/Google Resume Expert.
 Convert the candidate's master profile into a polished, high-impact ATS Technical Resume dataset.
 
 CANDIDATE MASTER PROFILE:
-${JSON.stringify(profile, null, 2)}
+${JSON.stringify(safeProfile, null, 2)}
 
 CRITICAL RULES:
 1. LINKS INTEGRITY: ONLY include links that the candidate ACTUALLY has provided in their master profile, smartLinks array, or base resume (e.g. GitHub, LinkedIn, LeetCode, CodeChef, Portfolios). Do NOT hallucinate or insert links if the user has NOT provided them! Ensure link labels are clean and accurate.
@@ -921,7 +952,8 @@ RETURN ONLY A VALID JSON OBJECT (no markdown around it, no backticks, no comment
       { role: 'system', content: 'You are a career expert that outputs strict, valid JSON resumes only.' },
       { role: 'user', content: prompt }
     ],
-    temperature: 0.2
+    temperature: 0.2,
+    max_tokens: 8192
   });
 
   const rawText = (response && response.text) ? response.text : String(response);

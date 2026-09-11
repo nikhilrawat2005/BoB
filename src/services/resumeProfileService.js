@@ -192,6 +192,7 @@ async function syncGitHubProjects(username) {
     // 2. Deep inspect repos (fetch languages & README snippets)
     const projectPromises = relevantRepos.map(async (repo) => {
       // 2. Deep inspect repos (fetch languages, README, package.json dependencies)
+      let languages = [];
       try {
         const langRes = await fetch(repo.languages_url, { headers });
         if (langRes.ok) {
@@ -211,8 +212,6 @@ async function syncGitHubProjects(username) {
           if (pkgData && pkgData.content) {
             const rawPkg = JSON.parse(Buffer.from(pkgData.content, 'base64').toString('utf8'));
             const deps = Object.keys({ ...(rawPkg.dependencies || {}), ...(rawPkg.devDependencies || {}) });
-            // Filter common high-signal frameworks and libraries
-            // Filter common high-signal frameworks and libraries
             const highSignal = deps.filter(d => !d.startsWith('@types/') && !['eslint', 'prettier', 'nodemon'].includes(d)).slice(0, 10);
             extraDependencies.push(...highSignal);
           }
@@ -237,18 +236,18 @@ async function syncGitHubProjects(username) {
         // Ignore tree fail
       }
 
+      let readmeSummary = '';
       try {
         const readmeRes = await fetch(`https://api.github.com/repos/${username}/${repo.name}/readme`, { headers });
         if (readmeRes.ok) {
           const readmeData = await readmeRes.json();
           if (readmeData.content) {
             const rawReadme = Buffer.from(readmeData.content, 'base64').toString('utf8');
-            // Clean markdown links and preserve rich feature descriptions up to 70000 chars
-            // (More than 2x the size of BoB's ~33.8k README so comprehensive repos are fully read)
+            // Clean markdown links and cap to 2,500 chars to maintain rich signal without blowing context
             readmeSummary = rawReadme
               .replace(/#+\s+/g, '')
               .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
-              .slice(0, 70000)
+              .slice(0, 2500)
               .trim();
           }
         }

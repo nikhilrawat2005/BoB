@@ -557,7 +557,8 @@ async function callOpenRouterDirect({
   }
 
   const apiKey = keyObj.key;
-  const requestedMaxTokens = max_tokens ?? Number(process.env.MAX_TOKENS ?? 2000);
+  const defaultMax = (role === 'resume' || role === 'research') ? 8192 : 2000;
+  const requestedMaxTokens = max_tokens ?? Number(process.env.MAX_TOKENS ?? defaultMax);
   const body = {
     model: selectedModel,
     messages: finalMessages,
