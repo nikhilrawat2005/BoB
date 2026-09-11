@@ -300,9 +300,10 @@ flowchart LR
 
 ### 3.1 Feeding data — no more manual typing
 - **GitHub & Coding card** — one input for the GitHub handle, one paste box for profile links. Bob auto-detects each URL and gives it a **clean recruiter-friendly label** (`LeetCode`, `CodeChef`, `Codeforces`, `GitHub`, `LinkedIn`, `DEV.to`, `Portfolio`, …).
-- **One sync button**: `🔄 Sync GitHub + Links` — (1) saves your feed to the profile, (2) crawls GitHub repos *and reads their READMEs*, (3) crawls each pasted link for coding stats/badges. Generate does this automatically too.
+- **One sync button**: `🔄 Sync GitHub + Links` — (1) saves your feed to the profile, (2) crawls GitHub repos *and performs deep code inspection*: reads `package.json` to extract actual production dependencies (`techStack`) and extracts rich README descriptions up to **3,500 characters**, (3) crawls each pasted link for coding stats/badges. Generate does this automatically too.
+- **Self-Aware Repo Inspection** — Bob can read and deeply analyze his own codebase (`nikhilrawat2005/BoB`) or any of Master Nikhil's projects directly in chat or builder when asked (e.g. *"meri repo dekh"*, *"bob repo padh"*).
 - **Base resume PDF** — upload your own PDF; Bob extracts contact info, projects, achievements to reuse.
-- **Certificates & documents vault** — batch upload marksheets/certs; become direct-viewable Cloudinary links feeding "Certifications & Academics."
+- **Certificates & documents vault** — batch upload marksheets/certs up to 25MB per file with safe 50MB payload limits; documents are auto-saved to Cloudinary with SHA-256 deduplication and feed directly into "Certifications & Academics."
 
 ### 3.2 Resume Notes — the "teach Bob" power feature
 
@@ -326,8 +327,9 @@ Notes persist per profile and are re-sent on every generation.
 - **Max ATS keyword coverage** — real languages/frameworks/tools woven into titles, tech stacks, bullets.
 - **No invented contacts** — email/phone/location only from real profile data.
 - **Clean bullet style** — no ending periods, single focus per bullet (modern ATS/Harvard standard).
-- **Self-audit & showcase polish (mandatory final pass)** — weak competitive numbers are reframed, never shown as bare lows (e.g. `LeetCode 31 Solved (25 Easy, 6 Medium)` becomes *"Built core DSA fundamentals across arrays, strings, hashing, recursion and two-pointer patterns with 31 LeetCode problems solved"*); every bullet is shaped as **active verb + task + outcome using ONLY real numbers** from the candidate's data.
-- **Never invent metrics** — `X%`, `Y users`, `Z concurrent`, `Lighthouse score of X`, `by an estimated X%` placeholders are **forbidden**; a bullet without a real metric closes with a concrete outcome phrase instead. Weak verbs are upgraded (Contributed to / Focused on → Architected / Engineered / Implemented / Designed / Spearheaded). A deterministic `applyShowcasePolish` backstop strips any leaked placeholder clauses from the final JSON.
+- **Self-Audit Refinement Loop (Closed-Loop Creator Feedback)** — Bob doesn't just generate once; it audits its own generated resume in an automated multi-iteration feedback loop. The audit identifies creator-side issues (weak verbs, trailing periods, placeholder leaks, unquantified bullets), fuzzy-matches audit improvements back to the exact project sections, and executes targeted refinement passes with temperature `0.05` to swap weak bullets with high-impact STAR/Google-XYZ bullets before the user ever sees it.
+- **Parallel Multi-Key Pool Distribution** — Generation and self-audit refinement passes run on the `resume` role through the Gemini/OpenRouter multi-key rotating pool, spreading load across keys without getting choked by individual rate limits.
+- **Never invent metrics** — `X%`, `Y users`, `Z concurrent`, `Lighthouse score of X`, `by an estimated X%` placeholders are **strictly forbidden**; a bullet without a real number closes with a strong concrete outcome phrase instead. Weak verbs are upgraded (Contributed to / Focused on → Architected / Engineered / Implemented / Designed / Spearheaded). Deterministic passes strip trailing periods, filter empty experience entries, and strip any leaked placeholder clauses.
 
 ### 3.4 Rendering the PDF
 - **Direct PDFKit engine** (`directPdfResumeService.js`) — streams a valid PDF straight from Node (no external template engine).
@@ -432,10 +434,9 @@ A full **parallel, multi-key** SEO auditing stack: crawl → score → AI diagno
 |---|---|
 | `llmService.js` | OpenRouter orchestration, key rotation, model routing/fallback |
 | `geminiPoolService.js` | Multi-key Gemini pool — rate-limit/quota rotation, `runParallelGemini` load-balanced parallel dispatch, fallback to OpenRouter |
-| `resumeProfileService.js` | Career profile CRUD, GitHub crawler, coding-stats sync, resume parsing, smart-links sync, shared-file-aware deletion |
-| `directPdfResumeService.js` | LLM resume structuring + direct PDFKit ATS PDF engine with auto compact single-page layout |
+| `resumeProfileService.js` | Career profile CRUD, deep GitHub repo & package.json crawler, coding-stats sync, resume parsing, smart-links sync, shared-file-aware deletion |
+| `directPdfResumeService.js` | LLM resume structuring + self-audit refinement loop + direct PDFKit ATS PDF engine with auto compact single-page layout |
 | `resumeAnalyzerService.js` | ATS audit scoring of resumes + audit PDF generation |
-| `latexResumeService.js` | Legacy PDF builder (kept for backward compatibility; no longer used for resumes) |
 | `fileService.js` | Cloudinary upload/delete with SHA-256 deduplication & Firestore sync |
 | `documentReaderService.js` | Extracts text from PDF/DOCX/XLSX/code & zero-token local table query engine |
 | `documentGenerator.js` | Generates real `.xlsx/.docx/.pdf/.pptx` files |
