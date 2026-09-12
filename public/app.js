@@ -6249,6 +6249,7 @@ function renderSeoKeywords(site) {
         ${kwSource ? ' · Source: ' + escHtml(kwSource) : ''}
         ${kd.lastRankingCheck ? ' · Ranks checked: ' + new Date(kd.lastRankingCheck).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }) : ''}
       </div>
+      ${kd.meta && kd.meta.niche && kd.meta.niche.label ? `<div style="font-size:10px;color:var(--amber);margin-top:3px;">🎯 Detected niche: ${escHtml(kd.meta.niche.label)}</div>` : ''}
       ${kd.meta && kd.meta.gscVerification ? `<div style="font-size:10px;margin-top:4px;"><span style="color:${kd.meta.gscVerification.verified ? 'var(--green)' : '#fbbf24'};">🛡️ GSC: ${kd.meta.gscVerification.verified ? 'Verified ✓' : escHtml(kd.meta.gscVerification.reason || 'not verified')}</span></div>` : ''}
     </div>
 

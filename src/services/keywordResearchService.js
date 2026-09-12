@@ -1,34 +1,34 @@
-const crypto = require('crypto');
+﻿const crypto = require('crypto');
 const fetch = require('node-fetch');
 const { db } = require('../config/firebase');
 const { fetchWithTimeout, validatePublicUrl, scrapeURL } = require('./crawlerService');
-const { callLLMParallel } = require('./llmService');
+const { callLLMParallel, DEAD_MODELS } = require('./llmService');
 
-// ═══════════════════════════════════════════════════════════════════════════
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 //  Keyword Research Service
 //
 //  Fully independent SEO keyword layer. It never touches seoService.js or
-//  crawlerService.js internals — it only reuses their public, safe helpers
+//  crawlerService.js internals â€” it only reuses their public, safe helpers
 //  (fetchWithTimeout for SSRF-safe HTTP, scrapeURL for competitor pages) plus
 //  the shared LLM key-bucket pool via llmService.callLLMParallel.
 //
 //  Google integrations (Google Ads Keyword Planner, Google Search Console)
 //  are engaged ONLY when the corresponding env vars are present. They are
-//  implemented as plain REST calls (node-fetch v2 — already a dependency) and
+//  implemented as plain REST calls (node-fetch v2 â€” already a dependency) and
 //  reuse the Firebase service-account to mint an OAuth token, so no extra npm
 //  packages and no extra credential files are required. Without creds the
 //  pipeline degrades gracefully to deterministic, clearly-labelled data
 //  (source: 'estimated' | 'unavailable') instead of hard-failing.
 //
 //  Env vars used (all optional):
-//    GOOGLE_ADS_DEVELOPER_TOKEN   — Google Ads API developer token
-//    GOOGLE_ADS_CUSTOMER_ID       — Ads manager/account id (e.g. 1234567890)
-//    GOOGLE_SEARCH_CONSOLE_PROPERTY — optional override for the GSC site URL
-//    SERPAPI_KEY                  — SerpAPI key for keyword ranking lookups
-//    BRAVE_API_KEY                — Brave Search for competitor discovery
+//    GOOGLE_ADS_DEVELOPER_TOKEN   â€” Google Ads API developer token
+//    GOOGLE_ADS_CUSTOMER_ID       â€” Ads manager/account id (e.g. 1234567890)
+//    GOOGLE_SEARCH_CONSOLE_PROPERTY â€” optional override for the GSC site URL
+//    SERPAPI_KEY                  â€” SerpAPI key for keyword ranking lookups
+//    BRAVE_API_KEY                â€” Brave Search for competitor discovery
 //  The Firebase service account (FIREBASE_CLIENT_EMAIL / FIREBASE_PRIVATE_KEY)
 //  is used to mint short-lived Google API tokens when it is set up.
-// ═══════════════════════════════════════════════════════════════════════════
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 const STOPWORDS = new Set([
   'a','an','the','and','or','but','for','nor','on','at','in','of','to','is','are','was','were',
@@ -46,9 +46,27 @@ const MODIFIERS = ['best','top','how to','how do i','near me','for beginners','o
 const CITIES = ['delhi','mumbai','bangalore','india'];
 const JUNK_UTILITY = /\b(costs?|itinerar(?:y|ies)|tips?|guides?|visiting?|photo(?:s)?|spots?|places?|time|times?|plans?|planned?|hands?|flies|fly|flights?|sunsets?|anime|curated|books?|booking(?:s)?|contact|menu|about|home|read|more|error|pages?|button|buy|sale|welcome|login|sign|register|cart|checkout|reviews?|news|blog|click|view|best time|travel guide)\b/i;
 
-// ──────────────────────────────────────────────────────────────────────────────
+// Travel + broad destination gazetteer used to turn raw site text into real
+// searchable entities (places). Kept deliberately practical, not exhaustive.
+const DESTINATIONS = ['japan','singapore','thailand','bali','philippines','vietnam','cambodia','laos','indonesia','malaysia','south korea','seoul','busan','china','hong kong','macau','taiwan','dubai','abu dhabi','sharjah','oman','qatar','uae','saudi arabia','bahrain','kuwait','turkey','istanbul','egypt','cairo','morocco','mauritius','sri lanka','maldives','nepal','bhutan','tibet','himalayas','india','himachal pradesh','manali','shimla','dharamshala','dharamsala','ladakh','leh','kashmir','srinagar','gulmarg','uttarakhand','rishikesh','haridwar','nainital','mussoorie','dehradun','darjeeling','gangtok','sikkim','assam','kaziranga','meghalaya','shillong','goa','mumbai','pune','rajasthan','jaipur','jodhpur','jaisalmer','udaipur','pushkar','delhi','agra','taj mahal','varanasi','kerala','alleppey','munnar','kochi','wayanad','ooty','coorg','mysore','hampi','andaman','port blair','hyderabad','bangalore','bengaluru','chennai','kolkata','gujarat','kutch','odisha','puri','konark','madhya pradesh','khajuraho','paris','france','london','united kingdom','england','scotland','ireland','italy','rome','venice','florence','milan','switzerland','zurich','geneva','interlaken','austria','vienna','salzburg','germany','berlin','munich','prague','czech republic','greece','santorini','athens','spain','barcelona','madrid','portugal','lisbon','netherlands','amsterdam','norway','oslo','iceland','reykjavik','finland','helsinki','denmark','copenhagen','sweden','stockholm','croatia','split','dubrovnik','poland','budapest','hungary','usa','united states','america','new york','los angeles','las vegas','san francisco','miami','orlando','chicago','canada','toronto','vancouver','niagara','mexico','brazil','rio de janeiro','argentina','peru','cusco','machu picchu','australia','sydney','melbourne','brisbane','gold coast','perth','adelaide','new zealand','queenstown','auckland','south africa','cape town','kenya','nairobi','tanzania','zanzibar','madagascar','jordan','petra','georgia','tbilisi','armenia','yerevan','uzbekistan','samarkand'];
+const ACTIVITIES = ['desert safari','dune bashing','quad biking','atv ride','snorkeling','scuba diving','parasailing','paragliding','skydiving','bungee jumping','zipline','zip line','rafting','kayaking','canoeing','surfing','sailing','yacht','houseboat','cruise','wildlife safari','trekking','hiking','camping','mountaineering','skiing','snowboarding','ice skating','rock climbing','bird watching','hot air balloon','cable car','gondola','luge','jet ski','dolphin watching','whale watching','street food','cooking class','shopping'];
+
+const NICHE_SIGNALS = {
+  travel: ['tour','travel','trip','package','itinerary','holiday','destination','hotel','resort','flight','visa','adventure','honeymoon','safari','trek','beach','cruise','backpack','vacation'],
+  education: ['exam','syllabus','notes','college','university','course','coaching','admission','questions','marks','cbse','icse','neet','upsc','class','subject','maths','mathematics','science','english','history','geography','physics','chemistry','biology','study','learn','tutorial','test','quiz'],
+  finance: ['loan','credit','insurance','invest','investment','tax','savings','bank','emi','mutual fund','salary','budget','finance'],
+  health: ['doctor','health','fitness','gym','diet','medicine','treatment','hospital','clinic','yoga','nutrition','weight'],
+  food: ['recipe','restaurant','food','dish','cuisine','cooking','bakery','chef'],
+  realestate: ['property','home','flat','apartment','builder','floor','interior','real estate','plot'],
+  sports: ['cricket','football','soccer','game','gaming','esports','tournament','player','match','sport'],
+  tech: ['software','app','coding','programming','developer','machine learning','artificial intelligence','website','seo'],
+  ecommerce: ['buy','price','shop','store','product','cheap','sale','online','shipping'],
+};
+const NICHE_LABELS = { travel: 'Tours & Travel', education: 'Education & Exams', finance: 'Finance & Loans', health: 'Health & Fitness', food: 'Food & Recipes', realestate: 'Real Estate', sports: 'Sports & Gaming', tech: 'Technology & Software', ecommerce: 'E-commerce & Products', general: 'General' };
+
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // Small helpers
-// ──────────────────────────────────────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 function stripHtml(html) {
   return String(html || '')
@@ -154,7 +172,7 @@ async function getGoogleAccessToken(scope) {
 
 // Health-check the Google Search Console integration before the first ranking
 // lookup. Contacts the Search Console API, confirms the token works and that
-// the chosen property is queryable. Never throws — returns a report object so
+// the chosen property is queryable. Never throws â€” returns a report object so
 // the caller can log/display the outcome without aborting the pipeline.
 // Returns { verified, gscUsed, property?, reachableSites?, reason?, message }.
 async function autoVerifyGSC(siteUrl) {
@@ -181,7 +199,7 @@ async function autoVerifyGSC(siteUrl) {
 
   const candidates = gscPropertyCandidates(siteUrl);
   if (!candidates.length) {
-    return { verified: false, gscUsed: true, reason: 'no-property', message: 'No GSC property to probe — set GOOGLE_SEARCH_CONSOLE_PROPERTY or pass the site URL.' };
+    return { verified: false, gscUsed: true, reason: 'no-property', message: 'No GSC property to probe â€” set GOOGLE_SEARCH_CONSOLE_PROPERTY or pass the site URL.' };
   }
 
   // 1) Advisory: does the token see any matching property in the account list?
@@ -212,7 +230,7 @@ async function autoVerifyGSC(siteUrl) {
       }
     }
   } catch (err) {
-    // sites.list is advisory only — fall through to the authoritative probe.
+    // sites.list is advisory only â€” fall through to the authoritative probe.
   }
 
   // 2) Authoritative: run a real (tiny) Search Analytics query against each
@@ -235,13 +253,13 @@ async function autoVerifyGSC(siteUrl) {
       );
       const resText = await res.text();
       if (res.ok) {
-        return { verified: true, gscUsed: true, property: cand, message: 'GSC access verified — Search Console API reachable and property is queryable.' };
+        return { verified: true, gscUsed: true, property: cand, message: 'GSC access verified â€” Search Console API reachable and property is queryable.' };
       }
       let detail = `GSC HTTP ${res.status}`;
       try { const j = resText ? JSON.parse(resText) : {}; detail = (j.error && j.error.message) || detail; } catch {}
-      errors.push(`${cand} → ${detail}`);
+      errors.push(`${cand} â†’ ${detail}`);
     } catch (err) {
-      errors.push(`${cand} → ${err.message}`);
+      errors.push(`${cand} â†’ ${err.message}`);
     }
   }
   return { verified: false, gscUsed: true, property: candidates[0], reason: 'probe-failed', message: errors.join(' | ') };
@@ -291,10 +309,19 @@ async function withTimeout(promise, label, ms = 20000) {
   }
 }
 
-// ──────────────────────────────────────────────────────────────────────────────
+// Guard against stale SEO_MODEL values (e.g. gemini-2.0-flash was retired);
+// fall back to the current flash model the rest of the SEO pipeline uses.
+function seoModel() {
+  const m = process.env.SEO_MODEL;
+  if (!m) return 'gemini-3.6-flash';
+  const dead = /gemini-2\.0-flash|gemini-2\.5/i.test(m) || (DEAD_MODELS && DEAD_MODELS.has(m));
+  return dead ? 'gemini-3.6-flash' : m;
+}
+
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // 1. extractSeedKeywords(auditData, siteUrl)
 //    Pulls candidate topic keywords out of an existing SEO audit payload.
-// ──────────────────────────────────────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 function extractSeedKeywords(auditData = {}, siteUrl = '') {
   const audit = auditData || {};
@@ -373,11 +400,11 @@ function extractSeedKeywords(auditData = {}, siteUrl = '') {
   return seeds.slice(0, 20);
 }
 
-// ──────────────────────────────────────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // 2. getKeywordIdeas(seedKeywords, locationTargets, languageTargets)
 //    Returns keyword ideas with volume / competition / CPC.
-//    Tries: Google Ads Keyword Planner REST → deterministic estimation.
-// ──────────────────────────────────────────────────────────────────────────────
+//    Tries: Google Ads Keyword Planner REST â†’ deterministic estimation.
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 async function fetchGoogleAdsKeywordIdeas(seedKeywords = []) {
   const token = await getGoogleAccessToken('https://www.googleapis.com/auth/adwords');
@@ -425,7 +452,101 @@ async function fetchGoogleAdsKeywordIdeas(seedKeywords = []) {
   return ideas.filter(i => i.keyword);
 }
 
-async function getKeywordIdeas(seedKeywords = [], locationTargets = [], languageTargets = ['en']) {
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// 2b. Intent-driven keyword engine
+//     Real keyword research = entity + intent. Figure out WHAT the site sells
+//     (niche + destinations/activities) and WHY people would search for it
+//     ("japan honeymoon packages", "best time to visit singapore"), instead of
+//     shelling modifiers onto arbitrary text fragments ("how do i falcon tour").
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
+function detectNiche(text = '') {
+  const t = String(text).toLowerCase();
+  let best = 'general';
+  let bestScore = 0;
+  for (const [cat, words] of Object.entries(NICHE_SIGNALS)) {
+    let score = 0;
+    words.forEach(w => { if (t.includes(w)) score += 1; });
+    if (score > bestScore) { best = cat; bestScore = score; }
+  }
+  return { category: best, label: NICHE_LABELS[best] || NICHE_LABELS.general, strength: bestScore };
+}
+
+function extractEntities(text = '') {
+  const t = ` ${String(text).toLowerCase()} `;
+  const word = (x) => new RegExp(` ${x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![a-z])`, 'i');
+  const places = DESTINATIONS.filter(d => word(d).test(t));
+  const activities = ACTIVITIES.filter(a => word(a).test(t));
+  return { places: [...new Set(places)], activities: [...new Set(activities)] };
+}
+
+function buildIntentKeywords(entities = {}, category = 'general') {
+  const places = (entities.places || []).slice(0, 6);
+  const activities = (entities.activities || []).slice(0, 8);
+  const concepts = (entities.concepts || []).slice(0, 10);
+  const out = [];
+  const add = (k) => { if (k && k.trim()) out.push(normalizeKeyword(k)); };
+
+  if (category === 'education' && concepts.length) {
+    concepts.forEach(c => {
+      add(`${c} syllabus`); add(`${c} notes`); add(`${c} important questions`);
+      add(`how to prepare for ${c}`); add(`best books for ${c}`); add(`${c} exam pattern`);
+      add(`${c} previous year papers`); add(`what is ${c}`);
+    });
+  } else if (category === 'ecommerce' && concepts.length) {
+    concepts.forEach(c => { add(`best ${c}`); add(`${c} price`); add(`${c} review`); add(`how to choose ${c}`); add(`buy ${c} online`); });
+} else {
+    // Travel + general intent patterns — the most universal real-search shapes.
+    // Interleave template×place so the top of the list is diverse, not one
+    // destination monopolising every slot.
+    const P = places;
+    const placeRows = [
+      pl => `${pl} tour packages`, pl => `${pl} honeymoon packages`,
+      pl => `${pl} family tour packages`, pl => `${pl} travel itinerary`,
+      pl => `best time to visit ${pl}`, pl => `things to do in ${pl}`,
+      pl => `${pl} trip cost`, pl => `how to reach ${pl}`,
+      pl => `${pl} travel guide`, pl => `${pl} in how many days`,
+      pl => `is ${pl} worth visiting`,
+    ];
+    const activityRows = [
+      a => `${a} package`, a => `best ${a}`, a => `what is ${a}`,
+      a => `how much does ${a} cost`,
+    ];
+    placeRows.forEach(fn => P.forEach(pl => add(fn(pl))));
+    activityRows.forEach(fn => activities.forEach(a => add(fn(a))));
+    activities.forEach(a => places.slice(0, 3).forEach(pl => add(`${a} in ${pl}`)));
+    concepts.forEach(c => { add(`best ${c}`); add(`what is ${c}`); add(`${c} price`); });
+  }
+  return [...new Set(out)];
+}
+
+async function brainstormKeywords(text, nicheLabel, entities, domain) {
+  const entityBlob = {
+    niche: nicheLabel,
+    places: (entities.places || []).slice(0, 6),
+    activities: (entities.activities || []).slice(0, 8),
+    concepts: (entities.concepts || []).slice(0, 10),
+  };
+  const tasks = [{
+    messages: [
+      { role: 'system', content: `You are a keyword researcher for a real "${nicheLabel}" website. Reply ONLY with valid JSON, no markdown. Return a JSON array of strings: real Google search phrases a user would actually type to find THIS kind of site. Mix informational, transactional and question intents (e.g. "best time to visit <place>", "<place> honeymoon packages", "how to reach <place>", "what is <activity>", "<place> trip cost"). Use the entities given. Max 16 items. Never invent brand names or meaningless phrases.` },
+      { role: 'user', content: JSON.stringify({ entities: entityBlob, siteTextExcerpt: String(text).slice(0, 1200) }) },
+    ],
+    temperature: 0.4,
+    max_tokens: 600,
+  }];
+  const results = await callLLMParallel(tasks, { role: 'seo', persona: 'builder', concurrencyPerKey: 2, model: seoModel() });
+  const arr = parseLooseJsonArray(results[0] && results[0].text);
+  if (!Array.isArray(arr)) return [];
+  const host = domainOf(domain || '');
+  return arr
+    .map(s => normalizeKeyword(s))
+    .filter(k => k && k.split(' ').length <= 7)
+    .filter(k => !(host && k.includes(host.split('.')[0])))
+    .slice(0, 16);
+}
+
+async function getKeywordIdeas(seedKeywords = [], locationTargets = [], languageTargets = ['en'], auditData = null, intentOpts = {}) {
   const { hasAdsKey } = detectGoogleCreds();
   let ideas = [];
 
@@ -438,51 +559,83 @@ async function getKeywordIdeas(seedKeywords = [], locationTargets = [], language
   }
 
   if (ideas.length === 0) {
-    // Deterministic idea expansion so the pipeline always produces useful output.
+    // â”€â”€ Intent-driven idea expansion â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // Priority: real search-intent keywords (entity + intent) > LLM brainstorm
+    // > plain seeds (no modifier shelling â€” "how do i X" style strings are not
+    // things real people search).
     const base = seedKeywords.filter(Boolean).map(k => String(k).trim()).slice(0, 12);
-    const candidates = [];
-    base.forEach((kw, idx) => {
-      candidates.push(kw);
-      // only decorate the strongest few seeds, otherwise the idea pool fills
-      // with noise like "how do i <generic bigram>" for every seed
-      const isModified = MODIFIERS.some(m => kw === m || kw.startsWith(`${m} `));
-      if (!isModified && idx < 4) {
-        MODIFIERS.forEach(m => candidates.push(`${m} ${kw}`));
+
+    const audit = auditData || {};
+    const texts = [
+      (audit.signals && audit.signals.title) || '',
+      (audit.signals && audit.signals.metaDescription) || '',
+      Array.isArray(audit.signals && audit.signals.h1Texts) ? audit.signals.h1Texts.join(' ') : '',
+      Array.isArray(audit.crawledPages) ? audit.crawledPages.slice(0, 60).map(p => p && p.title).join(' ') : '',
+      audit.summary || '',
+      base.join(' '),
+    ].filter(Boolean).join(' | ');
+
+    const niche = detectNiche(texts);
+    const entities = extractEntities(texts);
+    const conceptSet = new Set([
+      ...base,
+      ...((audit.signals && audit.signals.h1Texts) || []).map(h => String(h || '').toLowerCase()),
+    ]);
+    entities.concepts = [...conceptSet]
+      .filter(c => c && c.split(' ').length <= 3)
+      .filter(c => !(entities.places || []).some(p => c.includes(p)))
+      .filter(c => !(entities.activities || []).some(a => c.includes(a)))
+      .filter(c => !JUNK_UTILITY.test(c))
+      .slice(0, 10);
+
+    const intentStrings = buildIntentKeywords(entities, niche.category);
+
+    let llmStrings = [];
+    if (intentOpts.brainstorm !== false && auditData) {
+      try {
+        llmStrings = await brainstormKeywords(texts, niche.label, entities, auditData.siteUrl || auditData.url || '');
+      } catch (err) {
+        console.warn('[keywords] LLM brainstorm skipped:', err.message);
       }
-    });
-    // City-qualified variants only for the top seeds.
-    base.slice(0, 3).forEach(kw => CITIES.forEach(city => candidates.push(`${kw} in ${city}`)));
+    }
+
+    // Plain seeds only (best/top shells dropped â€” the intent engine above now
+    // owns the strong search patterns).
+    const cleanSeedStrings = base.filter(s => !JUNK_UTILITY.test(s));
 
     const seen = new Set();
     const out = [];
-    candidates.forEach(raw => {
+    const offer = (raw, skipJunk = false) => {
       const kw = normalizeKeyword(raw);
       if (!kw || seen.has(kw)) return;
-      if (kw.split(' ').length > 6) return;
-      if (/(\w+) \1/.test(kw)) return;          // "best best" style duplicates
-      if (/\s(in|for|on|to|the) (and|or|the|a|an)\b/.test(kw)) return; // trailing glue junk
-      if (/^(near me|how do i)\b/.test(kw) && kw.split(' ').length < 3) return; // thin modifiers
-      if (JUNK_UTILITY.test(kw)) return;        // "costs itinerary"-style fragments
+      if (kw.split(' ').length > 7) return;
+      if (/(\w+) \1/.test(kw)) return;                   // "best best" duplicates
+      if (/\s(in|for|on|to|the) (and|or|the|a|an)\b/.test(kw)) return;
+      if (!skipJunk && JUNK_UTILITY.test(kw)) return;
       seen.add(kw);
       const metrics = estimateKeywordMetrics(kw);
       out.push({ keyword: kw, ...metrics, source: 'estimated' });
-    });
+    };
+    intentStrings.slice(0, 10).forEach(k => offer(k, true));
+    llmStrings.slice(0, 10).forEach(k => offer(k, true));
+    intentStrings.slice(10).forEach(k => offer(k, true));
+    cleanSeedStrings.forEach(k => offer(k));
     ideas = out.slice(0, 30);
   }
 
   const languageFilter = (languageTargets || []).length ? new Set(languageTargets.map(l => String(l).toLowerCase())) : null;
   if (languageFilter) {
-    // crude filter — mostly informational; scripts are Latin-letter based here
+    // crude filter â€” mostly informational; scripts are Latin-letter based here
     ideas = ideas.filter(i => /^[\x20-\x7E]+$/.test(i.keyword || ''));
   }
   return ideas;
 }
 
-// ──────────────────────────────────────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // 3. checkKeywordRanking(keyword, siteUrl)
 //    GSC Search Analytics first, SerpAPI fallback. Same return shape:
 //    { keyword, position, source: 'gsc'|'serpapi'|'unavailable', impressions?, clicks?, ctr? }
-// ──────────────────────────────────────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 const SERPAPI_TOP = 100;
 
@@ -513,12 +666,12 @@ async function gscCheck(keyword, siteUrl) {
         'GSC Search Analytics'
       );
     } catch (err) {
-      errors.push(`${cand} → ${err.message}`);
+      errors.push(`${cand} â†’ ${err.message}`);
       continue;
     }
     const data = await res.json();
     if (!res.ok) {
-      errors.push(`${cand} → GSC ${res.status}: ${(data.error && data.error.message) || 'property not accessible'}`);
+      errors.push(`${cand} â†’ GSC ${res.status}: ${(data.error && data.error.message) || 'property not accessible'}`);
       continue;
     }
     const row = (data.rows || []).find(r => normalizeKeyword(r.keys && r.keys[0]) === needle);
@@ -615,12 +768,12 @@ async function checkKeywordRanking(keyword, siteUrl) {
   return { ...base, position: null, source: 'unavailable', measuredAt: new Date().toISOString() };
 }
 
-// ──────────────────────────────────────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // 4. recordRankingSnapshot(siteId, keyword, rankingResult)
 //    Appends a time-series snapshot to the stored keywordData keyword.
 //    Append-always (same-day entries are updated in place instead of
 //    duplicated, older snapshots are never overwritten).
-// ──────────────────────────────────────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 async function recordRankingSnapshot(userId, siteId, keyword, rankingResult) {
   const coll = db.collection('users').doc(userId).collection('seoSites');
@@ -726,11 +879,11 @@ function priorityFor(k) {
   return 'low';
 }
 
-// ──────────────────────────────────────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // 5. findCompetitors(niche, siteUrl, userProvidedUrls)
 //    User URLs first (validated), then auto-discovery via Brave Search (when
 //    configured) or the LLM pool, then reachability check.
-// ──────────────────────────────────────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 function buildNiche(seeds = [], url = '') {
   const host = domainOf(url) || '';
@@ -813,7 +966,7 @@ async function findCompetitors(niche = '', siteUrl = '', userProvidedUrls = []) 
         temperature: 0.2,
         max_tokens: 600,
       }];
-      const results = await callLLMParallel(tasks, { role: 'seo', persona: 'builder', concurrencyPerKey: 2, model: process.env.SEO_MODEL });
+      const results = await callLLMParallel(tasks, { role: 'seo', persona: 'builder', concurrencyPerKey: 2, model: seoModel() });
       const arr = parseLooseJsonArray(results[0] && results[0].text);
       (Array.isArray(arr) ? arr : []).forEach(r => add(r.url || r, 'auto-discovered'));
     } catch (err) {
@@ -831,10 +984,10 @@ async function findCompetitors(niche = '', siteUrl = '', userProvidedUrls = []) 
   return checked;
 }
 
-// ──────────────────────────────────────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // 6. analyzeCompetitorGaps(mySiteContent, competitorUrls, keywordList)
 //    Keyword-vs-competitor coverage matrix + optional LLM insight.
-// ──────────────────────────────────────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 async function analyzeCompetitorGaps(mySiteContent = '', competitorUrls = [], keywordList = []) {
   const myText = String(mySiteContent || '').toLowerCase();
@@ -874,17 +1027,17 @@ async function analyzeCompetitorGaps(mySiteContent = '', competitorUrls = [], ke
     let gapScore;
     let note;
     if (reachableComps === 0) {
-      // We could not inspect ANY competitor page — do not claim a wide-open niche.
+      // We could not inspect ANY competitor page â€” do not claim a wide-open niche.
       gapScore = 0.1;
-      note = 'Competitor pages unreachable during analysis — treat this as unverified, not a confirmed gap.';
+      note = 'Competitor pages unreachable during analysis â€” treat this as unverified, not a confirmed gap.';
     } else if (c.myCovered) {
       gapScore = c.competitorCovered === 0 ? 0 : 0.4;
-      note = c.competitorCovered === 0 ? 'You cover it, competitors largely ignore it — a defensive win.' : 'Covered by both — maintain depth.';
+      note = c.competitorCovered === 0 ? 'You cover it, competitors largely ignore it â€” a defensive win.' : 'Covered by both â€” maintain depth.';
     } else {
       gapScore = c.competitorCovered > 0 ? 1 : 0.3;
       note = c.competitorCovered > 0
-        ? 'Competitors rank for this and you have little/no coverage — a content gap.'
-        : `Wide open — none of ${reachableComps} reachable competitor pages observed covering it.`;
+        ? 'Competitors rank for this and you have little/no coverage â€” a content gap.'
+        : `Wide open â€” none of ${reachableComps} reachable competitor pages observed covering it.`;
     }
     return {
       keyword: c.keyword,
@@ -907,7 +1060,7 @@ async function analyzeCompetitorGaps(mySiteContent = '', competitorUrls = [], ke
       temperature: 0.3,
       max_tokens: 500,
     }];
-    const results = await callLLMParallel(tasks, { role: 'seo', persona: 'builder', concurrencyPerKey: 2, model: process.env.SEO_MODEL });
+    const results = await callLLMParallel(tasks, { role: 'seo', persona: 'builder', concurrencyPerKey: 2, model: seoModel() });
     const parsed = tryParseJsonObject(results[0] && results[0].text);
     if (parsed) llmInsights = parsed;
   } catch (err) {
@@ -925,11 +1078,11 @@ function tryParseJsonObject(text) {
   try { return JSON.parse(cleaned.slice(start, end + 1)); } catch { return null; }
 }
 
-// ──────────────────────────────────────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // 7. generateGrowthActions(keywordData, competitorGaps, siteUrl)
 //    LLM-first (same role/persona/model routing as seoService), deterministic
 //    fallback so growthActions are always produced.
-// ──────────────────────────────────────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 async function generateGrowthActions(keywordData = {}, competitorGaps = null, siteUrl = '') {
   const keywords = Array.isArray(keywordData.keywords) ? keywordData.keywords : [];
@@ -954,7 +1107,7 @@ async function generateGrowthActions(keywordData = {}, competitorGaps = null, si
       temperature: 0.3,
       max_tokens: 800,
     }];
-    const results = await callLLMParallel(tasks, { role: 'seo', persona: 'builder', concurrencyPerKey: 2, model: process.env.SEO_MODEL });
+    const results = await callLLMParallel(tasks, { role: 'seo', persona: 'builder', concurrencyPerKey: 2, model: seoModel() });
     const arr = parseLooseJsonArray(results[0] && results[0].text);
     if (Array.isArray(arr)) {
       actions = arr
@@ -999,7 +1152,7 @@ function buildFallbackActions(keywords, competitorGaps) {
     } else if (k.currentRank > 10) {
       actions.push({
         keyword: k.keyword,
-        issue: `Ranking around position ${k.currentRank} — just outside page 1`,
+        issue: `Ranking around position ${k.currentRank} â€” just outside page 1`,
         recommendation: `Improve on-page relevance for "${k.keyword}": add it to the H1, first paragraph and image alt text, and earn 2-3 internal links from your strongest pages.`,
         category: 'onpage',
         priority: 'medium',
@@ -1011,7 +1164,7 @@ function buildFallbackActions(keywords, competitorGaps) {
     if (!actions.some(a => a.keyword === kw)) {
       actions.push({
         keyword: kw,
-        issue: 'Competitor content gap — rivals cover it, you do not',
+        issue: 'Competitor content gap â€” rivals cover it, you do not',
         recommendation: `Create a comparison/guide article for "${kw}" answering the questions your competitors miss, with a linkable stats section.`,
         category: 'content',
         priority: 'high',
@@ -1041,9 +1194,9 @@ function buildFallbackActions(keywords, competitorGaps) {
   return actions.slice(0, 10);
 }
 
-// ──────────────────────────────────────────────────────────────────────────────
-// 8. Orchestrator — runKeywordResearch(userId, siteId, siteUrl, auditData, opts)
-// ──────────────────────────────────────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// 8. Orchestrator â€” runKeywordResearch(userId, siteId, siteUrl, auditData, opts)
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 const DEFAULT_OPTS = { ideaLimit: 20, rankLimit: 8, locationTargets: [], languageTargets: ['en'], userProvidedUrls: [] };
 
@@ -1063,7 +1216,15 @@ async function runKeywordResearch(userId, siteId, siteUrl, auditData = {}, optio
   const seeds = [...new Set([...results.seeds, ...tracked.map(k => String(k).toLowerCase())])].slice(0, 20);
 
   // 2) Ideas
-  results.ideas = await getKeywordIdeas(seeds, opts.locationTargets, opts.languageTargets);
+  const nicheTexts = [
+    auditData.summary,
+    auditData.signals && auditData.signals.title,
+    auditData.signals && auditData.signals.metaDescription,
+    Array.isArray(auditData.signals && auditData.signals.h1Texts) ? auditData.signals.h1Texts.join(' ') : '',
+    Array.isArray(auditData.crawledPages) ? auditData.crawledPages.slice(0, 60).map(p => p && p.title).join(' ') : '',
+  ].filter(Boolean).join(' | ');
+  results.niche = detectNiche(nicheTexts);
+  results.ideas = await getKeywordIdeas(seeds, opts.locationTargets, opts.languageTargets, auditData, { brainstorm: opts.brainstorm !== false });
   const ideas = results.ideas.slice(0, opts.ideaLimit || 20);
 
   if (!ideas.length) throw new Error('No keyword ideas could be generated');
@@ -1138,6 +1299,7 @@ async function runKeywordResearch(userId, siteId, siteUrl, auditData = {}, optio
       ideaSource: results.ideas[0] && results.ideas[0].source,
       seeder: 'audit',
       gscVerification: results.gscVerification || null,
+      niche: results.niche ? { label: results.niche.label, category: results.niche.category } : null,
     },
     updatedAt: nowIso,
   };
@@ -1174,9 +1336,9 @@ function mergeKeywordData(existing = [], fresh = []) {
   return [...map.values()];
 }
 
-// ──────────────────────────────────────────────────────────────────────────────
-// 9. refreshAllRankings(userId, siteId) — lightweight ranking-only refresh
-// ──────────────────────────────────────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// 9. refreshAllRankings(userId, siteId) â€” lightweight ranking-only refresh
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 async function refreshAllRankings(userId, siteId) {
   const coll = db.collection('users').doc(userId).collection('seoSites');
@@ -1213,6 +1375,9 @@ module.exports = {
   recordRankingSnapshot,
   findCompetitors,
   buildNiche,
+  detectNiche,
+  extractEntities,
+  buildIntentKeywords,
   analyzeCompetitorGaps,
   generateGrowthActions,
   runKeywordResearch,
