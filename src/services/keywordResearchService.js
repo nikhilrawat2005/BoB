@@ -90,7 +90,7 @@ function gscPropertyCandidates(siteUrl) {
   const bare = raw.replace(/\/+$/, '');
   push(bare);
   if (bare.startsWith('https://') && !bare.includes('www.')) push(bare.replace('https://', 'https://www.'));
-  if (raw === bare) push(bare + '/');
+  push(bare + '/');
   const dom = bare.replace(/^https?:\/\/(www\.)?/, '').replace(/\/+$/, '');
   push('sc-domain:' + dom);
   return candidates;
