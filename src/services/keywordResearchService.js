@@ -44,6 +44,7 @@ const STOPWORDS = new Set([
 
 const MODIFIERS = ['best','top','how to','how do i','near me','for beginners','online','free','price','review','vs','affordable','steps to'];
 const CITIES = ['delhi','mumbai','bangalore','india'];
+const JUNK_UTILITY = /\b(costs?|itinerar(?:y|ies)|tips?|guides?|visiting?|photo(?:s)?|spots?|places?|time|times?|plans?|planned?|hands?|flies|fly|flights?|sunsets?|anime|curated|books?|booking(?:s)?|contact|menu|about|home|read|more|error|pages?|button|buy|sale|welcome|login|sign|register|cart|checkout|reviews?|news|blog|click|view|best time|travel guide)\b/i;
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Small helpers
@@ -345,7 +346,10 @@ function extractSeedKeywords(auditData = {}, siteUrl = '') {
   const scored = [...phrases.entries()]
     .filter(([phrase]) => {
       const words = phrase.split(' ').filter(w => w.length > 2);
-      return words.length >= 1 && words.length <= 4 && phrase.length >= 3;
+      if (words.length < 1 || words.length > 4 || phrase.length < 3) return false;
+      if (/[0-9]/.test(phrase)) return false;
+      if (words.some(w => JUNK_UTILITY.test(w))) return false;
+      return true;
     })
     .sort((a, b) => (b[1] - a[1]) || (b[0].length - a[0].length));
 
@@ -437,16 +441,17 @@ async function getKeywordIdeas(seedKeywords = [], locationTargets = [], language
     // Deterministic idea expansion so the pipeline always produces useful output.
     const base = seedKeywords.filter(Boolean).map(k => String(k).trim()).slice(0, 12);
     const candidates = [];
-    base.forEach(kw => {
+    base.forEach((kw, idx) => {
       candidates.push(kw);
-      // only decorate phrases that don't already carry a modifier
+      // only decorate the strongest few seeds, otherwise the idea pool fills
+      // with noise like "how do i <generic bigram>" for every seed
       const isModified = MODIFIERS.some(m => kw === m || kw.startsWith(`${m} `));
-      if (!isModified) {
+      if (!isModified && idx < 4) {
         MODIFIERS.forEach(m => candidates.push(`${m} ${kw}`));
       }
     });
-    // City-qualified variants for local intent.
-    base.forEach(kw => CITIES.forEach(city => candidates.push(`${kw} in ${city}`)));
+    // City-qualified variants only for the top seeds.
+    base.slice(0, 3).forEach(kw => CITIES.forEach(city => candidates.push(`${kw} in ${city}`)));
 
     const seen = new Set();
     const out = [];
@@ -455,8 +460,9 @@ async function getKeywordIdeas(seedKeywords = [], locationTargets = [], language
       if (!kw || seen.has(kw)) return;
       if (kw.split(' ').length > 6) return;
       if (/(\w+) \1/.test(kw)) return;          // "best best" style duplicates
-      if (/\s(in|for|on) (and|the|a)\b/.test(kw)) return; // trailing glue junk
+      if (/\s(in|for|on|to|the) (and|or|the|a|an)\b/.test(kw)) return; // trailing glue junk
       if (/^(near me|how do i)\b/.test(kw) && kw.split(' ').length < 3) return; // thin modifiers
+      if (JUNK_UTILITY.test(kw)) return;        // "costs itinerary"-style fragments
       seen.add(kw);
       const metrics = estimateKeywordMetrics(kw);
       out.push({ keyword: kw, ...metrics, source: 'estimated' });
@@ -726,6 +732,24 @@ function priorityFor(k) {
 //    configured) or the LLM pool, then reachability check.
 // ──────────────────────────────────────────────────────────────────────────────
 
+function buildNiche(seeds = [], url = '') {
+  const host = domainOf(url) || '';
+  const brand = host.replace(/^www\./, '').replace(/^the\s*/, '').replace(/^m\./, '').split('.')[0].replace(/\s+/g, '');
+  const cleaned = (Array.isArray(seeds) ? seeds : [])
+    .map(s => String(s || '').trim().toLowerCase())
+    .filter(s => s && s.length > 2)
+    .filter(s => !JUNK_UTILITY.test(s))
+    .filter(s => {
+      // drop the seed if it's really just the brand/domain ("falcon tour" for
+      // a site named "The Falcon Tour" would otherwise pull wrong-niche SERPs)
+      const flat = s.replace(/\s+/g, '');
+      return !(brand && flat.includes(brand) && flat.length - brand.length <= 4);
+    });
+  const dedup = [...new Set(cleaned)];
+  const topic = dedup.slice(0, 2).join(' ');
+  return topic || host;
+}
+
 async function validateAndFetchTitle(url) {
   try {
     await validatePublicUrl(url);
@@ -823,12 +847,15 @@ async function analyzeCompetitorGaps(mySiteContent = '', competitorUrls = [], ke
     coverage[kw] = { keyword: kw, myCovered: myText.includes(kw), competitorCovered: 0, competitors: [] };
   });
 
+  let reachableComps = 0;
   for (const comp of urls) {
     try {
       const scraped = await withTimeout(scrapeURL(comp.url || comp), `Scrape ${comp.url || comp}`, 15000);
       const scrapedText = typeof scraped === 'object' && scraped
         ? `${scraped.title || ''} ${scraped.description || ''} ${scraped.contentSnippet || ''}`
         : '';
+      if (!scrapedText.trim()) continue;
+      reachableComps += 1;
       const compText = stripHtml(scrapedText).toLowerCase();
       keywords.forEach(k => {
         const kw = String(k).toLowerCase();
@@ -844,16 +871,28 @@ async function analyzeCompetitorGaps(mySiteContent = '', competitorUrls = [], ke
 
   const gaps = keywords.map(k => {
     const c = coverage[String(k).toLowerCase()];
-    const gapScore = c.myCovered ? (c.competitorCovered === 0 ? 0 : 0.4) : c.competitorCovered > 0 ? 1 : 0.3;
+    let gapScore;
+    let note;
+    if (reachableComps === 0) {
+      // We could not inspect ANY competitor page — do not claim a wide-open niche.
+      gapScore = 0.1;
+      note = 'Competitor pages unreachable during analysis — treat this as unverified, not a confirmed gap.';
+    } else if (c.myCovered) {
+      gapScore = c.competitorCovered === 0 ? 0 : 0.4;
+      note = c.competitorCovered === 0 ? 'You cover it, competitors largely ignore it — a defensive win.' : 'Covered by both — maintain depth.';
+    } else {
+      gapScore = c.competitorCovered > 0 ? 1 : 0.3;
+      note = c.competitorCovered > 0
+        ? 'Competitors rank for this and you have little/no coverage — a content gap.'
+        : `Wide open — none of ${reachableComps} reachable competitor pages observed covering it.`;
+    }
     return {
       keyword: c.keyword,
       myCovered: c.myCovered,
       competitorsCovering: c.competitorCovered,
       coveringSites: c.competitors.slice(0, 3),
       gapScore,
-      note: c.myCovered
-        ? (c.competitorCovered === 0 ? 'You cover it, competitors largely ignore it — a defensive win.' : 'Covered by both — maintain depth.')
-        : (c.competitorCovered > 0 ? 'Competitors rank for this and you have little/no coverage — a content gap.' : 'Wide open topic — nobody observed covering it, high upside.'),
+      note,
     };
   }).sort((a, b) => b.gapScore - a.gapScore);
 
@@ -875,7 +914,7 @@ async function analyzeCompetitorGaps(mySiteContent = '', competitorUrls = [], ke
     console.warn('[keywords] Gap LLM insights unavailable:', err.message);
   }
 
-  return { gaps, llmInsights };
+  return { gaps, llmInsights, reachableCompetitors: reachableComps };
 }
 
 function tryParseJsonObject(text) {
@@ -1043,7 +1082,7 @@ async function runKeywordResearch(userId, siteId, siteUrl, auditData = {}, optio
   }
 
   // 4) Competitors
-  const niche = seeds[0] || domainOf(url);
+  const niche = buildNiche(seeds, url);
   const competitors = await findCompetitors(niche, url, opts.userProvidedUrls);
 
   // 5) Competitor gaps
@@ -1173,6 +1212,7 @@ module.exports = {
   checkKeywordRanking,
   recordRankingSnapshot,
   findCompetitors,
+  buildNiche,
   analyzeCompetitorGaps,
   generateGrowthActions,
   runKeywordResearch,
