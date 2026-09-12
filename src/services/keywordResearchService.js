@@ -76,6 +76,26 @@ function detectGoogleCreds() {
   };
 }
 
+// Ordered, deduped candidates for the GSC property string, most-likely first.
+// GSC is picky: URL-prefix properties must include the trailing slash, while
+// domain properties use "sc-domain:<domain>". A mismatched string yields 404.
+function gscPropertyCandidates(siteUrl) {
+  const candidates = [];
+  const push = (s) => {
+    if (s && !candidates.some(c => c === s)) candidates.push(s);
+  };
+  push((process.env.GOOGLE_SEARCH_CONSOLE_PROPERTY || '').trim());
+  if (!siteUrl) return candidates;
+  const raw = String(siteUrl).trim();
+  const bare = raw.replace(/\/+$/, '');
+  push(bare);
+  if (bare.startsWith('https://') && !bare.includes('www.')) push(bare.replace('https://', 'https://www.'));
+  if (raw === bare) push(bare + '/');
+  const dom = bare.replace(/^https?:\/\/(www\.)?/, '').replace(/\/+$/, '');
+  push('sc-domain:' + dom);
+  return candidates;
+}
+
 // Mint a Google API access token.
 // Preferred: a configured OAuth refresh token (GOOGLE_OAUTH_*).
 // Fallback: exchange the Firebase service account (FIREBASE_CLIENT_EMAIL +
@@ -158,9 +178,12 @@ async function autoVerifyGSC(siteUrl) {
     return { verified: false, gscUsed: true, reason: 'token-failed', message: `GSC token minting failed: ${err.message}` };
   }
 
-  const prop = (process.env.GOOGLE_SEARCH_CONSOLE_PROPERTY || (siteUrl ? siteUrl.replace(/\/+$/, '') : '')) || null;
+  const candidates = gscPropertyCandidates(siteUrl);
+  if (!candidates.length) {
+    return { verified: false, gscUsed: true, reason: 'no-property', message: 'No GSC property to probe — set GOOGLE_SEARCH_CONSOLE_PROPERTY or pass the site URL.' };
+  }
 
-  // 1) Advisory: does the token see the property in the account's site list?
+  // 1) Advisory: does the token see any matching property in the account list?
   try {
     const listRes = await withTimeout(
       fetch('https://searchconsole.googleapis.com/v1/sites', { headers: { Authorization: `Bearer ${token}` } }),
@@ -170,51 +193,57 @@ async function autoVerifyGSC(siteUrl) {
     const list = listText ? JSON.parse(listText) : {};
     if (listRes.ok && Array.isArray(list.siteEntry)) {
       const reachableSites = list.siteEntry.map(s => s.siteUrl);
-      if (prop && !reachableSites.some(s => s === prop || s === prop.replace(/\/\/www\./, '//'))) {
-        return {
-          verified: false,
-          gscUsed: true,
-          property: prop,
-          reachableSites,
-          reason: 'property-not-listed',
-          message: `Property "${prop}" is not in the account's Search Console site list. Add the domain in Google Search Console first (or set GOOGLE_SEARCH_CONSOLE_PROPERTY to a verified property).`,
-        };
+      if (reachableSites.length) {
+        const match = candidates.find(c => reachableSites.some(s => s === c || s === c.replace('//www.', '//') || c === s.replace('//www.', '//')));
+        if (match) {
+          // Put the exact match first so the probe uses the registered spelling.
+          candidates.sort((a, b) => (a === match ? -1 : b === match ? 1 : 0));
+        } else {
+          return {
+            verified: false,
+            gscUsed: true,
+            property: candidates[0],
+            reachableSites,
+            reason: 'property-not-listed',
+            message: `Property (tried ${candidates.join(', ')}) is not in the account's Search Console site list. Reachable properties: ${reachableSites.join(', ') || 'none'}. Add "${reachableSites[0] || 'the property'}" as a user (Full permission) to firebase-adminsdk-fbsvc@bob-3ff28.iam.gserviceaccount.com, or set GOOGLE_SEARCH_CONSOLE_PROPERTY to a verified property.`,
+          };
+        }
       }
     }
   } catch (err) {
     // sites.list is advisory only — fall through to the authoritative probe.
   }
 
-  // 2) Authoritative: run a real (tiny) Search Analytics query against the
-  //    property. Proves the token + property combination is actually queryable.
-  try {
-    if (!prop) {
-      return { verified: false, gscUsed: true, reason: 'no-property', message: 'No GSC property to probe — set GOOGLE_SEARCH_CONSOLE_PROPERTY or pass the site URL.' };
-    }
-    const end = new Date();
-    const start = new Date(Date.now() - 6 * 86400000);
-    const fmt = (d) => d.toISOString().slice(0, 10);
-    const body = { startDate: fmt(start), endDate: fmt(end), dimensions: ['query'], rowLimit: 1 };
-    const url = `https://searchconsole.googleapis.com/v1/sites/${encodeURIComponent(prop)}/searchAnalytics/query`;
-    const res = await withTimeout(
-      fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify(body),
-      }),
-      'GSC probe'
-    );
-    const resText = await res.text();
-    if (!res.ok) {
+  // 2) Authoritative: run a real (tiny) Search Analytics query against each
+  //    candidate property. Proves the token + property combo is queryable.
+  const end = new Date();
+  const start = new Date(Date.now() - 6 * 86400000);
+  const fmt = (d) => d.toISOString().slice(0, 10);
+  const body = { startDate: fmt(start), endDate: fmt(end), dimensions: ['query'], rowLimit: 1 };
+  const errors = [];
+  for (const cand of candidates) {
+    const url = `https://searchconsole.googleapis.com/v1/sites/${encodeURIComponent(cand)}/searchAnalytics/query`;
+    try {
+      const res = await withTimeout(
+        fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          body: JSON.stringify(body),
+        }),
+        'GSC probe'
+      );
+      const resText = await res.text();
+      if (res.ok) {
+        return { verified: true, gscUsed: true, property: cand, message: 'GSC access verified — Search Console API reachable and property is queryable.' };
+      }
       let detail = `GSC HTTP ${res.status}`;
       try { const j = resText ? JSON.parse(resText) : {}; detail = (j.error && j.error.message) || detail; } catch {}
-      throw new Error(detail);
+      errors.push(`${cand} → ${detail}`);
+    } catch (err) {
+      errors.push(`${cand} → ${err.message}`);
     }
-    const data = resText ? JSON.parse(resText) : {};
-    return { verified: true, gscUsed: true, property: prop, message: 'GSC access verified — Search Console API reachable and property is queryable.' };
-  } catch (err) {
-    return { verified: false, gscUsed: true, property: prop, reason: 'probe-failed', message: err.message };
   }
+  return { verified: false, gscUsed: true, property: candidates[0], reason: 'probe-failed', message: errors.join(' | ') };
 }
 
 // Deterministic-but-plausible synthetic keyword metrics. Used ONLY when no
@@ -453,7 +482,7 @@ const SERPAPI_TOP = 100;
 
 async function gscCheck(keyword, siteUrl) {
   const token = await getGoogleAccessToken('https://www.googleapis.com/auth/webmasters.readonly');
-  const prop = process.env.GOOGLE_SEARCH_CONSOLE_PROPERTY || siteUrl.replace(/\/+$/, '');
+  const candidates = gscPropertyCandidates(siteUrl);
   const end = new Date();
   const start = new Date(Date.now() - 27 * 86400000);
   const fmt = (d) => d.toISOString().slice(0, 10);
@@ -463,28 +492,41 @@ async function gscCheck(keyword, siteUrl) {
     dimensions: ['query'],
     rowLimit: 100,
   };
-  const url = `https://searchconsole.googleapis.com/v1/sites/${encodeURIComponent(prop)}/searchAnalytics/query`;
-  const res = await withTimeout(
-    fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-      body: JSON.stringify(body),
-    }),
-    'GSC Search Analytics'
-  );
-  const data = await res.json();
-  if (!res.ok) throw new Error(`GSC ${res.status}: ${(data.error && data.error.message) || 'property not accessible'}`);
   const needle = normalizeKeyword(keyword);
-  const row = (data.rows || []).find(r => normalizeKeyword(r.keys && r.keys[0]) === needle);
-  if (!row) return { found: false, source: 'gsc' };
-  return {
-    found: true,
-    source: 'gsc',
-    position: Math.round(row.position),
-    impressions: row.impressions,
-    clicks: row.clicks,
-    ctr: row.ctr,
-  };
+  const errors = [];
+  for (const cand of candidates) {
+    const url = `https://searchconsole.googleapis.com/v1/sites/${encodeURIComponent(cand)}/searchAnalytics/query`;
+    let res;
+    try {
+      res = await withTimeout(
+        fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          body: JSON.stringify(body),
+        }),
+        'GSC Search Analytics'
+      );
+    } catch (err) {
+      errors.push(`${cand} → ${err.message}`);
+      continue;
+    }
+    const data = await res.json();
+    if (!res.ok) {
+      errors.push(`${cand} → GSC ${res.status}: ${(data.error && data.error.message) || 'property not accessible'}`);
+      continue;
+    }
+    const row = (data.rows || []).find(r => normalizeKeyword(r.keys && r.keys[0]) === needle);
+    if (!row) return { found: false, source: 'gsc' };
+    return {
+      found: true,
+      source: 'gsc',
+      position: Math.round(row.position),
+      impressions: row.impressions,
+      clicks: row.clicks,
+      ctr: row.ctr,
+    };
+  }
+  throw new Error(errors.join(' | ') || 'GSC not reachable');
 }
 
 async function serpApiCheck(keyword, siteUrl) {
