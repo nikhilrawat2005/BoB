@@ -5141,6 +5141,7 @@ function renderSeoAudit(site) {
       ${opTab('strengths', false, '✅ Strengths')}
       ${opTab('topics', false, '🗺 16-Topics')}
       ${opTab('pages', false, '🗂️ Pages (' + ((a.crawledPages || []).length) + ')')}
+      ${opTab('keywords', false, '🔑 Keywords')}
     </div>
     <div class="seo-op-pane" data-seopath="dash">
       <div class="ws-kb-block" style="text-align:center;">
@@ -5223,12 +5224,14 @@ function renderSeoAudit(site) {
     <div class="seo-op-pane" data-seopath="strengths" hidden id="seo-op-strengths"></div>
     <div class="seo-op-pane" data-seopath="topics" hidden id="seo-op-topics"></div>
     <div class="seo-op-pane" data-seopath="pages" hidden id="seo-op-pages"></div>
+    <div class="seo-op-pane" data-seopath="keywords" hidden id="seo-op-keywords"></div>
   `;
 
   renderSeoIssues(site);
   renderSeoStrengths(site);
   renderSeoTopics(site);
   renderSeoPages(site);
+  renderSeoKeywords(site);
 
     const genPlanBtn = document.getElementById('seo-generate-ai-plan');
   if (genPlanBtn) {
@@ -6096,6 +6099,294 @@ function renderSeoPages(site) {
   });
 }
 
+// ── Keywords Tab ──────────────────────────────────────────────────────────────
+let kwSubTab = 'rankings';
+let kwPrioFilter = 'all';
+let kwSortKey = 'volume';
+let kwCompOpen = false;
+
+function renderSeoKeywords(site) {
+  const el = document.getElementById('seo-op-keywords');
+  if (!el) return;
+  const kd = site.keywordData || {};
+  const kws = Array.isArray(kd.keywords) ? kd.keywords : [];
+  const actions = Array.isArray(kd.growthActions) ? kd.growthActions : [];
+  const comps = Array.isArray(kd.competitors) ? kd.competitors : [];
+  const gaps = Array.isArray(kd.competitorGaps) ? kd.competitorGaps : [];
+  const hist = Array.isArray(kd.history) ? kd.history : [];
+  const score = typeof kd.score === 'number' ? kd.score : null;
+  const hasData = kws.length > 0;
+
+  const compClass = (ci) => { const n = typeof ci === 'number' ? ci : 0.2; return n < 0.33 ? 'low' : n < 0.66 ? 'medium' : 'high'; };
+  const compLabel = (ci) => { const n = typeof ci === 'number' ? ci : 0.2; return n < 0.33 ? 'LOW' : n < 0.66 ? 'MEDIUM' : 'HIGH'; };
+  const fmtVol = (v) => typeof v === 'number' ? v.toLocaleString('en-IN') : '—';
+  const fmtCpc = (k) => { const lo = typeof k.cpcLow === 'number' ? k.cpcLow : 0; const hi = typeof k.cpcHigh === 'number' ? k.cpcHigh : 0; return lo ? '$' + lo.toFixed(2) + (hi ? '–$' + hi.toFixed(2) : '') : '—'; };
+  const fmtRank = (k) => { const pos = typeof k.currentRank === 'number' && k.currentRank > 0 ? k.currentRank : null; return pos ? `<span style="font-weight:800;color:${pos <= 3 ? 'var(--green)' : pos <= 10 ? '#38bdf8' : pos <= 30 ? 'var(--amber)' : 'var(--text2)'};">#${pos}</span>` : '<span style="color:var(--text3);">—</span>'; };
+  const fmtTrend = (k) => {
+    const rh = (Array.isArray(k.rankHistory) ? k.rankHistory : []).map(r => typeof r.position === 'number' && r.position > 0 ? r.position : null).filter(n => n !== null);
+    if (!rh.length) return '<span style="color:var(--text3);">—</span>';
+    const now = rh[rh.length - 1];
+    if (rh.length === 1) return '<span style="color:#38bdf8;">new</span>';
+    const prev = rh[rh.length - 2];
+    if (now < prev) return `<span style="color:var(--green);font-weight:700;">▲ ${prev - now}</span>`;
+    if (now > prev) return `<span style="color:#f87171;font-weight:700;">▼ ${now - prev}</span>`;
+    return '<span style="color:var(--text3);">hold</span>';
+  };
+  const prioBadge = (p) => { const v = String(p || 'low').toLowerCase(); const c = v === 'high' ? 'high' : v === 'medium' ? 'medium' : 'low'; return `<span class="seo-badge-tag ${c}">● ${v.toUpperCase()} PRIO</span>`; };
+  const prioOrder = { high: 3, medium: 2, low: 1 };
+
+  const pill = (kind, val, label, active) =>
+    `<button class="seo-pill${active ? ' active' : ''}" data-kind="${kind}" data-val="${val}">${label}</button>`;
+
+  // ── Empty state ─────────────────────────────────────────────────────────────
+  if (!hasData && !actions.length) {
+    el.innerHTML = `
+      <div class="ws-kb-block" style="text-align:center;padding:24px 16px;">
+        <div style="font-size:28px;margin-bottom:8px;">🔑</div>
+        <div style="font-size:13px;font-weight:700;color:var(--text1);margin-bottom:6px;">Keyword Research</div>
+        <div style="font-size:11.5px;color:var(--text2);line-height:1.45;margin-bottom:16px;max-width:420px;margin-left:auto;margin-right:auto;">
+          Site ke pages, headings aur content se seeds nikalkar keyword ideas generate karenge,
+          Google / SerpAPI se ranking check karenge, competitors discover karenge, aur actionable growth actions denge.
+        </div>
+        <button class="btn-small btn-primary" id="kw-run-research" style="padding:8px 24px;font-weight:700;">🚀 Run Keyword Research</button>
+        ${kd.lastFullResearch ? `<div style="font-size:10px;color:var(--text3);margin-top:10px;">Last research: ${new Date(kd.lastFullResearch).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })}</div>` : ''}
+      </div>`;
+    const btn = document.getElementById('kw-run-research');
+    if (btn) btn.addEventListener('click', () => doRunResearch(site, btn));
+    return;
+  }
+
+  // ── Filter & sort keywords ──────────────────────────────────────────────────
+  const filtered = kws.filter(k => kwPrioFilter === 'all' || (k.priority || 'low') === kwPrioFilter);
+  const sorted = [...filtered].sort((a, b) => {
+    if (kwSortKey === 'rank') { const av = typeof a.currentRank === 'number' && a.currentRank > 0 ? a.currentRank : 999; const bv = typeof b.currentRank === 'number' && b.currentRank > 0 ? b.currentRank : 999; return av - bv; }
+    if (kwSortKey === 'priority') return (prioOrder[b.priority || 'low'] || 0) - (prioOrder[a.priority || 'low'] || 0);
+    return (b.volume || 0) - (a.volume || 0);
+  });
+  const prioCounts = { high: kws.filter(k => k.priority === 'high').length, medium: kws.filter(k => k.priority === 'medium').length, low: kws.filter(k => k.priority === 'low').length };
+  const kwSource = kd.rankingSource || (kws[0] && kws[0].rankHistory && kws[0].rankHistory.length ? kws[0].rankHistory[kws[0].rankHistory.length - 1].source : null);
+
+  // ── Keyword table rows ──────────────────────────────────────────────────────
+  const kwRows = sorted.map((k, idx) => {
+    const lastSrc = Array.isArray(k.rankHistory) && k.rankHistory.length ? k.rankHistory[k.rankHistory.length - 1].source : '';
+    const promos = (Array.isArray(k.rankHistory) ? k.rankHistory.filter(r => r.source === 'gsc' || r.source === 'serpapi') : []).length > 0;
+    return `<tr style="border-bottom:1px solid #ffffff0d;">
+      <td style="padding:7px 8px;font-weight:600;color:var(--text1);white-space:nowrap;">
+        ${escHtml(k.keyword)}
+        ${promos ? `<span style="font-size:8px;padding:1px 4px;border-radius:3px;background:rgba(56,189,248,0.12);color:#38bdf8;margin-left:4px;">${escHtml(lastSrc)}</span>` : ''}
+      </td>
+      <td style="padding:7px 8px;text-align:right;color:var(--text2);">${fmtVol(k.volume)}</td>
+      <td style="padding:7px 8px;text-align:center;"><span class="seo-badge-tag ${compClass(k.competitionIndex)}" style="font-size:9px;">${compLabel(k.competitionIndex)}</span></td>
+      <td style="padding:7px 8px;text-align:right;color:var(--text3);">${fmtCpc(k)}</td>
+      <td style="padding:7px 8px;text-align:center;">${fmtRank(k)}</td>
+      <td style="padding:7px 8px;text-align:center;">${fmtTrend(k)}</td>
+    </tr>`;
+  }).join('');
+
+  // ── Growth Actions rows ─────────────────────────────────────────────────────
+  const filteredActions = actions.filter(a => kwPrioFilter === 'all' || (a.priority || 'low') === kwPrioFilter)
+    .sort((a, b) => (prioOrder[b.priority || 'low'] || 0) - (prioOrder[a.priority || 'low'] || 0));
+  const actionCards = filteredActions.map((a, idx) => {
+    const sevCls = a.priority === 'high' ? 'sev-high' : a.priority === 'medium' ? 'sev-medium' : 'sev-low';
+    return `
+      <div class="seo-diag-card ${sevCls}" style="margin-bottom:10px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+          <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
+            ${prioBadge(a.priority)}
+            <span class="seo-badge-tag category">${escHtml(a.category || 'content')}</span>
+            ${a.keyword ? `<span class="seo-badge-tag category">🔑 ${escHtml(a.keyword)}</span>` : ''}
+          </div>
+          <span style="font-size:10px;color:var(--text3);font-weight:700;">#${idx + 1}</span>
+        </div>
+        <div class="md-content" style="font-size:13px;font-weight:700;color:var(--text1);line-height:1.45;margin-bottom:6px;">${renderTextContent(a.issue || a.keyword || '')}</div>
+        <div style="background:rgba(52,211,153,0.06);border:1px solid rgba(52,211,153,0.18);border-radius:6px;padding:6px 8px;font-size:11px;color:#a7f3d0;line-height:1.4;">
+          <strong style="color:var(--green);">💡 Recommendation:</strong> ${escHtml(a.recommendation || '')}
+        </div>
+      </div>`;
+  }).join('');
+
+  // ── Competitor Gap rows ─────────────────────────────────────────────────────
+  const gapRows = gaps.length ? gaps.slice(0, 10).map(g => `
+    <div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid #ffffff0d;font-size:11px;">
+      <span style="color:var(--text1);font-weight:600;min-width:110px;">${escHtml(g.keyword)}</span>
+      <span style="color:${g.myCovered ? 'var(--green)' : '#f87171'};font-weight:600;min-width:50px;">You ${g.myCovered ? '✓' : '✗'}</span>
+      <span style="color:${g.competitorsCovering > 0 ? 'var(--amber)' : 'var(--text3)'};min-width:50px;">${g.competitorsCovering || 0} comp${(g.competitorsCovering || 0) !== 1 ? 's' : ''}</span>
+      <span style="font-size:10px;color:var(--text3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escHtml(g.note || '')}</span>
+    </div>
+  `).join('') : '';
+
+  // ── Competitors panel ───────────────────────────────────────────────────────
+  const compRows = comps.length ? comps.map(c => `
+    <div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid #ffffff0d;">
+      <span style="font-size:11px;font-weight:600;color:var(--text1);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${escHtml(c.url)}">${escHtml(c.url)}</span>
+      <span style="font-size:9px;padding:1px 5px;border-radius:3px;background:${c.source === 'user' ? 'rgba(52,211,153,0.12)' : 'rgba(56,189,248,0.12)'};color:${c.source === 'user' ? 'var(--green)' : '#38bdf8'};">${c.source === 'user' ? 'USER' : 'AUTO'}</span>
+      ${c.title ? `<span style="font-size:10px;color:var(--text3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:120px;" title="${escHtml(c.title)}">${escHtml(c.title)}</span>` : ''}
+      <button data-remove-url="${escHtml(c.url)}" style="background:none;border:none;color:#f87171;cursor:pointer;font-size:11px;padding:2px 4px;" title="Remove competitor">✕</button>
+    </div>
+  `).join('') : '<div style="font-size:11px;color:var(--text3);padding:8px 0;">No competitors tracked yet. Add URLs or auto-discover from niche.</div>';
+
+  // ── Build full HTML ─────────────────────────────────────────────────────────
+  const subPills = pill('sub', 'rankings', '📈 Rankings (' + kws.length + ')', kwSubTab === 'rankings') +
+    pill('sub', 'actions', '💡 Growth Actions (' + actions.length + ')', kwSubTab === 'actions');
+  const prioPills = pill('prio', 'all', 'All (' + kws.length + ')', kwPrioFilter === 'all') +
+    pill('prio', 'high', 'High (' + prioCounts.high + ')', kwPrioFilter === 'high') +
+    pill('prio', 'medium', 'Med (' + prioCounts.medium + ')', kwPrioFilter === 'medium') +
+    pill('prio', 'low', 'Low (' + prioCounts.low + ')', kwPrioFilter === 'low');
+  const sortPills = pill('sort', 'volume', 'Volume', kwSortKey === 'volume') +
+    pill('sort', 'priority', 'Priority', kwSortKey === 'priority') +
+    pill('sort', 'rank', 'Rank', kwSortKey === 'rank');
+
+  el.innerHTML = `
+    <div class="ws-kb-block" style="text-align:center;margin-bottom:12px;">
+      <div style="font-size:13px;font-weight:700;color:var(--text1);">🔑 Keyword Research</div>
+      ${score !== null ? `
+        <div style="font-size:32px;font-weight:800;color:${seoScoreColor(score)};line-height:1.1;margin:6px 0;">${score}<span style="font-size:14px;">/100</span></div>
+        <div style="font-size:10px;color:var(--text3);margin-bottom:6px;">Keyword Health Score</div>
+        ${seoSparkline(hist)}
+      ` : ''}
+      <div style="font-size:10px;color:var(--text3);margin-top:4px;">
+        ${kd.lastFullResearch ? 'Last research: ' + new Date(kd.lastFullResearch).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }) : ''}
+        ${kwSource ? ' · Source: ' + escHtml(kwSource) : ''}
+        ${kd.lastRankingCheck ? ' · Ranks checked: ' + new Date(kd.lastRankingCheck).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }) : ''}
+      </div>
+    </div>
+
+    <div style="display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap;">
+      <button class="btn-small btn-primary" id="kw-run-research" style="font-weight:700;box-shadow:0 2px 10px rgba(var(--accent-rgb),0.35);">🚀 Run Research</button>
+      <button class="btn-small" id="kw-refresh-ranks" style="font-weight:700;">↻ Refresh Rankings</button>
+      <button class="btn-small" id="kw-manage-comp" style="font-weight:700;">👥 Manage Competitors</button>
+    </div>
+
+    <div id="kw-comp-panel" style="${kwCompOpen ? '' : 'display:none;'}margin-bottom:12px;">
+      <div class="ws-kb-block">
+        <div style="display:flex;justify-content:space-between;align-items:center;">
+          <span style="font-size:11px;font-weight:700;color:var(--text1);">👥 Competitors (${comps.length})</span>
+        </div>
+        <div style="margin-top:6px;">
+          ${compRows}
+        </div>
+        <div style="display:flex;gap:6px;margin-top:8px;">
+          <input id="kw-comp-input" placeholder="https://competitor.com" style="flex:1;padding:6px;border-radius:6px;background:#00000033;color:var(--text1);border:1px solid #ffffff22;font-size:11px;">
+          <button class="btn-small" id="kw-comp-add" style="font-weight:700;">Add</button>
+        </div>
+        <button class="btn-small" id="kw-comp-discover" style="width:100%;margin-top:6px;font-weight:700;">🔎 Auto-discover from niche</button>
+      </div>
+    </div>
+
+    <div class="seo-pill-group" style="margin-bottom:10px;">${subPills}</div>
+
+    ${kwSubTab === 'rankings' ? `
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap;">
+        <span style="font-size:10px;color:var(--text3);font-weight:600;min-width:55px;">Priority:</span>
+        <div class="seo-pill-group" style="font-size:10px;">${prioPills}</div>
+        <span style="font-size:10px;color:var(--text3);font-weight:600;margin-left:4px;">Sort:</span>
+        <div class="seo-pill-group" style="font-size:10px;">${sortPills}</div>
+      </div>
+      <table style="width:100%;border-collapse:collapse;font-size:11px;">
+        <thead>
+          <tr style="color:var(--text3);font-size:10px;text-transform:uppercase;letter-spacing:0.4px;border-bottom:1px solid #ffffff18;">
+            <th style="text-align:left;padding:6px 8px;font-weight:600;">Keyword</th>
+            <th style="text-align:right;padding:6px 8px;font-weight:600;">Volume</th>
+            <th style="text-align:center;padding:6px 8px;font-weight:600;">Comp</th>
+            <th style="text-align:right;padding:6px 8px;font-weight:600;">CPC</th>
+            <th style="text-align:center;padding:6px 8px;font-weight:600;">Rank</th>
+            <th style="text-align:center;padding:6px 8px;font-weight:600;">Trend</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${kwRows.length ? kwRows : `<tr><td colspan="6" style="padding:16px;text-align:center;color:var(--text3);">No keywords match this filter.</td></tr>`}
+        </tbody>
+      </table>
+    ` : `
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap;">
+        <span style="font-size:10px;color:var(--text3);font-weight:600;min-width:55px;">Priority:</span>
+        <div class="seo-pill-group" style="font-size:10px;">${prioPills}</div>
+      </div>
+      ${actionCards.length ? actionCards : `<div style="font-size:12px;color:var(--text3);padding:16px 0;text-align:center;">No growth actions for this filter. Run keyword research first!</div>`}
+      ${gapRows ? `
+        <div class="ws-kb-block" style="margin-top:12px;">
+          <div class="ws-kb-label" style="font-size:11px;">🌐 Competitor Gap Analysis</div>
+          ${gapRows}
+          ${(kd.gapInsights) ? `<div style="font-size:11px;color:var(--text2);line-height:1.45;margin-top:8px;"><strong style="color:var(--text1);">LLM Insights:</strong> ${escHtml(typeof kd.gapInsights === 'string' ? kd.gapInsights : JSON.stringify(kd.gapInsights).slice(0,300))}</div>` : ''}
+        </div>
+      ` : ''}
+    `}
+  `;
+
+  // ── Bind events ─────────────────────────────────────────────────────────────
+  const rBtn = document.getElementById('kw-run-research');
+  if (rBtn) rBtn.addEventListener('click', () => doRunResearch(site, rBtn));
+  const rfBtn = document.getElementById('kw-refresh-ranks');
+  if (rfBtn) rfBtn.addEventListener('click', () => doRefreshRankings(site, rfBtn));
+  const mBtn = document.getElementById('kw-manage-comp');
+  if (mBtn) mBtn.addEventListener('click', () => { kwCompOpen = !kwCompOpen; renderSeoKeywords(site); });
+  const cInp = document.getElementById('kw-comp-input');
+  const cAdd = document.getElementById('kw-comp-add');
+  if (cAdd && cInp) cAdd.addEventListener('click', () => {
+    const v = cInp.value.trim();
+    if (!v) return;
+    const urls = comps.map(c => c.url).concat(v);
+    cInp.value = '';
+    doSaveCompetitors(site, urls, false, cAdd);
+  });
+  const cDisc = document.getElementById('kw-comp-discover');
+  if (cDisc) cDisc.addEventListener('click', () => doSaveCompetitors(site, [], true, cDisc));
+  el.querySelectorAll('[data-remove-url]').forEach(btn => btn.addEventListener('click', () => {
+    const url = btn.dataset.removeUrl;
+    doSaveCompetitors(site, comps.map(c => c.url).filter(u => u !== url), false, btn);
+  }));
+  el.querySelectorAll('.seo-pill').forEach(btn => btn.addEventListener('click', () => {
+    if (btn.dataset.kind === 'sub') kwSubTab = btn.dataset.val;
+    if (btn.dataset.kind === 'prio') kwPrioFilter = btn.dataset.val;
+    if (btn.dataset.kind === 'sort') kwSortKey = btn.dataset.val;
+    renderSeoKeywords(site);
+  }));
+}
+
+function doSeoKwCacheUpdate(site, kd) {
+  site.keywordData = kd;
+  const idx = seoSitesCache.findIndex(x => String(x.id) === String(site.id));
+  if (idx !== -1) seoSitesCache[idx] = site;
+  currentSeoSite = site;
+}
+
+async function doRunResearch(site, btn) {
+  const old = btn.textContent;
+  btn.disabled = true; btn.textContent = '⏳ Researching keywords… (20-60s)';
+  try {
+    const { keywordData } = await apiFetch('/api/keywords/' + site.id + '/research', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) });
+    doSeoKwCacheUpdate(site, keywordData);
+    renderSeoKeywords(site);
+  } catch (err) {
+    alert('Keyword research failed: ' + err.message);
+  } finally { btn.disabled = false; btn.textContent = old; }
+}
+
+async function doRefreshRankings(site, btn) {
+  const old = btn.textContent;
+  btn.disabled = true; btn.textContent = '⏳ Checking rankings…';
+  try {
+    const { keywordData } = await apiFetch('/api/keywords/' + site.id + '/refresh-rankings', { method: 'POST' });
+    if (keywordData) doSeoKwCacheUpdate(site, keywordData);
+    renderSeoKeywords(site);
+  } catch (err) {
+    alert('Ranking refresh failed: ' + err.message);
+  } finally { btn.disabled = false; btn.textContent = old; }
+}
+
+async function doSaveCompetitors(site, urls, discover, btn) {
+  const old = btn ? btn.textContent : '';
+  if (btn) { btn.disabled = true; btn.textContent = discover ? '🔎 Discovering…' : 'Saving…'; }
+  try {
+    const body = discover ? { discover: true } : { userProvidedUrls: urls };
+    const res = await apiFetch('/api/keywords/' + site.id + '/competitors', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    doSeoKwCacheUpdate(site, { ...(site.keywordData || {}), competitors: res.competitorsAll });
+    renderSeoKeywords(site);
+  } catch (err) {
+    alert('Competitor update failed: ' + err.message);
+    if (btn) { btn.disabled = false; btn.textContent = old; }
+  }
+}
 
 async function loadSeoChat(id) {
   const el = document.getElementById('seo-chat-messages');

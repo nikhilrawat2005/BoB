@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { requireAuth } = require('../middleware/auth');
 const seo = require('../services/seoService');
+const keywords = require('../services/keywordResearchService');
 
 // Cron auth for the background pump (GitHub Actions) — CRON_SECRET bearer
 function cronAuth(req, res, next) {
@@ -40,6 +41,13 @@ router.post('/', requireAuth, async (req, res) => {
 router.post('/:id/analyze', requireAuth, async (req, res) => {
   try {
     const site = await seo.reAudit(req.userId, req.params.id);
+    // Ranking refresh hook: after a re-audit, also re-check keyword positions.
+    // Fire-and-forget so a slow/absent keyword provider never blocks the audit.
+    if (site && site.keywordData && Array.isArray(site.keywordData.keywords) && site.keywordData.keywords.length) {
+      keywords.refreshAllRankings(req.userId, req.params.id).catch(err => {
+        console.warn('[keywords] post-reaudit ranking refresh failed:', err.message);
+      });
+    }
     res.json({ site });
   } catch (err) {
     res.status(500).json({ error: err.message });

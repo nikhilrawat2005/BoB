@@ -1,0 +1,20 @@
+name: Bob Keyword Rankings Refresh
+
+on:
+  schedule:
+    - cron: '30 5 * * *'
+  workflow_dispatch:
+
+jobs:
+  refresh-rankings:
+    runs-on: ubuntu-latest
+    env:
+      BOB_URL: ${{ secrets.BOB_URL }}
+    steps:
+      - name: Trigger keyword ranking refresh
+        run: |
+          URL="${BOB_URL:-https://bob-backend.vercel.app}"
+          curl -sS -w "keywords refresh HTTP %{http_code}\n" \
+            -X POST \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            "$URL/api/keywords/refresh-all"
