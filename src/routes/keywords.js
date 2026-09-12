@@ -94,6 +94,25 @@ router.post('/:siteId/competitors', requireAuth, async (req, res) => {
   }
 });
 
+// POST /api/keywords/:siteId/verify-gsc — check GSC integration health
+router.post('/:siteId/verify-gsc', requireAuth, async (req, res) => {
+  try {
+    const site = await seo.getSite(req.userId, req.params.siteId);
+    if (!site) return res.status(404).json({ error: 'Site not found' });
+    const verification = await kr.autoVerifyGSC(todayUrl(site.domain, site.url));
+
+    // Persist the report on the site's keywordData so the UI can show it.
+    const kd = site.keywordData || { keywords: [], history: [], competitors: [], meta: {} };
+    const updated = { ...kd, meta: { ...(kd.meta || {}), gscVerification: verification }, updatedAt: new Date().toISOString() };
+    const { db } = require('../config/firebase');
+    await db.collection('users').doc(req.userId).collection('seoSites').doc(req.params.siteId).set({ keywordData: updated }, { merge: true });
+
+    res.json({ verification });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // POST /api/keywords/refresh-all — cron workers: siteless ranking refresh across sites
 // IMPORTANT: must stay above any /:siteId route that could shadow it (different
 // path depth, but keep the worker path stable and predictable).

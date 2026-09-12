@@ -131,6 +131,92 @@ async function getGoogleAccessToken(scope) {
   return data.access_token;
 }
 
+// Health-check the Google Search Console integration before the first ranking
+// lookup. Contacts the Search Console API, confirms the token works and that
+// the chosen property is queryable. Never throws — returns a report object so
+// the caller can log/display the outcome without aborting the pipeline.
+// Returns { verified, gscUsed, property?, reachableSites?, reason?, message }.
+async function autoVerifyGSC(siteUrl) {
+  const { hasGsc, hasOAuthClient } = detectGoogleCreds();
+  const gscUsed = hasGsc || hasOAuthClient;
+  if (!gscUsed) {
+    return {
+      verified: false,
+      gscUsed: false,
+      reason: 'no-credentials',
+      message: 'No GSC credentials configured (FIREBASE_CLIENT_EMAIL/FIREBASE_PRIVATE_KEY or GOOGLE_OAUTH_*). Ranking checks will fall back to SerpAPI or report unavailable.',
+    };
+  }
+  if (process.env.GSC_ENABLED === 'false') {
+    return { verified: false, gscUsed: true, reason: 'disabled', message: 'GSC is disabled via GSC_ENABLED=false.' };
+  }
+
+  let token;
+  try {
+    token = await getGoogleAccessToken('https://www.googleapis.com/auth/webmasters.readonly');
+  } catch (err) {
+    return { verified: false, gscUsed: true, reason: 'token-failed', message: `GSC token minting failed: ${err.message}` };
+  }
+
+  const prop = (process.env.GOOGLE_SEARCH_CONSOLE_PROPERTY || (siteUrl ? siteUrl.replace(/\/+$/, '') : '')) || null;
+
+  // 1) Advisory: does the token see the property in the account's site list?
+  try {
+    const listRes = await withTimeout(
+      fetch('https://searchconsole.googleapis.com/v1/sites', { headers: { Authorization: `Bearer ${token}` } }),
+      'GSC sites list'
+    );
+    const listText = await listRes.text();
+    const list = listText ? JSON.parse(listText) : {};
+    if (listRes.ok && Array.isArray(list.siteEntry)) {
+      const reachableSites = list.siteEntry.map(s => s.siteUrl);
+      if (prop && !reachableSites.some(s => s === prop || s === prop.replace(/\/\/www\./, '//'))) {
+        return {
+          verified: false,
+          gscUsed: true,
+          property: prop,
+          reachableSites,
+          reason: 'property-not-listed',
+          message: `Property "${prop}" is not in the account's Search Console site list. Add the domain in Google Search Console first (or set GOOGLE_SEARCH_CONSOLE_PROPERTY to a verified property).`,
+        };
+      }
+    }
+  } catch (err) {
+    // sites.list is advisory only — fall through to the authoritative probe.
+  }
+
+  // 2) Authoritative: run a real (tiny) Search Analytics query against the
+  //    property. Proves the token + property combination is actually queryable.
+  try {
+    if (!prop) {
+      return { verified: false, gscUsed: true, reason: 'no-property', message: 'No GSC property to probe — set GOOGLE_SEARCH_CONSOLE_PROPERTY or pass the site URL.' };
+    }
+    const end = new Date();
+    const start = new Date(Date.now() - 6 * 86400000);
+    const fmt = (d) => d.toISOString().slice(0, 10);
+    const body = { startDate: fmt(start), endDate: fmt(end), dimensions: ['query'], rowLimit: 1 };
+    const url = `https://searchconsole.googleapis.com/v1/sites/${encodeURIComponent(prop)}/searchAnalytics/query`;
+    const res = await withTimeout(
+      fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify(body),
+      }),
+      'GSC probe'
+    );
+    const resText = await res.text();
+    if (!res.ok) {
+      let detail = `GSC HTTP ${res.status}`;
+      try { const j = resText ? JSON.parse(resText) : {}; detail = (j.error && j.error.message) || detail; } catch {}
+      throw new Error(detail);
+    }
+    const data = resText ? JSON.parse(resText) : {};
+    return { verified: true, gscUsed: true, property: prop, message: 'GSC access verified — Search Console API reachable and property is queryable.' };
+  } catch (err) {
+    return { verified: false, gscUsed: true, property: prop, reason: 'probe-failed', message: err.message };
+  }
+}
+
 // Deterministic-but-plausible synthetic keyword metrics. Used ONLY when no
 // real keyword data source is configured, so the pipeline stays testable and
 // honest (source is tagged 'estimated').
@@ -901,7 +987,8 @@ async function runKeywordResearch(userId, siteId, siteUrl, auditData = {}, optio
 
   if (!ideas.length) throw new Error('No keyword ideas could be generated');
 
-  // 3) Rankings for the top candidates
+  // 3) Rankings for the top candidates (after verifying GSC access once)
+  results.gscVerification = await autoVerifyGSC(url);
   const rankTargets = ideas.slice(0, opts.rankLimit || 8);
   for (const idea of rankTargets) {
     try {
@@ -966,7 +1053,11 @@ async function runKeywordResearch(userId, siteId, siteUrl, auditData = {}, optio
     competitorGaps: results.competitorGaps && results.competitorGaps.gaps ? results.competitorGaps.gaps.slice(0, 15) : [],
     gapInsights: results.competitorGaps && results.competitorGaps.llmInsights,
     seeds: results.seeds.slice(0, 20),
-    meta: { ideaSource: results.ideas[0] && results.ideas[0].source, seeder: 'audit' },
+    meta: {
+      ideaSource: results.ideas[0] && results.ideas[0].source,
+      seeder: 'audit',
+      gscVerification: results.gscVerification || null,
+    },
     updatedAt: nowIso,
   };
 
@@ -1044,6 +1135,7 @@ module.exports = {
   generateGrowthActions,
   runKeywordResearch,
   refreshAllRankings,
+  autoVerifyGSC,
   computeKeywordHealth,
   priorityFor,
   parseLooseJsonArray,

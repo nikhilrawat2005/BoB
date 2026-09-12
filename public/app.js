@@ -6249,12 +6249,14 @@ function renderSeoKeywords(site) {
         ${kwSource ? ' · Source: ' + escHtml(kwSource) : ''}
         ${kd.lastRankingCheck ? ' · Ranks checked: ' + new Date(kd.lastRankingCheck).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }) : ''}
       </div>
+      ${kd.meta && kd.meta.gscVerification ? `<div style="font-size:10px;margin-top:4px;"><span style="color:${kd.meta.gscVerification.verified ? 'var(--green)' : '#fbbf24'};">🛡️ GSC: ${kd.meta.gscVerification.verified ? 'Verified ✓' : escHtml(kd.meta.gscVerification.reason || 'not verified')}</span></div>` : ''}
     </div>
 
     <div style="display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap;">
       <button class="btn-small btn-primary" id="kw-run-research" style="font-weight:700;box-shadow:0 2px 10px rgba(var(--accent-rgb),0.35);">🚀 Run Research</button>
       <button class="btn-small" id="kw-refresh-ranks" style="font-weight:700;">↻ Refresh Rankings</button>
       <button class="btn-small" id="kw-manage-comp" style="font-weight:700;">👥 Manage Competitors</button>
+      <button class="btn-small" id="kw-verify-gsc" style="font-weight:700;">🛡️ Verify GSC</button>
     </div>
 
     <div id="kw-comp-panel" style="${kwCompOpen ? '' : 'display:none;'}margin-bottom:12px;">
@@ -6320,6 +6322,8 @@ function renderSeoKeywords(site) {
   if (rfBtn) rfBtn.addEventListener('click', () => doRefreshRankings(site, rfBtn));
   const mBtn = document.getElementById('kw-manage-comp');
   if (mBtn) mBtn.addEventListener('click', () => { kwCompOpen = !kwCompOpen; renderSeoKeywords(site); });
+  const vBtn = document.getElementById('kw-verify-gsc');
+  if (vBtn) vBtn.addEventListener('click', () => doVerifyGSC(site, vBtn));
   const cInp = document.getElementById('kw-comp-input');
   const cAdd = document.getElementById('kw-comp-add');
   if (cAdd && cInp) cAdd.addEventListener('click', () => {
@@ -6371,6 +6375,22 @@ async function doRefreshRankings(site, btn) {
     renderSeoKeywords(site);
   } catch (err) {
     alert('Ranking refresh failed: ' + err.message);
+  } finally { btn.disabled = false; btn.textContent = old; }
+}
+
+async function doVerifyGSC(site, btn) {
+  const old = btn.textContent;
+  btn.disabled = true; btn.textContent = '🛡️ Verifying…';
+  try {
+    const { verification } = await apiFetch('/api/keywords/' + site.id + '/verify-gsc', { method: 'POST' });
+    const kd = site.keywordData || { meta: {} };
+    doSeoKwCacheUpdate(site, { ...kd, meta: { ...(kd.meta || {}), gscVerification: verification } });
+    renderSeoKeywords(site);
+    alert(verification.verified
+      ? '✅ GSC verified: ' + verification.message
+      : '⚠️ GSC not verified: ' + (verification.message || verification.reason));
+  } catch (err) {
+    alert('GSC verification failed: ' + err.message);
   } finally { btn.disabled = false; btn.textContent = old; }
 }
 
