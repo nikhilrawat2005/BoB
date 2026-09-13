@@ -5,6 +5,9 @@ const { callLLM } = require('../services/llmService');
 const memory = require('../services/memoryService');
 const memoryManager = require('../services/memoryManager');
 const discovery = require('../services/hackathonDiscoveryService');
+const weather = require('../services/weatherService');
+const news = require('../services/newsService');
+const stocks = require('../services/stocksService');
 
 // ─────────────────────────────────────────────────────────
 // LIVE PULSE — Autonomous Hackathon Discovery Hub

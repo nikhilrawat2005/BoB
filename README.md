@@ -444,7 +444,7 @@ A full **parallel, multi-key** SEO auditing stack: crawl → score → AI diagno
 | `memoryService.js` / `memoryManager.js` | Structured facts, monthly memory, notifications |
 | `behaviorEngine.js` | Trait/behavior detection from conversation |
 | `proactiveAdvisor.js` | Auto-generates proactive notifications |
-| `dossierService.js` | Builds deep intelligence dossiers on targets |
+| `stalkingService.js` | Builds deep intelligence dossiers on targets |
 | `crawlerService.js` | Generic web page scraping + JSON-LD extraction |
 | `repoService.js` | GitHub repo reading for Builder self-awareness |
 | `builderService.js` / `builderKnowledgeService.js` / `builderTaskService.js` | Bob the Builder persona logic |
@@ -480,7 +480,7 @@ All `/api/*` routes (except `/api/health` and `/api/config`) require:
 | `/api/live` | `live.js` | Weather / news / stocks + Hackathon Radar pulse |
 | `/api/builder` | `builder.js` | Bob the Builder workspace |
 | `/api/hackathons` | `hackathons.js` | Hackathon tracker + parse/scrape/knowledge/chat |
-| `/api/dossier`, `/api/stalking` | `stalking.js` | Profile list + deep crawl |
+| `/api/stalking` | `stalking.js` | Profile list + deep crawl |
 | `/api/routines` | `routines.js` | Daily autonomous routines |
 | `/api/hq` | `hq.js` | Aggregated dashboard summary |
 | `/api/self-edit` | `selfEdit.js` | Self-edit history/diffs |
