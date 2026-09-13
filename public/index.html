@@ -527,7 +527,6 @@
                 <button class="cat-tab-btn" data-cat="main">🧠 Main Memory</button>
                 <button class="cat-tab-btn" data-cat="hackathons">🏆 Hackathons</button>
                 <button class="cat-tab-btn" data-cat="stalker">🕵️ Developer Radar</button>
-                <button class="cat-tab-btn" data-cat="vault">🔒 Secret Vault</button>
                 <button class="cat-tab-btn" data-cat="builder">🛠️ Builder</button>
               </div>
 
@@ -653,64 +652,6 @@
           `.view.active`. pointer-events is inherited, so every button and
           link inside the modal was completely unclickable.
         -->
-
-        <!-- Secret Vault workspace -->
-        <section class="view" id="view-vault">
-          <div class="side-panel workspace-panel vault-panel">
-            <!-- PIN Screen -->
-            <div id="vault-pin-screen">
-              <div class="panel-header">
-                <span>🔒 Secret Vault</span>
-                <button class="panel-close view-close" id="close-vault">✕</button>
-              </div>
-              <div class="vault-pin-body">
-                <div class="vault-lock-icon">
-                  <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/><circle cx="12" cy="16" r="1" fill="currentColor"/></svg>
-                </div>
-                <p class="vault-pin-label">Enter Passcode</p>
-                <div class="vault-pin-dots" id="vault-pin-dots">
-                  <span></span><span></span><span></span><span></span>
-                </div>
-                <div id="vault-pin-error" class="error-msg hidden">Incorrect PIN. Try again.</div>
-                <div class="vault-numpad">
-                  <button class="numpad-btn" data-digit="1">1</button>
-                  <button class="numpad-btn" data-digit="2">2</button>
-                  <button class="numpad-btn" data-digit="3">3</button>
-                  <button class="numpad-btn" data-digit="4">4</button>
-                  <button class="numpad-btn" data-digit="5">5</button>
-                  <button class="numpad-btn" data-digit="6">6</button>
-                  <button class="numpad-btn" data-digit="7">7</button>
-                  <button class="numpad-btn" data-digit="8">8</button>
-                  <button class="numpad-btn" data-digit="9">9</button>
-                  <button class="numpad-btn" data-digit="clear">⌫</button>
-                  <button class="numpad-btn" data-digit="0">0</button>
-                  <button class="numpad-btn numpad-enter" data-digit="enter">✓</button>
-                </div>
-              </div>
-            </div>
-            <!-- Vault Content (unlocked private hidden chat) -->
-            <div id="vault-content-screen" class="hidden vault-chat-container">
-              <div class="panel-header">
-                <div style="display:flex;align-items:center;gap:6px;">
-                  <span>🕵️ Private Secret Chat</span>
-                  <span class="badge-incognito">Encrypted</span>
-                </div>
-                <div style="display:flex;align-items:center;gap:8px;">
-                  <button id="wipe-vault-chat-btn" class="vault-relock-btn" style="color:var(--red); border-color:rgba(var(--red-rgb),0.3);" title="Wipe secret chat history">🗑️ Wipe</button>
-                  <button id="relock-vault-btn" class="vault-relock-btn" title="Lock vault">🔒 Lock</button>
-                  <button class="panel-close view-close" id="close-vault-unlocked">✕</button>
-                </div>
-              </div>
-              <div class="vault-chat-messages" id="vault-chat-messages">
-                <div class="empty-msg">🤫 Private Secret Vault Chat active. Messages here are confidential and isolated from normal chats.</div>
-              </div>
-              <div class="vault-chat-input-row">
-                <textarea id="vault-chat-input" rows="1" placeholder="Send private secret message..."></textarea>
-                <button id="vault-send-btn" class="btn-small">Send</button>
-              </div>
-            </div>
-          </div>
-        </section>
 
         <!-- Resume Builder Workspace (ATS LaTeX Resume & Career Intelligence) -->
         <section class="view" id="view-resume">

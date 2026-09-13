@@ -111,7 +111,7 @@ async function listSessionSummaries(userId, sessionId) {
 }
 
 
-const VALID_CATEGORIES = ['habits', 'main', 'hackathons', 'stalker', 'vault', 'builder'];
+const VALID_CATEGORIES = ['habits', 'main', 'hackathons', 'stalker', 'builder'];
 
 function detectCategory(text, explicitCategory) {
   if (explicitCategory && VALID_CATEGORIES.includes(explicitCategory)) {
@@ -147,17 +147,6 @@ function detectCategory(text, explicitCategory) {
     t.includes('profiles are:')
   ) {
     return 'stalker';
-  }
-  if (
-    t.includes('secret vault') ||
-    t.includes('vault') ||
-    t.includes('passcode') ||
-    t.includes('confidential') ||
-    t.includes('private key') ||
-    t.includes('secret:') ||
-    t.includes('pin:')
-  ) {
-    return 'vault';
   }
   if (
     t.includes('builder') ||
@@ -580,38 +569,6 @@ async function getMonthMemoryText(userId, monthId) {
     .join('\n');
 }
 
-async function addSecretNote(userId, noteText, eventDate = null) {
-  const ref = db.collection('users').doc(userId).collection('secretVault').doc();
-  const now = Date.now();
-  await ref.set({ noteText, eventDate, createdAt: now });
-  return { id: ref.id, noteText, eventDate, createdAt: now };
-}
-
-async function listSecretNotes(userId) {
-  const snap = await db.collection('users').doc(userId).collection('secretVault').orderBy('createdAt', 'desc').get();
-  return snap.docs.map(d => ({ id: d.id, ...d.data() }));
-}
-
-async function deleteSecretNote(userId, noteId) {
-  await db.collection('users').doc(userId).collection('secretVault').doc(noteId).delete();
-}
-
-async function addVaultMessage(userId, role, content) {
-  const ref = db.collection('users').doc(userId).collection('vaultMessages').doc();
-  const msg = { id: ref.id, role, content, createdAt: Date.now() };
-  await ref.set(msg);
-  return msg;
-}
-
-async function getVaultMessages(userId, limit = 50) {
-  const snap = await db.collection('users').doc(userId).collection('vaultMessages').orderBy('createdAt', 'asc').limit(limit).get();
-  return snap.docs.map(d => ({ id: d.id, ...d.data() }));
-}
-
-async function clearVaultMessages(userId) {
-  await deleteAllInCollection(db.collection('users').doc(userId).collection('vaultMessages'));
-}
-
 async function addNotification(userId, title, message, type = 'reminder', promptSnippet = '') {
   const ref = db.collection('users').doc(userId).collection('notifications').doc();
   const now = Date.now();
@@ -685,7 +642,6 @@ async function getUnifiedMemoryHub(userId) {
     habits: facts.filter(f => f.category === 'habits').length,
     builder: facts.filter(f => f.category === 'builder').length,
     main: facts.filter(f => f.category === 'main').length,
-    vault: facts.filter(f => f.category === 'vault').length,
     stalker: stalkerFactsCount + stalkerProfiles.length + stalkerInsightCount,
     hackathons: hackathonFactsCount + hackathons.length + hackathonRuleCount,
   };
@@ -777,16 +733,10 @@ module.exports = {
   listMonthlyFiles,
   getMonthlyFile,
   getMonthMemoryText,
-  addSecretNote,
-  listSecretNotes,
-  deleteSecretNote,
   addNotification,
   listNotifications,
   markNotificationRead,
   deleteNotification,
-  addVaultMessage,
-  getVaultMessages,
-  clearVaultMessages,
   getUnifiedMemoryHub,
   deleteProfileInsight,
   addProfileInsight,

@@ -18,7 +18,7 @@ const { callLLM } = require('./llmService');
 const news = require('./newsService');
 const stocks = require('./stocksService');
 
-const VALID_WORKSPACES = ['vault', 'hackathon', 'stalking', 'bob', 'market', 'habit', 'custom', 'selfedit'];
+const VALID_WORKSPACES = ['hackathon', 'stalking', 'bob', 'market', 'habit', 'custom', 'selfedit'];
 
 function coll(userId) {
   return db.collection('users').doc(userId).collection('routines');
@@ -88,11 +88,6 @@ async function deleteRoutine(userId, routineId) {
 // ── Workspace context builders ───────────────────────────
 async function buildContext(userId, routine) {
   const parts = [];
-
-  if (routine.workspace === 'vault') {
-    const msgs = await memory.getVaultMessages(userId, 30);
-    if (msgs.length) parts.push(`SECRET VAULT RECENT CONVERSATION:\n${msgs.map(m => `${m.role === 'user' ? 'Nikhil' : 'Bob'}: ${m.content}`).join('\n')}`);
-  }
 
   if (routine.workspace === 'hackathon') {
     const hacks = require('./hackathonService');
@@ -169,11 +164,6 @@ async function buildHackContextSafe(h) {
 // ── Workspace chat delivery ───────────────────────────────
 async function deliverToWorkspace(userId, routine, text) {
   const memoryModule = memory;
-
-  if (routine.workspace === 'vault') {
-    await memoryModule.addVaultMessage(userId, 'assistant', text);
-    return { channel: 'vault' };
-  }
 
   if (routine.workspace === 'hackathon') {
     const hacks = require('./hackathonService');

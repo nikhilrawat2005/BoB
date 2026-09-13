@@ -22,7 +22,6 @@ const BLOCKED_FILES = [
   '.env', '.env.example',
   'src/middleware/auth.js',
   'src/services/llmService.js',
-  'src/routes/secretVault.js',
   'package.json', 'package-lock.json', 'package-lock.json5',
 ];
 

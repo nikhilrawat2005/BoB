@@ -2550,14 +2550,6 @@ const MEMORY_CATEGORIES = {
     desc: 'Target research — social handles (IG, LinkedIn, GitHub) aur crawled profiles',
     emptyMsg: 'Koi researched profile abhi save nahi hua.',
   },
-  vault: {
-    key: 'vault',
-    title: 'Secret Vault',
-    tag: '[Vault]',
-    icon: '🔒',
-    desc: 'Protected notes, confidential keys & secure memory pointers',
-    emptyMsg: 'No secret vault memories recorded yet.',
-  },
   builder: {
     key: 'builder',
     title: 'Builder & Codebase',
@@ -2801,7 +2793,6 @@ function getPageIcon(type, category) {
   if (type === 'hackathon' || category === 'hackathons') return '🏆';
   if (type === 'chat') return '💬';
   if (category === 'habits') return '🎯';
-  if (category === 'vault') return '🔒';
   if (category === 'builder') return '🛠️';
   return '🧠';
 }
@@ -4153,185 +4144,6 @@ document.getElementById('stalk-panel-toggle')?.addEventListener('click', () => {
 });
 
 // ═══════════════════════════════════════════════════════
-// SECRET VAULT
-// ═══════════════════════════════════════════════════════
-
-const vaultPinScr  = document.getElementById('vault-pin-screen');
-const vaultConScr  = document.getElementById('vault-content-screen');
-const vaultDots    = document.querySelectorAll('#vault-pin-dots span');
-const vaultErrEl   = document.getElementById('vault-pin-error');
-
-let vaultPin        = '';
-let vaultUnlocked   = false;
-
-// ── Open / close vault workspace ─────────────────────
-function openVaultPanel() {
-  showView('vault');
-  if (!vaultUnlocked) lockVault();
-}
-function closeVaultPanel() {
-  closeViews();
-  lockVault();
-}
-
-document.getElementById('close-vault').addEventListener('click', closeVaultPanel);
-document.getElementById('close-vault-unlocked').addEventListener('click', closeVaultPanel);
-document.getElementById('relock-vault-btn').addEventListener('click', lockVault);
-
-function lockVault() {
-  vaultPin = '';
-  vaultUnlocked = false;
-  vaultConScr.classList.add('hidden');
-  vaultPinScr.classList.remove('hidden');
-  resetPinDots();
-  vaultErrEl.classList.add('hidden');
-}
-
-// ── PIN dots visual state ───────────────────────────
-function resetPinDots() {
-  vaultDots.forEach(d => { d.className = ''; });
-}
-function updatePinDots() {
-  vaultDots.forEach((d, i) => {
-    d.className = i < vaultPin.length ? 'filled' : '';
-  });
-}
-function shakeErrorDots() {
-  vaultDots.forEach(d => { d.className = 'error'; });
-  setTimeout(resetPinDots, 600);
-}
-
-// ── Numpad clicks ────────────────────────────────────
-document.querySelectorAll('.numpad-btn').forEach(btn => {
-  btn.addEventListener('click', () => {
-    const digit = btn.dataset.digit;
-
-    if (digit === 'clear') {
-      vaultPin = vaultPin.slice(0, -1);
-      updatePinDots();
-      vaultErrEl.classList.add('hidden');
-      return;
-    }
-
-    if (digit === 'enter') {
-      submitVaultPin();
-      return;
-    }
-
-    if (vaultPin.length < 4) {
-      vaultPin += digit;
-      updatePinDots();
-      // Auto-submit when 4 digits entered
-      if (vaultPin.length === 4) {
-        setTimeout(submitVaultPin, 150);
-      }
-    }
-  });
-});
-
-// ── Submit PIN to backend ────────────────────────────
-async function submitVaultPin() {
-  if (vaultPin.length < 4) {
-    vaultErrEl.textContent = 'Please enter a 4-digit PIN.';
-    vaultErrEl.classList.remove('hidden');
-    return;
-  }
-
-  try {
-    await apiFetch('/api/secret/verify-pin', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ pin: vaultPin }),
-    });
-
-    // Correct PIN
-    vaultUnlocked = true;
-    vaultPinScr.classList.add('hidden');
-    vaultConScr.classList.remove('hidden');
-    vaultErrEl.classList.add('hidden');
-    await loadVaultChat();
-  } catch (err) {
-    // Wrong PIN
-    shakeErrorDots();
-    vaultErrEl.textContent = 'Incorrect PIN (Default: 2005). Try again.';
-    vaultErrEl.classList.remove('hidden');
-    vaultPin = '';
-    setTimeout(() => {
-      resetPinDots();
-    }, 650);
-  }
-}
-
-// ── Load & Manage Vault Private Chat ───────────────────
-async function loadVaultChat() {
-  const container = document.getElementById('vault-chat-messages');
-  try {
-    const { messages } = await apiFetch('/api/secret/chat', {
-      headers: { 'X-Vault-Pin': vaultPin },
-    });
-    if (!messages || !messages.length) {
-      container.innerHTML = '<div class="empty-msg">🤫 Private Secret Vault Chat active. Messages here are confidential and isolated from normal chats.</div>';
-      return;
-    }
-    container.innerHTML = messages.map(m => `
-      <div class="vault-msg-bubble ${m.role}">
-        <div class="vault-msg-role">${m.role === 'user' ? 'Nikhil' : 'Bob (Private)'}</div>
-        <div class="vault-msg-text">${escHtml(m.content)}</div>
-      </div>
-    `).join('');
-    container.scrollTop = container.scrollHeight;
-  } catch (err) {
-    container.innerHTML = `<div class="empty-msg">Error loading secret chat: ${err.message}</div>`;
-  }
-}
-
-document.getElementById('vault-send-btn').addEventListener('click', sendVaultMessage);
-attachAutoResizeTextarea('vault-chat-input', sendVaultMessage);
-
-async function sendVaultMessage() {
-  const input = document.getElementById('vault-chat-input');
-  const text = input.value.trim();
-  if (!text) return;
-
-  const container = document.getElementById('vault-chat-messages');
-  input.value = '';
-  input.style.height = 'auto';
-
-  // Append user bubble immediately
-  const userDiv = document.createElement('div');
-  userDiv.className = 'vault-msg-bubble user';
-  userDiv.innerHTML = `<div class="vault-msg-role">Nikhil</div><div class="vault-msg-text">${escHtml(text)}</div>`;
-  container.appendChild(userDiv);
-  container.scrollTop = container.scrollHeight;
-
-  try {
-    const data = await apiFetch('/api/secret/chat', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-Vault-Pin': vaultPin },
-      body: JSON.stringify({ message: text }),
-    });
-
-    const botDiv = document.createElement('div');
-    botDiv.className = 'vault-msg-bubble assistant';
-    botDiv.innerHTML = `<div class="vault-msg-role">Bob (Private)</div><div class="vault-msg-text">${escHtml(data.reply)}</div>`;
-    container.appendChild(botDiv);
-    container.scrollTop = container.scrollHeight;
-  } catch (err) {
-    alert('Failed to send secret message: ' + err.message);
-  }
-}
-
-document.getElementById('wipe-vault-chat-btn').addEventListener('click', async () => {
-  if (!confirm('Are you sure you want to wipe all private secret chat history?')) return;
-  try {
-    await apiFetch('/api/secret/chat', { method: 'DELETE', headers: { 'X-Vault-Pin': vaultPin } });
-    await loadVaultChat();
-  } catch (err) {
-    alert('Failed to wipe secret chat: ' + err.message);
-  }
-});
-
-// ═══════════════════════════════════════════════════════
 // HQ DASHBOARD
 // ═══════════════════════════════════════════════════════
 
@@ -4408,7 +4220,6 @@ function renderHQ(data) {
     hqCard({ id: 'hackathons', icon: '🏆', title: 'Hackathons', color: (hacks.active || 0) > 0 ? 'green' : 'amber', badge: `${hacks.count || 0}`, meta: `active ${hacks.active || 0} · tracking ${hacks.tracking || 0} · 🟢 ${hacks.participating || 0}`, items: (hacks.items || []).slice(0, 3).map(h => ({ text: h.title, sub: `${h.status} · ${fmtDate(h.endDate)}`, dot: h.statusColor })), action: 'Open Hackathon Workspace' }),
     hqCard({ id: 'stalking', icon: '🕵️', title: 'Developer Radar', color: (stalks.researching || 0) > 0 ? 'amber' : 'green', badge: `${stalks.count || 0}`, meta: `ready ${stalks.ready || 0} · researching ${stalks.researching || 0}`, items: (stalks.items || []).slice(0, 3).map(s => ({ text: s.name, sub: s.status, dot: s.status === 'ready' ? 'green' : (s.status === 'researching' ? 'amber' : 'grey') })), action: 'Open Developer Radar' }),
     hqCard({ id: 'routines', icon: '⏰', title: 'Routines', color: (routs.dueSoon || 0) > 0 ? 'green' : 'amber', badge: `${routs.active || 0} active`, meta: `total ${routs.count || 0} · due soon ${routs.dueSoon || 0}`, items: (routs.items || []).slice(0, 3).map(r => ({ text: r.title, sub: `${r.workspace || ''} · every ${r.intervalHours}h`, dot: r.active ? 'green' : 'grey' })), action: 'Open Routines Engine' }),
-    hqCard({ id: 'vault', icon: '🔒', title: 'Secret Vault', color: 'amber', badge: 'private', meta: 'PIN protected · spacious workspace', items: [], action: 'Open Secret Vault' }),
     hqCard({ id: 'memory', icon: '🧠', title: 'Memory', color: 'green', badge: `${facts.length} facts`, meta: `months ${months.length}`, items: facts.slice(0, 3).map(f => ({ text: f.text, sub: '', dot: 'green' })), action: 'Open Memory Workspace' }),
     hqCard({ id: 'files', icon: '📁', title: 'Files', color: 'grey', badge: `${files.length}`, meta: 'uploaded files', items: files.slice(0, 3).map(f => ({ text: f.filename || f.id, sub: '', dot: 'grey' })), action: 'Open Files Workspace' }),
     hqCard({ id: 'live', icon: '⚡', title: 'Hackathon Radar', color: disc.enabled === false ? 'amber' : 'green', badge: `${disc.count || 0} discovered`, meta: discMeta, items: (disc.items || []).map(d => ({ text: d.title, sub: `${d.platform} · ${d.prize || 'open'}`, dot: 'green' })), action: 'Open Hackathon Radar' }),
@@ -4430,7 +4241,6 @@ function openHqCard(id) {
     keysRefreshTimer = setInterval(loadKeys, 60000);
     return;
   }
-  if (id === 'vault') { openVaultPanel(); return; }
   if (id === 'memory') { showView('memory'); showMemorySubview('dashboard'); loadFacts(); loadMonthlyFiles(); return; }
   if (id === 'files') { showView('files'); loadFiles(); return; }
   if (id === 'resume_builder') { showView('resume'); loadCandidateProfilesList(); loadResumeProfile(); return; }
@@ -7072,13 +6882,12 @@ async function loadRoutines() {
 document.getElementById('add-routine-btn').addEventListener('click', () => {
   openModal('⏰ New Routine', `
     <div class="modal-form">
-      <label>Title *<input id="rt-title" type="text" placeholder="Secret Vault Review" /></label>
-      <label>Prompt (Bob khud ye krega) *<textarea id="rt-prompt" rows="4" placeholder="Secret vault me kya-changes hain, kya batana hai…"></textarea></label>
+      <label>Title *<input id="rt-title" type="text" placeholder="Hackathon Status Review" /></label>
+      <label>Prompt (Bob khud ye krega) *<textarea id="rt-prompt" rows="4" placeholder="Kya progress hua, kya next step hai…"></textarea></label>
       <div class="modal-row">
         <label>Interval (hours)<input id="rt-interval" type="number" value="72" min="1" /></label>
         <label>Workspace
           <select id="rt-ws">
-            <option value="vault">🔒 Vault</option>
             <option value="hackathon">🏆 Hackathons</option>
             <option value="stalking">🔎 Deep Research</option>
             <option value="market">📈 Market</option>
