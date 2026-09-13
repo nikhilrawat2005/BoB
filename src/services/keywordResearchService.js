@@ -1,34 +1,34 @@
-﻿const crypto = require('crypto');
+const crypto = require('crypto');
 const fetch = require('node-fetch');
 const { db } = require('../config/firebase');
 const { fetchWithTimeout, validatePublicUrl, scrapeURL } = require('./crawlerService');
 const { callLLMParallel, DEAD_MODELS } = require('./llmService');
 
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ═══════════════════════════════════════════════════════════════════════════
 //  Keyword Research Service
 //
 //  Fully independent SEO keyword layer. It never touches seoService.js or
-//  crawlerService.js internals â€” it only reuses their public, safe helpers
+//  crawlerService.js internals — it only reuses their public, safe helpers
 //  (fetchWithTimeout for SSRF-safe HTTP, scrapeURL for competitor pages) plus
 //  the shared LLM key-bucket pool via llmService.callLLMParallel.
 //
 //  Google integrations (Google Ads Keyword Planner, Google Search Console)
 //  are engaged ONLY when the corresponding env vars are present. They are
-//  implemented as plain REST calls (node-fetch v2 â€” already a dependency) and
+//  implemented as plain REST calls (node-fetch v2 — already a dependency) and
 //  reuse the Firebase service-account to mint an OAuth token, so no extra npm
 //  packages and no extra credential files are required. Without creds the
 //  pipeline degrades gracefully to deterministic, clearly-labelled data
 //  (source: 'estimated' | 'unavailable') instead of hard-failing.
 //
 //  Env vars used (all optional):
-//    GOOGLE_ADS_DEVELOPER_TOKEN   â€” Google Ads API developer token
-//    GOOGLE_ADS_CUSTOMER_ID       â€” Ads manager/account id (e.g. 1234567890)
-//    GOOGLE_SEARCH_CONSOLE_PROPERTY â€” optional override for the GSC site URL
-//    SERPAPI_KEY                  â€” SerpAPI key for keyword ranking lookups
-//    BRAVE_API_KEY                â€” Brave Search for competitor discovery
+//    GOOGLE_ADS_DEVELOPER_TOKEN   — Google Ads API developer token
+//    GOOGLE_ADS_CUSTOMER_ID       — Ads manager/account id (e.g. 1234567890)
+//    GOOGLE_SEARCH_CONSOLE_PROPERTY — optional override for the GSC site URL
+//    SERPAPI_KEY                  — SerpAPI key for keyword ranking lookups
+//    BRAVE_API_KEY                — Brave Search for competitor discovery
 //  The Firebase service account (FIREBASE_CLIENT_EMAIL / FIREBASE_PRIVATE_KEY)
 //  is used to mint short-lived Google API tokens when it is set up.
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ═══════════════════════════════════════════════════════════════════════════
 
 const STOPWORDS = new Set([
   'a','an','the','and','or','but','for','nor','on','at','in','of','to','is','are','was','were',
@@ -64,9 +64,9 @@ const NICHE_SIGNALS = {
 };
 const NICHE_LABELS = { travel: 'Tours & Travel', education: 'Education & Exams', finance: 'Finance & Loans', health: 'Health & Fitness', food: 'Food & Recipes', realestate: 'Real Estate', sports: 'Sports & Gaming', tech: 'Technology & Software', ecommerce: 'E-commerce & Products', general: 'General' };
 
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ──────────────────────────────────────────────────────────────────────────────
 // Small helpers
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ──────────────────────────────────────────────────────────────────────────────
 
 function stripHtml(html) {
   return String(html || '')
@@ -172,7 +172,7 @@ async function getGoogleAccessToken(scope) {
 
 // Health-check the Google Search Console integration before the first ranking
 // lookup. Contacts the Search Console API, confirms the token works and that
-// the chosen property is queryable. Never throws â€” returns a report object so
+// the chosen property is queryable. Never throws — returns a report object so
 // the caller can log/display the outcome without aborting the pipeline.
 // Returns { verified, gscUsed, property?, reachableSites?, reason?, message }.
 async function autoVerifyGSC(siteUrl) {
@@ -199,7 +199,7 @@ async function autoVerifyGSC(siteUrl) {
 
   const candidates = gscPropertyCandidates(siteUrl);
   if (!candidates.length) {
-    return { verified: false, gscUsed: true, reason: 'no-property', message: 'No GSC property to probe â€” set GOOGLE_SEARCH_CONSOLE_PROPERTY or pass the site URL.' };
+    return { verified: false, gscUsed: true, reason: 'no-property', message: 'No GSC property to probe — set GOOGLE_SEARCH_CONSOLE_PROPERTY or pass the site URL.' };
   }
 
   // 1) Advisory: does the token see any matching property in the account list?
@@ -230,7 +230,7 @@ async function autoVerifyGSC(siteUrl) {
       }
     }
   } catch (err) {
-    // sites.list is advisory only â€” fall through to the authoritative probe.
+    // sites.list is advisory only — fall through to the authoritative probe.
   }
 
   // 2) Authoritative: run a real (tiny) Search Analytics query against each
@@ -253,13 +253,13 @@ async function autoVerifyGSC(siteUrl) {
       );
       const resText = await res.text();
       if (res.ok) {
-        return { verified: true, gscUsed: true, property: cand, message: 'GSC access verified â€” Search Console API reachable and property is queryable.' };
+        return { verified: true, gscUsed: true, property: cand, message: 'GSC access verified — Search Console API reachable and property is queryable.' };
       }
       let detail = `GSC HTTP ${res.status}`;
       try { const j = resText ? JSON.parse(resText) : {}; detail = (j.error && j.error.message) || detail; } catch {}
-      errors.push(`${cand} â†’ ${detail}`);
+      errors.push(`${cand} → ${detail}`);
     } catch (err) {
-      errors.push(`${cand} â†’ ${err.message}`);
+      errors.push(`${cand} → ${err.message}`);
     }
   }
   return { verified: false, gscUsed: true, property: candidates[0], reason: 'probe-failed', message: errors.join(' | ') };
@@ -318,10 +318,10 @@ function seoModel() {
   return dead ? 'gemini-3.6-flash' : m;
 }
 
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ──────────────────────────────────────────────────────────────────────────────
 // 1. extractSeedKeywords(auditData, siteUrl)
 //    Pulls candidate topic keywords out of an existing SEO audit payload.
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ──────────────────────────────────────────────────────────────────────────────
 
 function extractSeedKeywords(auditData = {}, siteUrl = '') {
   const audit = auditData || {};
@@ -400,11 +400,11 @@ function extractSeedKeywords(auditData = {}, siteUrl = '') {
   return seeds.slice(0, 20);
 }
 
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ──────────────────────────────────────────────────────────────────────────────
 // 2. getKeywordIdeas(seedKeywords, locationTargets, languageTargets)
 //    Returns keyword ideas with volume / competition / CPC.
-//    Tries: Google Ads Keyword Planner REST â†’ deterministic estimation.
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+//    Tries: Google Ads Keyword Planner REST → deterministic estimation.
+// ──────────────────────────────────────────────────────────────────────────────
 
 async function fetchGoogleAdsKeywordIdeas(seedKeywords = []) {
   const token = await getGoogleAccessToken('https://www.googleapis.com/auth/adwords');
@@ -452,13 +452,13 @@ async function fetchGoogleAdsKeywordIdeas(seedKeywords = []) {
   return ideas.filter(i => i.keyword);
 }
 
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ──────────────────────────────────────────────────────────────────────────────
 // 2b. Intent-driven keyword engine
 //     Real keyword research = entity + intent. Figure out WHAT the site sells
 //     (niche + destinations/activities) and WHY people would search for it
 //     ("japan honeymoon packages", "best time to visit singapore"), instead of
 //     shelling modifiers onto arbitrary text fragments ("how do i falcon tour").
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ──────────────────────────────────────────────────────────────────────────────
 
 function detectNiche(text = '') {
   const t = String(text).toLowerCase();
@@ -496,8 +496,8 @@ function buildIntentKeywords(entities = {}, category = 'general') {
   } else if (category === 'ecommerce' && concepts.length) {
     concepts.forEach(c => { add(`best ${c}`); add(`${c} price`); add(`${c} review`); add(`how to choose ${c}`); add(`buy ${c} online`); });
 } else {
-    // Travel + general intent patterns — the most universal real-search shapes.
-    // Interleave template×place so the top of the list is diverse, not one
+    // Travel + general intent patterns - the most universal real-search shapes.
+    // Interleave template x place so the top of the list is diverse, not one
     // destination monopolising every slot.
     const P = places;
     const placeRows = [
@@ -559,9 +559,9 @@ async function getKeywordIdeas(seedKeywords = [], locationTargets = [], language
   }
 
   if (ideas.length === 0) {
-    // â”€â”€ Intent-driven idea expansion â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // ── Intent-driven idea expansion ─────────────────────────────────────────
     // Priority: real search-intent keywords (entity + intent) > LLM brainstorm
-    // > plain seeds (no modifier shelling â€” "how do i X" style strings are not
+    // > plain seeds (no modifier shelling — "how do i X" style strings are not
     // things real people search).
     const base = seedKeywords.filter(Boolean).map(k => String(k).trim()).slice(0, 12);
 
@@ -599,7 +599,7 @@ async function getKeywordIdeas(seedKeywords = [], locationTargets = [], language
       }
     }
 
-    // Plain seeds only (best/top shells dropped â€” the intent engine above now
+    // Plain seeds only (best/top shells dropped — the intent engine above now
     // owns the strong search patterns).
     const cleanSeedStrings = base.filter(s => !JUNK_UTILITY.test(s));
 
@@ -625,17 +625,17 @@ async function getKeywordIdeas(seedKeywords = [], locationTargets = [], language
 
   const languageFilter = (languageTargets || []).length ? new Set(languageTargets.map(l => String(l).toLowerCase())) : null;
   if (languageFilter) {
-    // crude filter â€” mostly informational; scripts are Latin-letter based here
+    // crude filter — mostly informational; scripts are Latin-letter based here
     ideas = ideas.filter(i => /^[\x20-\x7E]+$/.test(i.keyword || ''));
   }
   return ideas;
 }
 
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ──────────────────────────────────────────────────────────────────────────────
 // 3. checkKeywordRanking(keyword, siteUrl)
 //    GSC Search Analytics first, SerpAPI fallback. Same return shape:
 //    { keyword, position, source: 'gsc'|'serpapi'|'unavailable', impressions?, clicks?, ctr? }
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ──────────────────────────────────────────────────────────────────────────────
 
 const SERPAPI_TOP = 100;
 
@@ -666,12 +666,12 @@ async function gscCheck(keyword, siteUrl) {
         'GSC Search Analytics'
       );
     } catch (err) {
-      errors.push(`${cand} â†’ ${err.message}`);
+      errors.push(`${cand} → ${err.message}`);
       continue;
     }
     const data = await res.json();
     if (!res.ok) {
-      errors.push(`${cand} â†’ GSC ${res.status}: ${(data.error && data.error.message) || 'property not accessible'}`);
+      errors.push(`${cand} → GSC ${res.status}: ${(data.error && data.error.message) || 'property not accessible'}`);
       continue;
     }
     const row = (data.rows || []).find(r => normalizeKeyword(r.keys && r.keys[0]) === needle);
@@ -768,12 +768,12 @@ async function checkKeywordRanking(keyword, siteUrl) {
   return { ...base, position: null, source: 'unavailable', measuredAt: new Date().toISOString() };
 }
 
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ──────────────────────────────────────────────────────────────────────────────
 // 4. recordRankingSnapshot(siteId, keyword, rankingResult)
 //    Appends a time-series snapshot to the stored keywordData keyword.
 //    Append-always (same-day entries are updated in place instead of
 //    duplicated, older snapshots are never overwritten).
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ──────────────────────────────────────────────────────────────────────────────
 
 async function recordRankingSnapshot(userId, siteId, keyword, rankingResult) {
   const coll = db.collection('users').doc(userId).collection('seoSites');
@@ -879,11 +879,11 @@ function priorityFor(k) {
   return 'low';
 }
 
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ──────────────────────────────────────────────────────────────────────────────
 // 5. findCompetitors(niche, siteUrl, userProvidedUrls)
 //    User URLs first (validated), then auto-discovery via Brave Search (when
 //    configured) or the LLM pool, then reachability check.
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ──────────────────────────────────────────────────────────────────────────────
 
 function buildNiche(seeds = [], url = '') {
   const host = domainOf(url) || '';
@@ -984,10 +984,10 @@ async function findCompetitors(niche = '', siteUrl = '', userProvidedUrls = []) 
   return checked;
 }
 
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ──────────────────────────────────────────────────────────────────────────────
 // 6. analyzeCompetitorGaps(mySiteContent, competitorUrls, keywordList)
 //    Keyword-vs-competitor coverage matrix + optional LLM insight.
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ──────────────────────────────────────────────────────────────────────────────
 
 async function analyzeCompetitorGaps(mySiteContent = '', competitorUrls = [], keywordList = []) {
   const myText = String(mySiteContent || '').toLowerCase();
@@ -1027,17 +1027,17 @@ async function analyzeCompetitorGaps(mySiteContent = '', competitorUrls = [], ke
     let gapScore;
     let note;
     if (reachableComps === 0) {
-      // We could not inspect ANY competitor page â€” do not claim a wide-open niche.
+      // We could not inspect ANY competitor page — do not claim a wide-open niche.
       gapScore = 0.1;
-      note = 'Competitor pages unreachable during analysis â€” treat this as unverified, not a confirmed gap.';
+      note = 'Competitor pages unreachable during analysis — treat this as unverified, not a confirmed gap.';
     } else if (c.myCovered) {
       gapScore = c.competitorCovered === 0 ? 0 : 0.4;
-      note = c.competitorCovered === 0 ? 'You cover it, competitors largely ignore it â€” a defensive win.' : 'Covered by both â€” maintain depth.';
+      note = c.competitorCovered === 0 ? 'You cover it, competitors largely ignore it — a defensive win.' : 'Covered by both — maintain depth.';
     } else {
       gapScore = c.competitorCovered > 0 ? 1 : 0.3;
       note = c.competitorCovered > 0
-        ? 'Competitors rank for this and you have little/no coverage â€” a content gap.'
-        : `Wide open â€” none of ${reachableComps} reachable competitor pages observed covering it.`;
+        ? 'Competitors rank for this and you have little/no coverage — a content gap.'
+        : `Wide open — none of ${reachableComps} reachable competitor pages observed covering it.`;
     }
     return {
       keyword: c.keyword,
@@ -1078,11 +1078,11 @@ function tryParseJsonObject(text) {
   try { return JSON.parse(cleaned.slice(start, end + 1)); } catch { return null; }
 }
 
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ──────────────────────────────────────────────────────────────────────────────
 // 7. generateGrowthActions(keywordData, competitorGaps, siteUrl)
 //    LLM-first (same role/persona/model routing as seoService), deterministic
 //    fallback so growthActions are always produced.
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ──────────────────────────────────────────────────────────────────────────────
 
 async function generateGrowthActions(keywordData = {}, competitorGaps = null, siteUrl = '') {
   const keywords = Array.isArray(keywordData.keywords) ? keywordData.keywords : [];
@@ -1152,7 +1152,7 @@ function buildFallbackActions(keywords, competitorGaps) {
     } else if (k.currentRank > 10) {
       actions.push({
         keyword: k.keyword,
-        issue: `Ranking around position ${k.currentRank} â€” just outside page 1`,
+        issue: `Ranking around position ${k.currentRank} — just outside page 1`,
         recommendation: `Improve on-page relevance for "${k.keyword}": add it to the H1, first paragraph and image alt text, and earn 2-3 internal links from your strongest pages.`,
         category: 'onpage',
         priority: 'medium',
@@ -1164,7 +1164,7 @@ function buildFallbackActions(keywords, competitorGaps) {
     if (!actions.some(a => a.keyword === kw)) {
       actions.push({
         keyword: kw,
-        issue: 'Competitor content gap â€” rivals cover it, you do not',
+        issue: 'Competitor content gap — rivals cover it, you do not',
         recommendation: `Create a comparison/guide article for "${kw}" answering the questions your competitors miss, with a linkable stats section.`,
         category: 'content',
         priority: 'high',
@@ -1194,9 +1194,9 @@ function buildFallbackActions(keywords, competitorGaps) {
   return actions.slice(0, 10);
 }
 
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-// 8. Orchestrator â€” runKeywordResearch(userId, siteId, siteUrl, auditData, opts)
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ──────────────────────────────────────────────────────────────────────────────
+// 8. Orchestrator — runKeywordResearch(userId, siteId, siteUrl, auditData, opts)
+// ──────────────────────────────────────────────────────────────────────────────
 
 const DEFAULT_OPTS = { ideaLimit: 20, rankLimit: 8, locationTargets: [], languageTargets: ['en'], userProvidedUrls: [] };
 
@@ -1276,7 +1276,11 @@ async function runKeywordResearch(userId, siteId, siteUrl, auditData = {}, optio
 
   // 7) Assemble + persist
   const prev = site.keywordData || {};
-  const mergedKeywords = mergeKeywordData((prev.keywords || []), keywordDataDraft.keywords);
+  const protectKeys = [
+    ...tracked.map(k => String(k)),
+    ...((auditData && Array.isArray(auditData.keywordChecks)) ? auditData.keywordChecks.map(k => k.keyword || '') : []),
+  ];
+  const mergedKeywords = mergeKeywordData((prev.keywords || []), keywordDataDraft.keywords, { pruneMissing: true, protect: protectKeys });
   mergedKeywords.forEach(k => { k.priority = priorityFor(k); });
 
   const score = computeKeywordHealth(mergedKeywords, typeof prev.score === 'number' ? prev.score : null);
@@ -1315,14 +1319,17 @@ function mergeCompetitors(existing = [], fresh = []) {
   return [...map.values()];
 }
 
-function mergeKeywordData(existing = [], fresh = []) {
+function mergeKeywordData(existing = [], fresh = [], opts = {}) {
+  const { pruneMissing = false, protect = [] } = opts;
+  const protectSet = new Set(protect.map(k => normalizeKeyword(k)).filter(Boolean));
   const map = new Map();
   existing.forEach(k => map.set(normalizeKeyword(k.keyword), k));
   fresh.forEach(k => {
     const key = normalizeKeyword(k.keyword);
     const prev = map.get(key);
     if (prev) {
-      // preserve previously captured rankings/history, refresh metrics
+      // preserve previously captured rankings/history for keywords that still
+      // survive into the fresh research set, refresh their metrics
       map.set(key, {
         ...prev,
         ...k,
@@ -1333,12 +1340,21 @@ function mergeKeywordData(existing = [], fresh = []) {
       map.set(key, k);
     }
   });
-  return [...map.values()];
+  let list = [...map.values()];
+  if (pruneMissing) {
+    // A fresh research run redefines the keyword universe: keywords that are
+    // no longer generated are dropped instead of accumulating forever (this is
+    // what let stale junk like "for beginners falcon tour" survive re-runs).
+    // User-tracked keywords are exempt so intentionally-watched terms persist.
+    const freshKeys = new Set(fresh.map(k => normalizeKeyword(k.keyword)).filter(Boolean));
+    list = list.filter(k => freshKeys.has(normalizeKeyword(k.keyword)) || protectSet.has(normalizeKeyword(k.keyword)));
+  }
+  return list;
 }
 
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-// 9. refreshAllRankings(userId, siteId) â€” lightweight ranking-only refresh
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ──────────────────────────────────────────────────────────────────────────────
+// 9. refreshAllRankings(userId, siteId) — lightweight ranking-only refresh
+// ──────────────────────────────────────────────────────────────────────────────
 
 async function refreshAllRankings(userId, siteId) {
   const coll = db.collection('users').doc(userId).collection('seoSites');
@@ -1385,5 +1401,6 @@ module.exports = {
   autoVerifyGSC,
   computeKeywordHealth,
   priorityFor,
+  mergeKeywordData,
   parseLooseJsonArray,
 };
