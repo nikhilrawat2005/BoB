@@ -22,7 +22,7 @@
 const fetch = require('node-fetch');
 const cheerio = require('cheerio');
 const { db } = require('../config/firebase');
-const { callLLM } = require('./llmService');
+const { callLLM, strongModelName } = require('./llmService');
 const hackathonService = require('./hackathonService');
 
 // ── Constants ────────────────────────────────────────────
@@ -423,6 +423,8 @@ async function enrichItem(item) {
   try {
     const res = await callLLM({
       role: 'review',
+      preferOpenRouter: true,
+      model: strongModelName(),
       messages: [
         {
           role: 'system',

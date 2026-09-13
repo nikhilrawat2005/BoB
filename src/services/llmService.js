@@ -400,6 +400,16 @@ const DEAD_MODELS = new Set([
   'google/gemini-2.0-flash-001',
 ]);
 
+const STRONG_MODEL_DEFAULT = 'anthropic/claude-sonnet-4';
+
+// Shared "strong lane" selector: the best frontier model reachable via the
+// OpenRouter key bags. Used where quality matters more than cost/speed while
+// keeping small structured extraction on the Gemini pool for key-load balance.
+function strongModelName() {
+  const m = String(process.env.STRONG_MODEL || STRONG_MODEL_DEFAULT).trim();
+  return (DEAD_MODELS.has(m) || /gemini-2\.0-flash|gemini-2\.5/i.test(m)) ? STRONG_MODEL_DEFAULT : m;
+}
+
 function _capsFor(model) {
   return MODEL_CAPS[model] || null;
 }
@@ -680,6 +690,7 @@ module.exports = {
   MODEL_CAPS,
   DEAD_MODELS,
   FALLBACK_MODEL,
+  strongModelName,
   resolveModel,
   estimateTokens,
   verifyModels,

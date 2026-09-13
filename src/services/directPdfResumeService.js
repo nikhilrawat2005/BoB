@@ -4,7 +4,7 @@
 // technical resumes directly inside Node.js without any LaTeX compiler dependency.
 // ---------------------------------------------------------------------------
 const PDFDocument = require('pdfkit');
-const { callLLM } = require('./llmService');
+const { callLLM, strongModelName } = require('./llmService');
 
 // ---------------------------------------------------------------------------
 // Deterministic Resume-Notes Directive Engine
@@ -773,6 +773,8 @@ RETURN ONLY the corrected JSON in the exact same schema. Raw JSON only — no ma
     try {
       refinedResponse = await callLLM({
         role: 'resume',
+        preferOpenRouter: true,
+        model: strongModelName(),
         messages: [
           {
             role: 'system',
@@ -948,6 +950,8 @@ RETURN ONLY A VALID JSON OBJECT (no markdown around it, no backticks, no comment
 
   const response = await callLLM({
     role: 'resume',
+    preferOpenRouter: true,
+    model: strongModelName(),
     messages: [
       { role: 'system', content: 'You are a career expert that outputs strict, valid JSON resumes only.' },
       { role: 'user', content: prompt }

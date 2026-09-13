@@ -3,7 +3,7 @@ const path = require('path');
 const { spawn, spawnSync } = require('child_process');
 const { db } = require('../config/firebase');
 const memory = require('./memoryService');
-const { callLLM } = require('./llmService');
+const { callLLM, strongModelName } = require('./llmService');
 
 /**
  * Self-Edit Engine — Bob improves his own code over time.
@@ -320,6 +320,8 @@ Return ONLY a valid JSON array, no markdown:
 
   const { text } = await callLLM({
     role: 'builder',
+    persona: 'builder',
+    model: strongModelName(),
     messages: [{ role: 'system', content: prompt }, { role: 'user', content: 'Find safe self-improvements and return the JSON array.' }],
     temperature: 0.2,
     max_tokens: 4000,

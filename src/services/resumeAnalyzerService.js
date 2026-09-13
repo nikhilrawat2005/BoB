@@ -2,7 +2,7 @@
 // Bob Resume Intelligence — Elite ATS Resume Analyzer Service
 // Audits resumes across 6 key ATS pillars (Score, Strengths, Red Flags, STAR Bullets, Keywords, Action Plan)
 // ---------------------------------------------------------------------------
-const { callLLM } = require('./llmService');
+const { callLLM, strongModelName } = require('./llmService');
 const documentReader = require('./documentReaderService');
 
 const PDFDocument = require('pdfkit');
@@ -124,6 +124,8 @@ All numeric values must be computed from the actual resume content:
 
   const response = await callLLM({
     role: 'resume',
+    preferOpenRouter: true,
+    model: strongModelName(),
     messages: [
       {
         role: 'system',

@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { requireAuth } = require('../middleware/auth');
 const crawler = require('../services/crawlerService');
-const { callLLM } = require('../services/llmService');
+const { callLLM, strongModelName } = require('../services/llmService');
 const memory = require('../services/memoryService');
 const repo = require('../services/repoService');
 
@@ -70,6 +70,7 @@ Format the report into clean Markdown:
 
     const { text } = await callLLM({
       role: 'chat',
+      model: strongModelName(),
       messages: [{ role: 'system', content: prompt }],
       temperature: 0.3,
     });
