@@ -2,7 +2,7 @@ const crypto = require('crypto');
 const fetch = require('node-fetch');
 const { db } = require('../config/firebase');
 const { fetchWithTimeout, validatePublicUrl, scrapeURL } = require('./crawlerService');
-const { callLLMParallel, DEAD_MODELS } = require('./llmService');
+const { callLLMParallel, callLLM, DEAD_MODELS } = require('./llmService');
 
 // ═══════════════════════════════════════════════════════════════════════════
 //  Keyword Research Service
@@ -10,7 +10,10 @@ const { callLLMParallel, DEAD_MODELS } = require('./llmService');
 //  Fully independent SEO keyword layer. It never touches seoService.js or
 //  crawlerService.js internals — it only reuses their public, safe helpers
 //  (fetchWithTimeout for SSRF-safe HTTP, scrapeURL for competitor pages) plus
-//  the shared LLM key-bucket pool via llmService.callLLMParallel.
+//  the shared LLM key-bucket pool via llmService. Creative/strategic steps
+//  (keyword brainstorm, growth actions, gap insights) run on the STRONG lane —
+//  the OpenRouter BUILDER bag with a frontier model (SEO_STRONG_MODEL) —
+//  falling back to the Gemini burst bag; lightweight extraction uses Gemini.
 //
 //  Google integrations (Google Ads Keyword Planner, Google Search Console)
 //  are engaged ONLY when the corresponding env vars are present. They are
@@ -318,6 +321,41 @@ function seoModel() {
   return dead ? 'gemini-3.6-flash' : m;
 }
 
+// Dual-lane model routing for SEO LLM work (mixed pool):
+//   STRONG lane → the OpenRouter BUILDER key bag with a capable frontier model
+//                 (Claude/GPT etc. — whatever SEO_STRONG_MODEL points at). Used
+//                 for creative/strategic tasks (keyword brainstorm, growth
+//                 actions, gap insights) where a better model clearly wins.
+//   GEMINI lane → the Gemini burst bag (cheap, quota-backed, OpenRouter
+//                 fallback) used for lightweight structured extraction.
+function strongSeoModel() {
+  const m = process.env.SEO_STRONG_MODEL;
+  if (!m) return 'anthropic/claude-sonnet-4';
+  const dead = /gemini-2\.0-flash|gemini-2\.5/i.test(m) || (DEAD_MODELS && DEAD_MODELS.has(m));
+  return dead ? 'anthropic/claude-sonnet-4' : m;
+}
+
+// Run one LLM task on the strong OpenRouter lane. If that lane is disabled or
+// fails (no credits / rate limit / model error), fall back to the Gemini lane
+// so a result is still produced. `task` = { messages, temperature?, max_tokens? }.
+async function callStrongSeoLlm(task) {
+  try {
+    if (process.env.SEO_OPENROUTER_ENABLED !== 'false') {
+      return await callLLM({
+        role: 'seo',
+        persona: 'builder',
+        preferOpenRouter: true,
+        model: strongSeoModel(),
+        ...task,
+      });
+    }
+  } catch (err) {
+    console.warn(`[keywords] Strong OpenRouter model (${strongSeoModel()}) failed — falling back to Gemini lane:`, err.message);
+  }
+  const results = await callLLMParallel([task], { role: 'seo', persona: 'builder', concurrencyPerKey: 2, model: seoModel() });
+  return results[0];
+}
+
 // ──────────────────────────────────────────────────────────────────────────────
 // 1. extractSeedKeywords(auditData, siteUrl)
 //    Pulls candidate topic keywords out of an existing SEO audit payload.
@@ -535,8 +573,8 @@ async function brainstormKeywords(text, nicheLabel, entities, domain) {
     temperature: 0.4,
     max_tokens: 600,
   }];
-  const results = await callLLMParallel(tasks, { role: 'seo', persona: 'builder', concurrencyPerKey: 2, model: seoModel() });
-  const arr = parseLooseJsonArray(results[0] && results[0].text);
+  const results = await callStrongSeoLlm(tasks[0]);
+  const arr = parseLooseJsonArray(results && results.text);
   if (!Array.isArray(arr)) return [];
   const host = domainOf(domain || '');
   return arr
@@ -1068,8 +1106,8 @@ async function analyzeCompetitorGaps(mySiteContent = '', competitorUrls = [], ke
       temperature: 0.3,
       max_tokens: 500,
     }];
-    const results = await callLLMParallel(tasks, { role: 'seo', persona: 'builder', concurrencyPerKey: 2, model: seoModel() });
-    const parsed = tryParseJsonObject(results[0] && results[0].text);
+    const results = await callStrongSeoLlm(tasks[0]);
+    const parsed = tryParseJsonObject(results && results.text);
     if (parsed) llmInsights = parsed;
   } catch (err) {
     console.warn('[keywords] Gap LLM insights unavailable:', err.message);
@@ -1154,8 +1192,8 @@ RECOMMENDATION RULES:
       temperature: 0.3,
       max_tokens: 900,
     }];
-    const results = await callLLMParallel(tasks, { role: 'seo', persona: 'builder', concurrencyPerKey: 2, model: seoModel() });
-    const arr = parseLooseJsonArray(results[0] && results[0].text);
+    const results = await callStrongSeoLlm(tasks[0]);
+    const arr = parseLooseJsonArray(results && results.text);
     if (Array.isArray(arr)) {
       actions = arr
         .filter(a => a && a.keyword && a.recommendation)
@@ -1452,6 +1490,7 @@ module.exports = {
   computeKeywordHealth,
   hasRealMetrics,
   priorityFor,
+  strongSeoModel,
   mergeKeywordData,
   parseLooseJsonArray,
 };
