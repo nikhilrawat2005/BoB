@@ -1092,28 +1092,67 @@ function tryParseJsonObject(text) {
 //    fallback so growthActions are always produced.
 // ──────────────────────────────────────────────────────────────────────────────
 
-async function generateGrowthActions(keywordData = {}, competitorGaps = null, siteUrl = '') {
+function rankTrendOf(k) {
+  const rh = (Array.isArray(k.rankHistory) ? k.rankHistory : [])
+    .map(r => typeof r.position === 'number' && r.position > 0 ? r.position : null)
+    .filter(n => n !== null);
+  if (!rh.length) return null;
+  if (rh.length === 1) return 'new';
+  if (rh[rh.length - 1] < rh[rh.length - 2]) return 'improved';
+  if (rh[rh.length - 1] > rh[rh.length - 2]) return 'declined';
+  return 'stable';
+}
+
+async function generateGrowthActions(keywordData = {}, competitorGaps = null, siteUrl = '', context = {}) {
   const keywords = Array.isArray(keywordData.keywords) ? keywordData.keywords : [];
   const sorted = keywords.slice().sort((a, b) => (priorityOrder(b) - priorityOrder(a)) || ((a.currentRank == null) - (b.currentRank == null)));
-  const llmInput = sorted.slice(0, 20).map(k => ({
-    keyword: k.keyword,
-    volume: k.volume,
-    competition: k.competition,
-    competitionIndex: k.competitionIndex,
-    currentRank: k.currentRank,
-    priority: k.priority || '',
-  }));
+  // Truth-only input: volume/competition/CPC are sent to the LLM ONLY when they
+  // come from a real source (Google Ads). Estimated/hash values are omitted so
+  // the model never builds actions on fabricated "4,040 searches" premises.
+  const llmInput = sorted.slice(0, 20).map(k => {
+    const out = {
+      keyword: k.keyword,
+      currentRank: typeof k.currentRank === 'number' && k.currentRank > 0 ? k.currentRank : null,
+      rankTrend: rankTrendOf(k),
+      priority: k.priority || '',
+    };
+    if (hasRealMetrics(k)) {
+      out.volume = k.volume;
+      out.competitionIndex = k.competitionIndex;
+      out.competition = k.competition;
+      out.cpcLow = k.cpcLow;
+      out.cpcHigh = k.cpcHigh;
+    }
+    return out;
+  });
   const gapsInput = (competitorGaps && Array.isArray(competitorGaps.gaps) ? competitorGaps.gaps : []).slice(0, 10);
 
   let actions = null;
   try {
     const tasks = [{
       messages: [
-        { role: 'system', content: `You are an action-planning SEO expert for ${siteUrl}. Reply ONLY with valid JSON, no markdown, no code fences. Return a JSON array of up to 8 objects with EXACTLY these keys: {keyword, issue, recommendation, category, priority}. category must be one of: "content","onpage","links","technical". priority must be one of: "high","medium","low". Every recommendation must be concrete and executable.` },
-        { role: 'user', content: JSON.stringify({ keywords: llmInput, competitorGaps: gapsInput }) },
+        { role: 'system', content: `You are an action-planning SEO expert for ${siteUrl}${context.nicheLabel ? ` operating in the "${context.nicheLabel}" niche` : ''}. Reply ONLY with valid JSON, no markdown, no code fences. Return a JSON array of up to 8 objects with EXACTLY these keys: {keyword, issue, recommendation, category, priority}. category must be one of: "content","onpage","links","technical". priority must be one of: "high","medium","low".
+
+DATA HONESTY RULES:
+- The input JSON contains ONLY verified data. A missing or null field means that figure was NOT measured — never invent, quote, or re-derive search volume, competition, or CPC numbers that are not present in the input.
+- currentRank and rankTrend come from live search results and are trustworthy; a null currentRank means the keyword has no known ranking.
+- Base every recommendation strictly on the data above. Never pad with generic filler.
+
+RECOMMENDATION RULES:
+- Be concrete and executable: name the exact page to create or optimise, the specific H2/H3 sections, FAQ or Schema type, or the internal/backlink targets.
+- If a keyword has no ranking: focus on content depth and topical coverage.
+- If a keyword ranks on page 1: focus on on-page relevance, CTR (title/meta/snippet) and featured-snippet tactics.
+- If competitor gaps show rivals covering a topic you do not: focus on creating that content.` },
+        { role: 'user', content: JSON.stringify({
+          siteUrl,
+          niche: context.nicheLabel || '',
+          siteContentExcerpt: context.siteContext ? String(context.siteContext).slice(0, 1200) : '',
+          keywords: llmInput,
+          competitorGaps: gapsInput,
+        }) },
       ],
       temperature: 0.3,
-      max_tokens: 800,
+      max_tokens: 900,
     }];
     const results = await callLLMParallel(tasks, { role: 'seo', persona: 'builder', concurrencyPerKey: 2, model: seoModel() });
     const arr = parseLooseJsonArray(results[0] && results[0].text);
@@ -1280,7 +1319,10 @@ async function runKeywordResearch(userId, siteId, siteUrl, auditData = {}, optio
       priority: 'medium',
     })),
   };
-  results.actions = await generateGrowthActions(keywordDataDraft, results.competitorGaps, url);
+  results.actions = await generateGrowthActions(keywordDataDraft, results.competitorGaps, url, {
+    siteContext: String(myContent || '').slice(0, 1200),
+    nicheLabel: (results.niche && results.niche.label) || '',
+  });
 
   // 7) Assemble + persist
   const prev = site.keywordData || {};

@@ -6310,6 +6310,9 @@ function renderSeoKeywords(site) {
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap;">
         <span style="font-size:10px;color:var(--text3);font-weight:600;min-width:55px;">Priority:</span>
         <div class="seo-pill-group" style="font-size:10px;">${prioPills}</div>
+        <span style="flex:1;"></span>
+        <button class="btn-small" id="kw-actions-copy" style="font-weight:700;">📋 Copy</button>
+        <button class="btn-small" id="kw-actions-pdf" style="font-weight:700;">📄 PDF</button>
       </div>
       ${actionCards.length ? actionCards : `<div style="font-size:12px;color:var(--text3);padding:16px 0;text-align:center;">No growth actions for this filter. Run keyword research first!</div>`}
       ${gapRows ? `
@@ -6331,6 +6334,10 @@ function renderSeoKeywords(site) {
   if (mBtn) mBtn.addEventListener('click', () => { kwCompOpen = !kwCompOpen; renderSeoKeywords(site); });
   const vBtn = document.getElementById('kw-verify-gsc');
   if (vBtn) vBtn.addEventListener('click', () => doVerifyGSC(site, vBtn));
+  const axCopy = document.getElementById('kw-actions-copy');
+  if (axCopy) axCopy.addEventListener('click', () => doExportKeywordActions(site, 'copy', axCopy));
+  const axPdf = document.getElementById('kw-actions-pdf');
+  if (axPdf) axPdf.addEventListener('click', () => doExportKeywordActions(site, 'pdf', axPdf));
   const cInp = document.getElementById('kw-comp-input');
   const cAdd = document.getElementById('kw-comp-add');
   if (cAdd && cInp) cAdd.addEventListener('click', () => {
@@ -6423,6 +6430,142 @@ async function loadSeoChat(id) {
     renderWsChat(el, messages || [], 'seo');
   } catch (err) {
     el.innerHTML = `<div class="empty-msg">⚠️ ${escHtml(err.message)}</div>`;
+  }
+}
+
+function kwExportData(site) {
+  const kd = site.keywordData || {};
+  const kws = Array.isArray(kd.keywords) ? kd.keywords : [];
+  const acts = Array.isArray(kd.growthActions) ? kd.growthActions : [];
+  const gaps = Array.isArray(kd.competitorGaps) ? kd.competitorGaps : [];
+  return { kd, kws, acts, gaps };
+}
+
+function buildKeywordReportText(site, d) {
+  const { kd, kws, acts, gaps } = d;
+  const fmtTrend = (k) => {
+    const rh = (Array.isArray(k.rankHistory) ? k.rankHistory : []).map(r => typeof r.position === 'number' && r.position > 0 ? r.position : null).filter(n => n !== null);
+    if (!rh.length) return '—';
+    if (rh.length === 1) return 'new';
+    const now = rh[rh.length - 1], prev = rh[rh.length - 2];
+    return now < prev ? '▲ ' + (prev - now) : now > prev ? '▼ ' + (now - prev) : 'hold';
+  };
+  const L = [];
+  L.push('🔑 KEYWORD RESEARCH REPORT');
+  L.push('Site: ' + (site.domain || site.url || ''));
+  L.push('Niche: ' + ((kd.meta && kd.meta.niche && kd.meta.niche.label) || '—'));
+  if (typeof kd.score === 'number') {
+    const realMetrics = kws.some(k => k.source && k.source !== 'estimated' && typeof k.volume === 'number');
+    L.push('Keyword Health Score: ' + kd.score + '/100' + (realMetrics ? '' : ' (rankings only)'));
+  }
+  L.push('Ranks checked: ' + (kd.lastRankingCheck ? new Date(kd.lastRankingCheck).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }) : '—'));
+  if (kd.rankingSource) L.push('Ranking source: ' + kd.rankingSource);
+  L.push('');
+  L.push('GROWTH ACTIONS (' + acts.length + ')');
+  if (!acts.length) L.push('No growth actions yet. Run keyword research first.');
+  acts.forEach((a, i) => {
+    L.push('[' + (i + 1) + '] ' + String(a.priority || 'low').toUpperCase() + ' · ' + String(a.category || 'content').toUpperCase() + ' · ' + (a.keyword || ''));
+    L.push('  Issue: ' + (a.issue || ''));
+    L.push('  Action: ' + (a.recommendation || ''));
+  });
+  L.push('');
+  L.push('KEYWORD RANKINGS (' + kws.length + ')');
+  kws.forEach(k => {
+    L.push(String(k.keyword || '') + ' | rank: ' + (k.currentRank ? '#' + k.currentRank : '—') + ' | trend: ' + fmtTrend(k) + ' | priority: ' + String(k.priority || 'low'));
+  });
+  if (gaps.length) {
+    L.push('');
+    L.push('COMPETITOR GAPS (' + gaps.length + ')');
+    gaps.forEach(g => {
+      L.push((g.keyword || '') + ' | You ' + (g.myCovered ? '✓' : '✗') + ' | ' + (g.competitorsCovering || 0) + ' comps | ' + (g.note || ''));
+    });
+  }
+  return L.join('\n');
+}
+
+async function doExportKeywordActions(site, mode, btn) {
+  const d = kwExportData(site);
+  if (!d.acts.length && !d.kws.length) { alert('No keyword data yet. Run research first.'); return; }
+  const old = btn ? btn.textContent : '';
+  if (btn) { btn.disabled = true; btn.textContent = mode === 'copy' ? '⏳ Copying…' : '⏳ Preparing…'; }
+  try {
+    if (mode === 'copy') {
+      const text = buildKeywordReportText(site, d);
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(text);
+      } else {
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.position = 'fixed'; ta.style.left = '-9999px';
+        document.body.appendChild(ta);
+        ta.select();
+        try { document.execCommand('copy'); } catch (e) {}
+        ta.remove();
+      }
+      if (btn) { btn.textContent = '✅ Copied!'; setTimeout(() => { btn.textContent = old; }, 1500); }
+      return;
+    }
+    const { kd, kws, acts, gaps } = d;
+    const safeMetrics = (k) => k.source && k.source !== 'estimated' && typeof k.volume === 'number';
+    const rankCell = (k) => typeof k.currentRank === 'number' && k.currentRank > 0 ? '#' + k.currentRank : '—';
+    const trendCell = (k) => {
+      const rh = (Array.isArray(k.rankHistory) ? k.rankHistory : []).map(r => typeof r.position === 'number' && r.position > 0 ? r.position : null).filter(n => n !== null);
+      if (!rh.length) return '—';
+      if (rh.length === 1) return 'new';
+      const now = rh[rh.length - 1], prev = rh[rh.length - 2];
+      return now < prev ? '▲ ' + (prev - now) : now > prev ? '▼ ' + (now - prev) : 'hold';
+    };
+    const actionRows = (acts.length ? acts : []).map((a, i) => `
+      <tr>
+        <td style="padding:8px;border-bottom:1px solid #eee;vertical-align:top;width:120px;">${i + 1}<br><b>${String(a.priority || 'low').toUpperCase()}</b><br><span style="color:#7a7a7a;">${String(a.category || 'content').toUpperCase()}</span></td>
+        <td style="padding:8px;border-bottom:1px solid #eee;vertical-align:top;width:180px;"><b>${escHtml(a.keyword || '')}</b></td>
+        <td style="padding:8px;border-bottom:1px solid #eee;vertical-align:top;"><b>${escHtml(a.issue || '')}</b><br><span style="color:#333;">💡 ${escHtml(a.recommendation || '')}</span></td>
+      </tr>`).join('');
+    const kwRows = (kws.length ? kws : []).map(k => `
+      <tr>
+        <td style="padding:6px 8px;border-bottom:1px solid #eee;"><b>${escHtml(k.keyword || '')}</b></td>
+        <td style="padding:6px 8px;border-bottom:1px solid #eee;text-align:center;">${safeMetrics(k) ? k.volume.toLocaleString('en-IN') : '—'}</td>
+        <td style="padding:6px 8px;border-bottom:1px solid #eee;text-align:center;">${safeMetrics(k) ? (k.competitionIndex < 0.33 ? 'LOW' : k.competitionIndex < 0.66 ? 'MEDIUM' : 'HIGH') : '—'}</td>
+        <td style="padding:6px 8px;border-bottom:1px solid #eee;text-align:center;">${rankCell(k)}</td>
+        <td style="padding:6px 8px;border-bottom:1px solid #eee;text-align:center;">${trendCell(k)}</td>
+        <td style="padding:6px 8px;border-bottom:1px solid #eee;text-align:center;">${String(k.priority || 'low').toUpperCase()}</td>
+      </tr>`).join('');
+    const gapRows = (gaps.length ? gaps : []).map(g => `
+      <tr>
+        <td style="padding:6px 8px;border-bottom:1px solid #eee;"><b>${escHtml(g.keyword || '')}</b></td>
+        <td style="padding:6px 8px;border-bottom:1px solid #eee;text-align:center;">${g.myCovered ? '✓' : '✗'}</td>
+        <td style="padding:6px 8px;border-bottom:1px solid #eee;text-align:center;">${g.competitorsCovering || 0}</td>
+        <td style="padding:6px 8px;border-bottom:1px solid #eee;color:#555;">${escHtml(g.note || '')}</td>
+      </tr>`).join('');
+    const html = `<!doctype html><html><head><meta charset="utf-8">
+      <title>Keyword Research: ${escHtml(site.domain || site.url || '')}</title>
+      <style>
+        body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;color:#111;font-size:12px;margin:32px;}
+        h1{font-size:18px;margin:0 0 4px;} h2{font-size:13px;text-transform:uppercase;color:#7a7a7a;margin:28px 0 8px;letter-spacing:0.5px;}
+        table{width:100%;border-collapse:collapse;} th{text-align:left;padding:6px 8px;border-bottom:2px solid #333;font-size:11px;text-transform:uppercase;color:#555;}
+        .meta{color:#555;margin-bottom:20px;line-height:1.5;}
+      </style></head><body>
+      <h1>🔑 Keyword Research Report</h1>
+      <div class="meta">
+        <div><b>Site:</b> ${escHtml(site.domain || site.url || '')}</div>
+        <div><b>Niche:</b> ${escHtml((kd.meta && kd.meta.niche && kd.meta.niche.label) || '—')}</div>
+        ${typeof kd.score === 'number' ? `<div><b>Keyword Health Score:</b> ${kd.score}/100</div>` : ''}
+        <div><b>Ranks checked:</b> ${kd.lastRankingCheck ? new Date(kd.lastRankingCheck).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }) : '—'}${kd.rankingSource ? ' · source: ' + escHtml(kd.rankingSource) : ''}</div>
+      </div>
+      ${acts.length ? `<h2>Growth Actions (${acts.length})</h2><table><tr><th>#</th><th>Keyword</th><th>Issue &amp; Recommendation</th></tr>${actionRows}</table>` : '<h2>Growth Actions</h2><p>No growth actions yet — run keyword research first.</p>'}
+      ${kws.length ? `<h2>Keyword Rankings (${kws.length})</h2><table><tr><th>Keyword</th><th>Volume</th><th>Comp</th><th>Rank</th><th>Trend</th><th>Priority</th></tr>${kwRows}</table>` : ''}
+      ${gaps.length ? `<h2>Competitor Gaps (${gaps.length})</h2><table><tr><th>Keyword</th><th>You</th><th>Comps</th><th>Note</th></tr>${gapRows}</table>` : ''}
+      <p style="color:#999;margin-top:28px;">Generated by Bob · ${new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })}</p>
+      </body></html>`;
+    const f = document.createElement('iframe');
+    f.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0;';
+    f.srcdoc = html;
+    document.body.appendChild(f);
+    f.addEventListener('load', () => setTimeout(() => { try { f.contentWindow.focus(); f.contentWindow.print(); } catch (e) {} }, 80));
+  } catch (err) {
+    alert('Export failed: ' + err.message);
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = old; }
   }
 }
 
