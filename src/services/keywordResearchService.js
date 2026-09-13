@@ -803,8 +803,8 @@ async function recordRankingSnapshot(userId, siteId, keyword, rankingResult) {
       competitionIndex: null,
       cpcLow: null,
       cpcHigh: null,
-      currentRank: null,
-      priority: 'medium',
+      currentRank: entry.position,
+      priority: priorityFor({ keyword: kw, currentRank: entry.position }),
       rankHistory: [entry],
     });
     idx = keywords.length - 1;
@@ -818,6 +818,7 @@ async function recordRankingSnapshot(userId, siteId, keyword, rankingResult) {
     }
     keywords[idx].rankHistory = history.slice(-30);
     keywords[idx].currentRank = entry.position;
+    keywords[idx].priority = priorityFor(keywords[idx]);
   }
 
   const prev = kd.history || [];
@@ -842,15 +843,21 @@ function appendHealthHistory(prev, score, atIso) {
   return arr.slice(-10);
 }
 
+function hasRealMetrics(k) {
+  return !!k && typeof k.source === 'string' && k.source !== 'estimated' && typeof k.volume === 'number' && typeof k.competitionIndex === 'number';
+}
+
 function computeKeywordHealth(keywords = [], prevScore) {
   if (!keywords.length) return prevScore != null ? prevScore : 0;
   let total = 0;
   keywords.forEach(k => {
     let s = 25; // base for having identified the keyword
-    const ci = typeof k.competitionIndex === 'number' ? k.competitionIndex : 0.5;
-    s += Math.round((1 - ci) * 25);
-    const v = typeof k.volume === 'number' ? k.volume : 0;
-    s += Math.min(25, Math.round(v / 500) * 5);
+    if (hasRealMetrics(k)) {
+      const ci = typeof k.competitionIndex === 'number' ? k.competitionIndex : 0.5;
+      s += Math.round((1 - ci) * 25);
+      const v = typeof k.volume === 'number' ? k.volume : 0;
+      s += Math.min(25, Math.round(v / 500) * 5);
+    }
     if (k.currentRank == null) {
       s += 0;
     } else if (k.currentRank <= 3) {
@@ -869,12 +876,13 @@ function computeKeywordHealth(keywords = [], prevScore) {
 
 function priorityFor(k) {
   const needsRank = k.currentRank == null;
-  const lowComp = typeof k.competitionIndex === 'number' ? k.competitionIndex < 0.4 : (k.competition === 'LOW');
-  const bigVolume = typeof k.volume === 'number' ? k.volume >= 1000 : false;
+  const real = hasRealMetrics(k);
+  const lowComp = real ? (typeof k.competitionIndex === 'number' ? k.competitionIndex < 0.4 : (k.competition === 'LOW')) : false;
+  const bigVolume = real ? (typeof k.volume === 'number' && k.volume >= 1000) : false;
   if (needsRank && bigVolume && lowComp) return 'high';
   if (needsRank && lowComp) return 'high';
   if (needsRank) return 'medium';
-  if (!lowComp && (k.currentRank == null || k.currentRank > 30)) return 'medium';
+  if (k.currentRank > 30) return 'medium';
   if (bigVolume && k.currentRank != null && k.currentRank <= 30) return 'medium';
   return 'low';
 }
@@ -1400,6 +1408,7 @@ module.exports = {
   refreshAllRankings,
   autoVerifyGSC,
   computeKeywordHealth,
+  hasRealMetrics,
   priorityFor,
   mergeKeywordData,
   parseLooseJsonArray,

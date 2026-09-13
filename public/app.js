@@ -6121,6 +6121,9 @@ function renderSeoKeywords(site) {
   const compLabel = (ci) => { const n = typeof ci === 'number' ? ci : 0.2; return n < 0.33 ? 'LOW' : n < 0.66 ? 'MEDIUM' : 'HIGH'; };
   const fmtVol = (v) => typeof v === 'number' ? v.toLocaleString('en-IN') : '—';
   const fmtCpc = (k) => { const lo = typeof k.cpcLow === 'number' ? k.cpcLow : 0; const hi = typeof k.cpcHigh === 'number' ? k.cpcHigh : 0; return lo ? '$' + lo.toFixed(2) + (hi ? '–$' + hi.toFixed(2) : '') : '—'; };
+  const isReal = (k) => !!k && k.source && k.source !== 'estimated' && typeof k.volume === 'number' && typeof k.competitionIndex === 'number';
+  const hasRealMetrics = kws.some(isReal);
+  const blankCell = '<span style="color:var(--text3);">—</span>';
   const fmtRank = (k) => { const pos = typeof k.currentRank === 'number' && k.currentRank > 0 ? k.currentRank : null; return pos ? `<span style="font-weight:800;color:${pos <= 3 ? 'var(--green)' : pos <= 10 ? '#38bdf8' : pos <= 30 ? 'var(--amber)' : 'var(--text2)'};">#${pos}</span>` : '<span style="color:var(--text3);">—</span>'; };
   const fmtTrend = (k) => {
     const rh = (Array.isArray(k.rankHistory) ? k.rankHistory : []).map(r => typeof r.position === 'number' && r.position > 0 ? r.position : null).filter(n => n !== null);
@@ -6170,14 +6173,15 @@ function renderSeoKeywords(site) {
   const kwRows = sorted.map((k, idx) => {
     const lastSrc = Array.isArray(k.rankHistory) && k.rankHistory.length ? k.rankHistory[k.rankHistory.length - 1].source : '';
     const promos = (Array.isArray(k.rankHistory) ? k.rankHistory.filter(r => r.source === 'gsc' || r.source === 'serpapi') : []).length > 0;
+    const real = isReal(k);
     return `<tr style="border-bottom:1px solid #ffffff0d;">
       <td style="padding:7px 8px;font-weight:600;color:var(--text1);white-space:nowrap;">
         ${escHtml(k.keyword)}
         ${promos ? `<span style="font-size:8px;padding:1px 4px;border-radius:3px;background:rgba(56,189,248,0.12);color:#38bdf8;margin-left:4px;">${escHtml(lastSrc)}</span>` : ''}
       </td>
-      <td style="padding:7px 8px;text-align:right;color:var(--text2);">${fmtVol(k.volume)}</td>
-      <td style="padding:7px 8px;text-align:center;"><span class="seo-badge-tag ${compClass(k.competitionIndex)}" style="font-size:9px;">${compLabel(k.competitionIndex)}</span></td>
-      <td style="padding:7px 8px;text-align:right;color:var(--text3);">${fmtCpc(k)}</td>
+      <td style="padding:7px 8px;text-align:right;color:var(--text2);">${real ? fmtVol(k.volume) : blankCell}</td>
+      <td style="padding:7px 8px;text-align:center;">${real ? `<span class="seo-badge-tag ${compClass(k.competitionIndex)}" style="font-size:9px;">${compLabel(k.competitionIndex)}</span>` : blankCell}</td>
+      <td style="padding:7px 8px;text-align:right;color:var(--text3);">${real && fmtCpc(k) !== '—' ? fmtCpc(k) : blankCell}</td>
       <td style="padding:7px 8px;text-align:center;">${fmtRank(k)}</td>
       <td style="padding:7px 8px;text-align:center;">${fmtTrend(k)}</td>
     </tr>`;
@@ -6241,7 +6245,7 @@ function renderSeoKeywords(site) {
       <div style="font-size:13px;font-weight:700;color:var(--text1);">🔑 Keyword Research</div>
       ${score !== null ? `
         <div style="font-size:32px;font-weight:800;color:${seoScoreColor(score)};line-height:1.1;margin:6px 0;">${score}<span style="font-size:14px;">/100</span></div>
-        <div style="font-size:10px;color:var(--text3);margin-bottom:6px;">Keyword Health Score</div>
+        <div style="font-size:10px;color:var(--text3);margin-bottom:6px;">Keyword Health Score${!hasRealMetrics ? ' (rankings only)' : ''}</div>
         ${seoSparkline(hist)}
       ` : ''}
       <div style="font-size:10px;color:var(--text3);margin-top:4px;">
@@ -6250,6 +6254,8 @@ function renderSeoKeywords(site) {
         ${kd.lastRankingCheck ? ' · Ranks checked: ' + new Date(kd.lastRankingCheck).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }) : ''}
       </div>
       ${kd.meta && kd.meta.niche && kd.meta.niche.label ? `<div style="font-size:10px;color:var(--amber);margin-top:3px;">🎯 Detected niche: ${escHtml(kd.meta.niche.label)}</div>` : ''}
+      ${hasData && !hasRealMetrics ? `<div style="font-size:10px;color:var(--amber);margin-top:4px;line-height:1.4;">📊 Google Ads Keyword Planner connect nahi hai — Volume / Comp / CPC blank rakh rahe hain (kabhi estimate nahi). Rank real hai (SerpAPI).</div>` : ''}
+      ${hasData && hasRealMetrics ? `<div style="font-size:10px;color:var(--green);margin-top:4px;">📊 Live Google Ads metrics connected.</div>` : ''}
       ${kd.meta && kd.meta.gscVerification ? `<div style="font-size:10px;margin-top:4px;"><span style="color:${kd.meta.gscVerification.verified ? 'var(--green)' : '#fbbf24'};">🛡️ GSC: ${kd.meta.gscVerification.verified ? 'Verified ✓' : escHtml(kd.meta.gscVerification.reason || 'not verified')}</span></div>` : ''}
     </div>
 
