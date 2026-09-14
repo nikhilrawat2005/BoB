@@ -22,7 +22,7 @@ router.get('/summary', requireAuth, async (req, res) => {
       return res.json(cached.data);
     }
 
-    const [hackathons, profiles, routineList, notifications, facts, months, files, edits, discoveryItems, discoveryMeta] = await Promise.all([
+    const [hackathons, profiles, routineList, facts, months, files, edits, discoveryItems, discoveryMeta] = await Promise.all([
       hacks.listHackathons(req.userId),
       stalk.listProfiles(req.userId),
       routines.listRoutines(req.userId),
