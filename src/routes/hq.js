@@ -9,9 +9,19 @@ const memoryManager = require('../services/memoryManager');
 const selfEdit = require('../services/selfEditService');
 const discovery = require('../services/hackathonDiscoveryService');
 
+// Server-side in-memory cache for HQ summary (per user) to preserve Firestore read quotas.
+const hqSummaryCache = new Map(); // userId -> { data, ts }
+const HQ_CACHE_TTL_MS = 10 * 60 * 1000; // 10 minutes
+
 // GET /api/hq/summary — aggregate dashboard data for the Bob HQ home page.
 router.get('/summary', requireAuth, async (req, res) => {
   try {
+    const forceRefresh = req.query.fresh === 'true';
+    const cached = hqSummaryCache.get(req.userId);
+    if (!forceRefresh && cached && (Date.now() - cached.ts) < HQ_CACHE_TTL_MS) {
+      return res.json(cached.data);
+    }
+
     const [hackathons, profiles, routineList, notifications, facts, months, files, edits, discoveryItems, discoveryMeta] = await Promise.all([
       hacks.listHackathons(req.userId),
       stalk.listProfiles(req.userId),
@@ -80,7 +90,10 @@ router.get('/summary', requireAuth, async (req, res) => {
       },
     };
 
-    res.json({ cards });
+    const responsePayload = { cards };
+    hqSummaryCache.set(req.userId, { data: responsePayload, ts: Date.now() });
+
+    res.json(responsePayload);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
