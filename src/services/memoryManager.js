@@ -252,10 +252,89 @@ Rules: Keep it under 250 words total. Do not omit crucial constraints or decisio
   }
 }
 
+/**
+ * 🌅 DAILY BRAIN CONSOLIDATION (Runs 4:00 AM - 6:00 AM IST or on-demand)
+ * Consolidates the day's chats into:
+ * 1. Concrete Core Memory Facts (DSA topics, algorithms solved, tech stack, preferences)
+ * 2. Active Session Rolling Summaries (for next-day fresh context)
+ * 3. Monthly memory chunk (only if new data arrived)
+ */
+async function runDailyConsolidation(userId, options = {}) {
+  try {
+    const sessions = await memory.listSessions(userId);
+    if (!sessions || !sessions.length) return { processed: 0, extractedFacts: 0 };
+
+    let extractedCount = 0;
+    let sessionsProcessed = 0;
+    const now = Date.now();
+    const ONE_DAY_MS = 24 * 60 * 60 * 1000;
+
+    for (const sess of sessions.slice(0, 10)) {
+      // Check for messages from last 24h
+      const recentMsgs = await memory.getMessagesSince(userId, sess.id, now - ONE_DAY_MS, 40);
+      if (!recentMsgs || recentMsgs.length < 2) continue;
+
+      sessionsProcessed++;
+
+      let transcript = '';
+      recentMsgs.forEach(m => {
+        transcript += `${m.role.toUpperCase()}: ${m.content.slice(0, 500)}\n`;
+      });
+
+      // LLM extracts concrete takeaways (DSA problems, frameworks, tech decisions, preferences)
+      const extractPrompt = `You are Bob's Master Memory Extractor.
+Analyze this chat transcript with Master Nikhil from session "${sess.title || 'Chat'}":
+${transcript}
+
+Identify 1 to 3 HIGH-VALUE, concrete milestones, topics, or preferences that Master Nikhil worked on or discussed (e.g. "DSA: Solved Binary Tree level order traversal and BST validation in C++", "Frontend: Decided on React Native + Tailwind styling", "Preference: Prefers concise explanations with space-complexity analysis").
+
+Return ONLY a JSON array of objects (if nothing of note was discussed, return []):
+[
+  { "fact": "Concise fact or milestone text", "category": "main" | "habits" | "builder" }
+]`;
+
+      try {
+        const { text } = await callLLM({
+          role: 'memorySummarize',
+          messages: [{ role: 'system', content: extractPrompt }],
+          temperature: 0.2,
+          max_tokens: 600,
+        });
+
+        const parsed = JSON.parse(text.replace(/```json|```/g, '').trim());
+        if (Array.isArray(parsed)) {
+          for (const item of parsed) {
+            if (item.fact && typeof item.fact === 'string' && item.fact.trim().length > 3) {
+              const saved = await memory.addFactUnique(userId, item.fact.trim(), item.category || 'main', {
+                sourceTitle: sess.title || 'Chat',
+                sourceType: 'daily_consolidation',
+                sessionId: sess.id,
+              });
+              if (saved) extractedCount++;
+            }
+          }
+        }
+      } catch (llmErr) {
+        console.warn(`[Consolidation] Fact extraction error for session ${sess.id}:`, llmErr.message);
+      }
+    }
+
+    // Run rolling summary for sessions with new chat activity
+    await runWeeklyRollingSummarizer(userId);
+
+    console.log(`[Consolidation] Completed for user ${userId}: ${sessionsProcessed} sessions reviewed, ${extractedCount} new memory facts saved.`);
+    return { sessionsProcessed, extractedFacts: extractedCount };
+  } catch (err) {
+    console.error('[Consolidation] Global error:', err.message);
+    return { error: err.message };
+  }
+}
+
 module.exports = {
   classifyIntent,
   summarizeUserSessions,
   runWeeklyRollingSummarizer,
+  runDailyConsolidation,
   finalizeStaleMonths,
   isoMonthKey,
   isoWeekKey,

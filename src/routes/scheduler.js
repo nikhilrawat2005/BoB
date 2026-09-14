@@ -107,12 +107,14 @@ router.post('/tick', tickAuth, async (req, res) => {
   try {
     const result = await scheduler.tick();
 
-    // Trigger weekly rolling summarizer & stale month auto-finalization during tick
+    // Run memory consolidation ONLY during the 4 AM - 6 AM IST window, not on every hourly tick!
     const memoryManager = require('../services/memoryManager');
     const targetUserId = req.userId || process.env.PRIMARY_USER_ID;
     if (targetUserId) {
-      memoryManager.runWeeklyRollingSummarizer(targetUserId).catch(e => console.warn('[Scheduler tick] summarizer:', e.message));
-      memoryManager.finalizeStaleMonths(targetUserId).catch(e => console.warn('[Scheduler tick] finalizeMonths:', e.message));
+      const currentHourIST = parseInt(new Date().toLocaleString('en-US', { timeZone: 'Asia/Kolkata', hour: 'numeric', hour12: false }), 10);
+      if (currentHourIST >= 4 && currentHourIST <= 6) {
+        memoryManager.runDailyConsolidation(targetUserId).catch(e => console.warn('[Scheduler tick] daily consolidation:', e.message));
+      }
 
       // ── Hackathon Discovery: run every 4 days + auto-expire stale cards ──
       const hackDiscovery = require('../services/hackathonDiscoveryService');

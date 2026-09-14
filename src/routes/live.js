@@ -64,7 +64,10 @@ router.post('/briefing', cronAuth, async (req, res) => {
 
     const defaultCity = process.env.DEFAULT_CITY || 'New Delhi';
 
-    // 0. Close out any stale months (runs daily via this job even if user doesn't chat)
+    // 0. Daily Brain Consolidation (4-6 AM window): Extracts yesterday's DSA/project milestones & rolls chat summaries
+    await memoryManager.runDailyConsolidation(userId).catch(e => console.warn('[Briefing] Daily consolidation notice:', e.message));
+
+    // Close out stale months (only runs at month rollover)
     await memoryManager.finalizeStaleMonths(userId).catch(() => {});
 
     // 1. Gather live data in parallel — any failure is tolerated.

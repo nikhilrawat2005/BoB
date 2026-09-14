@@ -196,13 +196,11 @@ router.get('/sessions/:sessionId/summaries', requireAuth, async (req, res) => {
   }
 });
 
-// POST /api/memory/refresh  — manually run monthly summarizer + finalize stale months
+// POST /api/memory/refresh  — manually run memory consolidation + update facts & summaries
 router.post('/refresh', requireAuth, async (req, res) => {
   try {
-    await memoryManager.finalizeStaleMonths(req.userId);
-    const summarized = await memoryManager.summarizeUserSessions(req.userId);
-    await memoryManager.runWeeklyRollingSummarizer(req.userId);
-    res.json({ ok: true, summarized: Boolean(summarized) });
+    const result = await memoryManager.runDailyConsolidation(req.userId);
+    res.json({ ok: true, ...result });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
