@@ -236,9 +236,9 @@ function parseStructuredResumeJson(rawText) {
     cleaned = cleaned.trim();
   }
 
-  // Strip comments
+  // Strip comments (only line-leading // to avoid corrupting URLs like https://)
   cleaned = cleaned
-    .replace(/\/\/[^\n]*/g, '')
+    .replace(/^\s*\/\/.*$/gm, '')
     .replace(/\/\*[\s\S]*?\*\//g, '')
     .trim();
 

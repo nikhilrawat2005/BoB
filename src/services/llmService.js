@@ -628,8 +628,18 @@ async function callOpenRouterDirect({
   const usedTokens = (data.usage && Number(data.usage.total_tokens)) || 0;
   bag.recordUsage(apiKey, usedTokens);
 
+  const rawContent = data.choices[0].message.content;
+  let text = rawContent;
+  if (Array.isArray(rawContent)) {
+    text = rawContent.map((part) => {
+      if (typeof part === 'string') return part;
+      if (part && typeof part.text === 'string') return part.text;
+      return '';
+    }).join('').trim();
+  }
+
   return {
-    text: data.choices[0].message.content,
+    text,
     model: selectedModel,
     usage: data.usage || null,
     routing: why,

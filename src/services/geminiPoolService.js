@@ -12,8 +12,11 @@ const path = require('path');
 
 const GEMINI_MODELS = [
   process.env.GEMINI_MODEL || 'gemini-2.5-flash',
-  'gemini-2.5-flash-lite-preview-06-17',
-  'gemini-2.0-flash',
+  'gemini-3.6-flash',
+  'gemini-3.5-flash',
+  'gemini-flash-latest',
+  'gemini-2.5-flash-lite',
+  'gemini-flash-lite-latest',
 ];
 const DAILY_LIMIT_PER_KEY = Number(process.env.GEMINI_DAILY_LIMIT_PER_KEY || 1000);
 
@@ -177,7 +180,10 @@ async function callGeminiDirect({
 }) {
   const maxAttempts = _keyStates.length || 1;
   let lastError = null;
-  const modelsToTry = model ? [model, ...GEMINI_MODELS.filter(m => m !== model)] : GEMINI_MODELS;
+  // Ignore non-Gemini model hints (e.g. OpenRouter slugs like
+  // anthropic/claude-sonnet-4) — only try real Gemini model ids.
+  const requestedModel = (model && /^gemini/i.test(String(model))) ? model : null;
+  const modelsToTry = requestedModel ? [requestedModel, ...GEMINI_MODELS.filter(m => m !== requestedModel)] : GEMINI_MODELS;
 
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     const keyObj = getNextGeminiKey();
@@ -208,7 +214,14 @@ async function callGeminiDirect({
           body: JSON.stringify(body),
         });
 
-        const data = await res.json();
+        let data;
+        try {
+          data = await res.json();
+        } catch (jsonErr) {
+          // Google sometimes returns an HTML error page (malformed model id).
+          const raw = await res.text().catch(() => '');
+          throw new Error(`Gemini API returned non-JSON response (HTTP ${res.status}): ${String(raw).slice(0, 200)}`);
+        }
 
         if (!res.ok || data.error) {
           const errMsg = (data.error && data.error.message) || `HTTP ${res.status}`;
@@ -298,7 +311,8 @@ async function runParallelGemini(
   };
 
   const callWithKey = async (keyObj, task) => {
-    const modelsToTry = model ? [model, ...GEMINI_MODELS.filter(m => m !== model)] : GEMINI_MODELS;
+    const requestedModel = (model && /^gemini/i.test(String(model))) ? model : null;
+    const modelsToTry = requestedModel ? [requestedModel, ...GEMINI_MODELS.filter(m => m !== requestedModel)] : GEMINI_MODELS;
     const { systemInstruction, contents } = formatOpenAiToGemini(task.messages || []);
     const requestedMaxTokens = Number(task.max_tokens) || Number(max_tokens) || 4096;
     const body = {
@@ -321,7 +335,13 @@ async function runParallelGemini(
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(body),
         });
-        const data = await res.json();
+        let data;
+        try {
+          data = await res.json();
+        } catch (jsonErr) {
+          const raw = await res.text().catch(() => '');
+          throw new Error(`Gemini API returned non-JSON response (HTTP ${res.status}): ${String(raw).slice(0, 200)}`);
+        }
 
         if (!res.ok || data.error) {
           const errMsg = (data.error && data.error.message) || `HTTP ${res.status}`;
