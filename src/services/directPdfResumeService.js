@@ -773,7 +773,7 @@ RETURN ONLY the corrected JSON in the exact same schema. Raw JSON only — no ma
     try {
       refinedResponse = await callLLM({
         role: 'resume',
-        preferOpenRouter: true,
+        preferOpenRouter: false,
         model: strongModelName(),
         messages: [
           {
@@ -783,7 +783,7 @@ RETURN ONLY the corrected JSON in the exact same schema. Raw JSON only — no ma
           { role: 'user', content: refinementPrompt }
         ],
         temperature: 0.05,
-        max_tokens: 4000
+        max_tokens: 2500
       });
     } catch (llmErr) {
       console.warn(`[selfAudit] Iteration ${iteration}: LLM call failed (${llmErr.message}), stopping`);
@@ -950,14 +950,14 @@ RETURN ONLY A VALID JSON OBJECT (no markdown around it, no backticks, no comment
 
   const response = await callLLM({
     role: 'resume',
-    preferOpenRouter: true,
+    preferOpenRouter: false, // Allows Gemini Burst Bag first, falls back to OpenRouter
     model: strongModelName(),
     messages: [
       { role: 'system', content: 'You are a career expert that outputs strict, valid JSON resumes only.' },
       { role: 'user', content: prompt }
     ],
     temperature: 0.2,
-    max_tokens: 8192
+    max_tokens: 2500
   });
 
   const rawText = (response && response.text) ? response.text : String(response);

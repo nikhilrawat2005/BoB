@@ -7332,6 +7332,18 @@ document.addEventListener('click', async (e) => {
       await loadKeys();
     }, 2000);
   }
+  if (e.target && e.target.id === 'keys-reset-queues-btn') {
+    e.target.disabled = true; e.target.textContent = 'Resetting…';
+    try {
+      await apiFetch('/api/keys/reset', { method: 'POST' });
+      await loadKeys();
+      alert('✅ All keys reset back to Active Working Queue A!');
+    } catch (err) {
+      alert('Error resetting keys: ' + err.message);
+    } finally {
+      e.target.disabled = false; e.target.textContent = '⚡ Reset Queues (Queue A)';
+    }
+  }
 });
 
 // ═══════════════════════════════════════════════════════
