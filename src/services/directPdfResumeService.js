@@ -783,7 +783,7 @@ RETURN ONLY the corrected JSON in the exact same schema. Raw JSON only — no ma
           { role: 'user', content: refinementPrompt }
         ],
         temperature: 0.05,
-        max_tokens: 2500
+        max_tokens: 8192
       });
     } catch (llmErr) {
       console.warn(`[selfAudit] Iteration ${iteration}: LLM call failed (${llmErr.message}), stopping`);
@@ -807,7 +807,14 @@ RETURN ONLY the corrected JSON in the exact same schema. Raw JSON only — no ma
  * Step 1: Use LLM to structure all user data into high-converting ATS JSON
  */
 async function generateStructuredResumeData({ profile, jobDescription = '', customInstructions = '' }) {
-  const isTargeted = Boolean(jobDescription && jobDescription.trim().length > 20);
+  // Cap pasted job descriptions + notes so a long JD can't blow the prompt budget.
+  const truncatedJD = jobDescription && String(jobDescription).trim().length > 6000
+    ? String(jobDescription).trim().slice(0, 6000) + '\n...[truncated]'
+    : (jobDescription || '');
+  const truncatedNotes = customInstructions && String(customInstructions).trim().length > 1500
+    ? String(customInstructions).trim().slice(0, 1500)
+    : (customInstructions || '');
+  const isTargeted = Boolean(truncatedJD && truncatedJD.trim().length > 20);
 
   // Prune heavy/irrelevant properties to avoid massive token bloat and truncation
   const safeProfile = { ...profile };
@@ -815,16 +822,29 @@ async function generateStructuredResumeData({ profile, jobDescription = '', cust
     safeProfile.rawText = safeProfile.rawText.slice(0, 2000) + '... [truncated]';
   }
   if (safeProfile.fileBuffer) delete safeProfile.fileBuffer;
+  // Strip the previous generated resume + parsed PDF text — they balloon the
+  // prompt (baseResume.rawText can be 10s of KB) and cause token-limit errors.
+  delete safeProfile.latestResumeData;
+  delete safeProfile.resumeNotes;
+  if (safeProfile.baseResume && typeof safeProfile.baseResume === 'object') {
+    safeProfile.baseResume = {
+      ...safeProfile.baseResume,
+      rawText: safeProfile.baseResume.rawText ? String(safeProfile.baseResume.rawText).slice(0, 3000) : ''
+    };
+  }
   if (Array.isArray(safeProfile.githubProjects)) {
-    safeProfile.githubProjects = safeProfile.githubProjects.map(proj => ({
+    safeProfile.githubProjects = safeProfile.githubProjects.slice(0, 30).map(proj => ({
       name: proj.name,
       description: proj.description,
       language: proj.language,
       languages: Array.isArray(proj.languages) ? proj.languages.slice(0, 10) : proj.languages,
       stars: proj.stars,
-      topics: proj.topics,
-      readmeSummary: proj.readmeSummary ? String(proj.readmeSummary).slice(0, 1500) : ''
+      topics: Array.isArray(proj.topics) ? proj.topics.slice(0, 10) : proj.topics,
+      readmeSummary: proj.readmeSummary ? String(proj.readmeSummary).slice(0, 800) : ''
     }));
+  }
+  if (safeProfile.smartLinksResult && Array.isArray(safeProfile.smartLinksResult)) {
+    safeProfile.smartLinksResult = safeProfile.smartLinksResult.slice(0, 15);
   }
 
   const prompt = `You are a World-Class Technical Career Strategist and Harvard/Google Resume Expert.
@@ -853,9 +873,9 @@ CRITICAL RULES:
    - NO ENDING PERIODS: Do NOT put a period '.' at the end of any bullet point (as per modern ATS / Hiration resume standards).
    - Single focus per bullet: Each bullet must describe one coherent high-impact engineering accomplishment.
 3. CUSTOM INSTRUCTIONS (HIGHEST PRIORITY — ALWAYS FOLLOW EXACTLY):
-${customInstructions && customInstructions.trim().length > 0 ? `USER'S OWN RESUME NOTES / INSTRUCTIONS:
+${truncatedNotes && truncatedNotes.trim().length > 0 ? `USER'S OWN RESUME NOTES / INSTRUCTIONS:
 """
-${customInstructions.trim()}
+${truncatedNotes.trim()}
 """
 HOW TO APPLY THEM:
    - If the user says a project was freelance / client / paid-service work ("client ke liye", "freelancing me banaya", "service project"), MOVE that project to the experience[] array. Use role="Freelance [Tech] Developer", company=the project/client name, and write bullets as client-delivery outcomes. Do NOT put it in projects[].
@@ -881,7 +901,7 @@ HOW TO APPLY THEM:
 
 ${isTargeted ? `TARGET JOB VACANCY / JD:
 """
-${jobDescription}
+${truncatedJD}
 """
 TAILORING RULES:
 - Align bullet points and skills with high-frequency requirements from this job description.
@@ -957,7 +977,7 @@ RETURN ONLY A VALID JSON OBJECT (no markdown around it, no backticks, no comment
       { role: 'user', content: prompt }
     ],
     temperature: 0.2,
-    max_tokens: 2500
+    max_tokens: 8192
   });
 
   const rawText = (response && response.text) ? response.text : String(response);
