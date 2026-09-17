@@ -243,11 +243,12 @@ async function syncGitHubProjects(username) {
           const readmeData = await readmeRes.json();
           if (readmeData.content) {
             const rawReadme = Buffer.from(readmeData.content, 'base64').toString('utf8');
-            // Clean markdown links and cap to 2,500 chars to maintain rich signal without blowing context
+            // Strip markdown plumbing but KEEP full README depth (deep-dives, feature
+            // sections, module lists) — truncating early silently hides major features.
             readmeSummary = rawReadme
               .replace(/#+\s+/g, '')
               .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
-              .slice(0, 2500)
+              .slice(0, 60000)
               .trim();
           }
         }

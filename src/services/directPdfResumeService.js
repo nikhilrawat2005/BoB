@@ -743,16 +743,21 @@ async function generateStructuredResumeData({ profile, jobDescription = '', cust
       rawText: safeProfile.baseResume.rawText ? String(safeProfile.baseResume.rawText).slice(0, 3000) : ''
     };
   }
+  const SIGNATURE_PROJECTS = new Set(['bob', 'the falcon tour', 'bloom', 'smart attendance system', 'market kingdom']);
   if (Array.isArray(safeProfile.githubProjects)) {
-    safeProfile.githubProjects = safeProfile.githubProjects.slice(0, 30).map(proj => ({
-      name: proj.name,
-      description: proj.description,
-      language: proj.language,
-      languages: Array.isArray(proj.languages) ? proj.languages.slice(0, 10) : proj.languages,
-      stars: proj.stars,
-      topics: Array.isArray(proj.topics) ? proj.topics.slice(0, 10) : proj.topics,
-      readmeSummary: String(proj.readmeSummary || proj.summary || '').slice(0, 1400)
-    }));
+    safeProfile.githubProjects = safeProfile.githubProjects.slice(0, 30).map(proj => {
+      const readmeText = String(proj.readmeSummary || proj.summary || '');
+      const isSignature = SIGNATURE_PROJECTS.has(String(proj.name || '').trim().toLowerCase());
+      return {
+        name: proj.name,
+        description: proj.description,
+        language: proj.language,
+        languages: Array.isArray(proj.languages) ? proj.languages.slice(0, 10) : proj.languages,
+        stars: proj.stars,
+        topics: Array.isArray(proj.topics) ? proj.topics.slice(0, 10) : proj.topics,
+        readmeSummary: readmeText.slice(0, isSignature ? 32000 : 2500)
+      };
+    });
   }
   if (safeProfile.smartLinksResult && Array.isArray(safeProfile.smartLinksResult)) {
     safeProfile.smartLinksResult = safeProfile.smartLinksResult.slice(0, 15);
@@ -812,7 +817,7 @@ HOW TO APPLY THEM:
    - METRIC-READY BULLETS: Shape every bullet as ACTIVE VERB + TASK + OUTCOME using ONLY real numbers that actually exist in the candidate data (e.g. 210+ static pages, 36-hr hackathon, 31 problems, 1176 rating, 84.5% Class X, 25 Easy / 6 Medium).
    - NEVER INVENT METRICS: Fake numbers AND X/Y/Z placeholders are FORBIDDEN in the final JSON (no "X% reduction", "Y users", "Z concurrent", "Lighthouse score of X", "by an estimated X%"). If a real metric is NOT available, do NOT add a number at all — close the bullet with a concrete outcome phrase instead (e.g. "enabling fast, searchable browsing across every destination page").
    - WEAK VERB UPGRADE: Upgrade passive/weak verbs (Contributed to, Focused on, Assisted, Participated in, Was responsible for) to strong active verbs (Architected, Engineered, Implemented, Designed, Spearheaded, Automated) with the same factual meaning and the same real numbers only.
-    - README-DRIVEN PROJECT BULLETS: Each githubProjects entry includes a readmeSummary. Mine it to extract the project's true purpose, architecture, features and outcomes, then write 3-4 strong, distinct, specific bullets per signature project (5-6 for flagship projects like BoB when the readme supports it). Never fabricate metrics that are not in the readme or profile — use the real technical details found there (features, modules, integrations, scale, performance) to make bullets concrete and recruiter-grade.
+    - README-DRIVEN PROJECT BULLETS: Each githubProjects entry includes a raw readmeSummary (large, uncut for flagship repos). Mine it thoroughly — including the later deep-dive sections that a short preview would miss — to extract the project's TRUE purpose, architecture, modules, integrations, scale and outcomes, then write 3-4 strong, distinct, specific bullets per signature project (5-7 for flagship multi-module systems like BoB, one bullet per major subsystem/module when the readme supports it). Never fabricate metrics that are not in the readme or profile — use the real technical details found there (features, modules, integrations, scale, performance, crawlers, engines, automation) to make bullets concrete and recruiter-grade. If the readme describes distinct subsystems (e.g. a resume/ATS engine, an SEO auditing engine, hackathon crawlers, a memory bank, schedulers), call the specific subsystems out by name in separate bullets — generic rewordings of the repo description are weak and forbidden.
 
 ${isTargeted ? `TARGET JOB VACANCY / JD:
 """
