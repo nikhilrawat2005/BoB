@@ -341,6 +341,7 @@ router.post('/generate', requireAuth, async (req, res) => {
       success: true,
       resumeData: structuredResult.data,
       isTargeted: structuredResult.isTargeted,
+      selfAudit: structuredResult.audit || null,
       message: 'ATS Resume successfully generated.'
     });
   } catch (err) {

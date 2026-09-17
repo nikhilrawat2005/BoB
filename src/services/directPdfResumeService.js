@@ -683,6 +683,9 @@ function detectCreatorIssues(data, auditResult) {
 async function selfAuditAndRefine(data, profile, customInstructions, isTargeted, jobDescription) {
   const { auditResume } = require('./resumeAnalyzerService');
 
+  let lastAudit = null;
+  let appliedSwaps = [];
+
   for (let iteration = 1; iteration <= SELF_AUDIT_MAX_ITERATIONS; iteration++) {
     // ── Step A: Apply deterministic fixes first (no LLM needed) ──────────────
     data = applyDeterministicBulletFixes(data);
@@ -698,6 +701,7 @@ async function selfAuditAndRefine(data, profile, customInstructions, isTargeted,
       console.warn(`[selfAudit] Iteration ${iteration}: audit failed (${auditErr.message}), stopping`);
       break;
     }
+    lastAudit = auditResult;
 
     const score  = auditResult?.atsScore ?? 0;
     const impact = auditResult?.breakdown?.impactAndMetrics ?? 0;
@@ -708,6 +712,12 @@ async function selfAuditAndRefine(data, profile, customInstructions, isTargeted,
     if (bulletMappings.length > 0) {
       data = applyDirectBulletSwaps(data, bulletMappings);
       data = applyDeterministicBulletFixes(data);
+      appliedSwaps.push(...bulletMappings.map(m => ({
+        sectionType: m.sectionType,
+        entryTitle: m.entryTitle,
+        original: m.original,
+        improved: m.improved
+      })));
     }
 
     // ── Step E: Detect any remaining creator-side issues ─────────────────────
@@ -800,12 +810,24 @@ RETURN ONLY the corrected JSON in the exact same schema. Raw JSON only — no ma
     }
   }
 
-  return data;
+  return {
+    data,
+    audit: lastAudit ? {
+      atsScore: lastAudit.atsScore ?? 0,
+      verdict: lastAudit.verdict ?? '',
+      breakdown: lastAudit.breakdown ?? {},
+      executiveSummary: lastAudit.executiveSummary ?? '',
+      strengths: lastAudit.strengths ?? [],
+      criticalNegatives: lastAudit.criticalNegatives ?? [],
+      atsKeywordsFound: lastAudit.atsKeywordsFound ?? [],
+      missingRecommendedKeywords: lastAudit.missingRecommendedKeywords ?? [],
+      bulletImprovements: lastAudit.bulletImprovements ?? [],
+      actionPlan: lastAudit.actionPlan ?? [],
+      appliedSwaps
+    } : null
+  };
 }
-
-/**
- * Step 1: Use LLM to structure all user data into high-converting ATS JSON
- */
+/** generateStructuredResumeData: LLM-structured ATS resume JSON from the master profile */
 async function generateStructuredResumeData({ profile, jobDescription = '', customInstructions = '' }) {
   // Cap pasted job descriptions + notes so a long JD can't blow the prompt budget.
   const truncatedJD = jobDescription && String(jobDescription).trim().length > 6000
@@ -993,7 +1015,7 @@ RETURN ONLY A VALID JSON OBJECT (no markdown around it, no backticks, no comment
   // ─────────────────────────────────────────────────────────────────────────
   data = await selfAuditAndRefine(data, profile, customInstructions, isTargeted, jobDescription);
 
-  return { data, isTargeted };
+  return { data: data.data, audit: data.audit, isTargeted };
 }
 
 /**

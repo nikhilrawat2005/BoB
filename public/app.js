@@ -8046,6 +8046,74 @@ function renderResumeCardPreview(data) {
   `;
 }
 
+function renderResumeSelfAudit(audit) {
+  const box = document.getElementById('resume-self-audit-panel');
+  if (!box) return;
+
+  if (!audit || !audit.atsScore) {
+    box.style.display = 'none';
+    return;
+  }
+
+  const score = Math.max(0, Math.min(100, Number(audit.atsScore) || 0));
+  const scoreColor = score >= 85 ? 'var(--success, #22c55e)' : score >= 70 ? '#eab308' : '#f87171';
+  const bd = audit.breakdown || {};
+  const padded = (n) => (n === undefined || n === null || Number.isNaN(Number(n)) ? 0 : Math.max(0, Math.min(100, Number(n))));
+
+  let promoIdeasHtml = '';
+  const allIdeas = [
+    ...(Array.isArray(audit.bulletImprovements) ? audit.bulletImprovements.map(b => ({ kind: 'Google XYZ bullet rewrite', original: b.original, improved: b.improved })) : []),
+    ...(Array.isArray(audit.appliedSwaps) ? audit.appliedSwaps.map(s => ({ kind: '✅ Applied swap', original: s.original, improved: s.improved, applied: true })) : [])
+  ];
+  if (allIdeas.length > 0) {
+    promoIdeasHtml = `
+      <div style="margin-top:14px;">
+        <h4 style="margin:0 0 6px 0; font-size:12px; letter-spacing:1px; text-transform:uppercase; color:var(--text);">Google XYZ — Bullet Rewrites (Self-Audit)</h4>
+        <div style="display:flex; flex-direction:column; gap:8px;">
+          ${allIdeas.slice(0, 6).map(idea => `
+            <div style="border:1px solid var(--border2); border-radius:8px; padding:8px 10px; background:var(--surface2);">
+              <div style="font-size:11px; color:var(--text3); margin-bottom:2px;">${idea.applied ? '✅ Auto-applied' : '📝 Suggested'} · ${idea.kind}</div>
+              <div style="font-size:12px; color:var(--text3);"><s style="opacity:.75;">${idea.original}</s></div>
+              <div style="font-size:12px; color:var(--accent, #38bdf8); font-weight:600;">${idea.improved}</div>
+            </div>
+          `).join('')}
+        </div>
+      </div>
+    `;
+  }
+
+  const negativesHtml = Array.isArray(audit.criticalNegatives) && audit.criticalNegatives.length
+    ? ` <div style="margin-top:8px; font-size:12px; color:#f87171;">⚠️ ${audit.criticalNegatives.join(' · ')}</div>` : '';
+  const keywordsHtml = Array.isArray(audit.atsKeywordsFound) && audit.atsKeywordsFound.length
+    ? `<div style="margin-top:8px; font-size:11px; color:var(--text3);">🔑 Found: ${audit.atsKeywordsFound.join(', ')}</div>` : '';
+  const missingHtml = Array.isArray(audit.missingRecommendedKeywords) && audit.missingRecommendedKeywords.length
+    ? `<div style="margin-top:4px; font-size:11px; color:#eab308;">➕ Missing: ${audit.missingRecommendedKeywords.join(', ')}</div>` : '';
+  const planHtml = Array.isArray(audit.actionPlan) && audit.actionPlan.length
+    ? `<div style="margin-top:10px;"><div style="font-size:11px; letter-spacing:.5px; text-transform:uppercase; color:var(--text3); margin-bottom:4px;">📌 Action Plan</div><ul style="margin:0; padding-left:18px; font-size:12px; color:var(--text2); line-height:1.6;">${audit.actionPlan.map(s => `<li>${s}</li>`).join('')}</ul></div>` : '';
+
+  box.style.display = 'block';
+  box.innerHTML = `
+    <div style="margin-top:16px; border-top:1px solid var(--border); padding-top:14px;">
+      <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
+        <h4 style="margin:0; font-size:12px; letter-spacing:1px; text-transform:uppercase; color:var(--text);">🧠 Bob's Self-Audit</h4>
+        <span style="font-size:20px; font-weight:800; color:${scoreColor};">${score}/100</span>
+      </div>
+      <div style="display:flex; gap:4px; margin-top:6px;">
+        ${(['impactAndMetrics','skillsRelevance','actionVerbs','formattingAndClarity','experienceDepth']).map(k => `<span style="flex:1; height:6px; border-radius:3px; background:var(--border2);"><span style="display:block; height:6px; border-radius:3px; width:${padded(bd[k])}%; background:${scoreColor};"></span></span>`).join('')}
+      </div>
+      <div style="display:flex; justify-content:space-between; margin-top:3px; font-size:9px; color:var(--text3);">
+        <span>Impact</span><span>Skills</span><span>Verbs</span><span>Format</span><span>Depth</span>
+      </div>
+      ${audit.executiveSummary ? `<p style="margin:10px 0 0 0; font-size:12px; color:var(--text2); line-height:1.5;">${audit.executiveSummary}</p>` : ''}
+      ${negativesHtml}
+      ${keywordsHtml}
+      ${missingHtml}
+      ${promoIdeasHtml}
+      ${planHtml}
+    </div>
+  `;
+}
+
 let latestGeneratedResumeData = null;
 
 // Generate Direct ATS Resume
@@ -8123,6 +8191,7 @@ document.getElementById('resume-generate-btn')?.addEventListener('click', async 
       latestGeneratedResumeData = res.resumeData;
       resultsBox.style.display = 'block';
       renderResumeCardPreview(res.resumeData);
+      renderResumeSelfAudit(res.selfAudit);
       if (statusEl) statusEl.textContent = '✅ Resume generated! Fed data was auto-synced.';
     }
   } catch (err) {
