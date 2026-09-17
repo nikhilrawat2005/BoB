@@ -214,6 +214,26 @@ function applyResumeNotesDirectives(data, profile, notes) {
     }
   });
 
+  // Ensure genuine verified certifications from profile are preserved if LLM omitted them
+  if (Array.isArray(profile?.certifications)) {
+    profile.certifications.forEach(pc => {
+      const title = pc.title || pc.name || '';
+      const isHighValue = /aws|cloud|prompt engineering|chatgpt|deeplearning|google cloud|certified|coursera/i.test(title);
+      const isParticipation = /participation|participated|attendance/i.test(title);
+      if (isHighValue && !isParticipation) {
+        const norm = normalizeForMatch(title);
+        const exists = certifications.some(c => normalizeForMatch(c.title).includes(norm) || norm.includes(normalizeForMatch(c.title)));
+        if (!exists) {
+          certifications.push({
+            title: title.replace(/\.[^/.]+$/, '').trim(),
+            issuer: pc.issuer || (title.toLowerCase().includes('aws') ? 'Amazon Web Services' : 'Simplilearn SkillUp')
+          });
+        }
+      }
+    });
+    data.certifications = certifications;
+  }
+
   return data;
 }
 
