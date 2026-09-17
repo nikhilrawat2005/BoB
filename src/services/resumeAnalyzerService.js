@@ -124,7 +124,7 @@ All numeric values must be computed from the actual resume content:
 
   const response = await callLLM({
     role: 'resume',
-    preferOpenRouter: true,
+    preferOpenRouter: false,
     model: strongModelName(),
     messages: [
       {
@@ -134,7 +134,7 @@ All numeric values must be computed from the actual resume content:
       { role: 'user', content: prompt }
     ],
     temperature: 0.1,
-    max_tokens: 8000
+    max_tokens: 4000
   });
 
   const rawText = (response && response.text) ? response.text : String(response);
@@ -152,10 +152,10 @@ All numeric values must be computed from the actual resume content:
     .replace(/\s*```\s*$/m, '')
     .trim();
 
-  // 3. Strip single-line // comments and block /* */ comments that
-  //    some models insert even when asked for "strict JSON"
+  // 3. Strip single-line // comments (line-leading only — a bare `//` regex also
+  //    mangles https:// URLs inside the JSON) and /* */ block comments.
   cleaned = cleaned
-    .replace(/\/\/[^\n]*/g, '')       // // line comments
+    .replace(/^\s*\/\/.*$/gm, '')     // line-leading // comments only
     .replace(/\/\*[\s\S]*?\*\//g, '') // /* block comments */
     .trim();
 

@@ -594,6 +594,21 @@ async function callOpenRouterDirect({
     const isRateLimitOrCredit = res.status === 429 || msg.includes('credits') || msg.includes('afford') || msg.includes('balance') || msg.includes('rate limit') || /requires more credits/.test(msg.toLowerCase());
 
     if (isRateLimitOrCredit) {
+      // Credit-limited keys (low balance) reject any request whose max_tokens
+      // exceeds the balance's pre-reservation (402 "can only afford N tokens").
+      // Retry with a much smaller budget on the SAME key before quarantine, so
+      // one large request does not burn every key in the pool at once.
+      if (requestedMaxTokens > 1000) {
+        const affordableCap = Math.max((Number((String(data.error.message || '').match(/can only afford\s+(\d+)/i) || [])[1]) || 0), 100);
+        const reduced = Math.min(requestedMaxTokens - 250, Math.max(affordableCap, 250));
+        if (reduced > 0 && reduced < requestedMaxTokens) {
+          console.warn(`[llmService] ${keyObj.keyId} credit-limited — retrying on same key with max_tokens:${reduced}`);
+          return callOpenRouterDirect({
+            role, messages, model: selectedModel, imageUrls, userText,
+            temperature, max_tokens: reduced, persona,
+          });
+        }
+      }
       bag.markCooldown(apiKey, 60000, msg);
       // Auto retry once with next key from queue
       const nextKeyObj = bag.getKey();
