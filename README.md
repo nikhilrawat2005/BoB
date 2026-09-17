@@ -95,6 +95,23 @@ Feed (GitHub handle, smart links, base PDF,
 - `GET /api/live/pulse` → `{totalDiscovered, active, enabled, nextRunAt, lastRunAt}`
 - **Tracker + scoped chat:** each hackathon holds `knowledge{summary, dates, prizes, links}`, participation flags, own session; `refreshKnowledge` re-scrapes but protects user-set dates; parses pasted announcements
 
+### 🛠️ Bob vs. Bob the Builder & AI-WEOS System
+Bob uses a strict dual-brain architecture designed to keep personal life context separate from deep software engineering:
+
+| Dimension | 🤖 Bob (Personal Engineering Companion) | 🏗️ Bob the Builder (CTO / Architect) |
+|---|---|---|
+| **Identity & Scope** | Daily driver: routines, secret vault, stalking, resumes, live radar, general chat | Senior Technical Co-Founder & Principal Fullstack Architect |
+| **Firestore Isolation** | `users/{uid}/sessions`, `memory/...`, `resume_profile/...` | `users/{uid}/builderSessions`, `builderProjects` (Zero crosstalk) |
+| **Key & Model Pool** | Rotates standard OpenRouter pool (`BOB_API_KEY`) | Isolated dedicated key/model (`BUILDER_API_KEY`, `BUILDER_MODEL`) |
+| **Context & Rules** | Ingests personal facts, habits, stalking profiles, vault items | Ingests `AI-Website-Engineering-System/` playbooks + GitHub repo code |
+| **Cross-Query Bridge** | Serves personal requests directly | Can query Bob's memory via ````bobquery ...```` blocks when personal links/accounts are needed |
+
+**How Master Uses Bob the Builder (2-Phase Workflow):**
+1. **Phase 1: Architecture & Brainstorming (Default)** — Bob the Builder never blindly dumps code first. He acts as an elite CTO: analyzes project taxonomy, injects relevant `02_Industry_Systems/*.md` playbooks, recommends design systems (exact HEX palettes, font pairs, spacing), evaluates tech stacks, plans DB schemas, and aligns on technical decisions.
+2. **Phase 2: Code Generation (Explicit Trigger Only)** — Triggered *only* when Master explicitly says `"code banao"`, `"start building"`, or `"generate prompt pack"`. Builder outputs full, runnable, production files using ````<lang> filename=<path>```` blocks (no `// TODO` placeholders), complete `package.json`, and DB models.
+3. **Automated Pack Extraction & ZIP Export** — Backend parser (`extractPackFiles`) captures virtual files from chat, saves them under `builderProjects`, and allows 1-click ZIP generation and download (`GET /api/builder/sessions/:id/zip`).
+4. **Autonomous Background Research Tasks** — Intent detector (`detectTaskIntent`) spawns asynchronous GitHub repo crawling and research tasks (`builderTaskService`), with status queries and automatic task summarization.
+
 ### 📈 SEO Beast Engine
 **Crawl:** sitemap-seeded BFS (12 parallel fetches, 9s each) → every discovered page up to a wall-clock deadline (90s new / 110s re-audit, memory-guarded at 10K pages). Cheerio on-page audit: title/meta/H1, word count, dup detection, thin-content & orphan detection.
 **Honest blocked sites:** non-200 homepage → `siteAccessible:false`, zero-fabricated score, no LLM pass, deterministic "fix access first" note. Never scores a 403 page or invents CWV numbers.
