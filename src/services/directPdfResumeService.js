@@ -853,7 +853,7 @@ HOW TO APPLY THEM:
    - If the user gives a personal overview / story / context, weave the meaningful parts naturally into the summary and project descriptions without inventing any facts or metrics.
    - These notes OVERRIDE any conflicting default behaviour above.` : `(No custom notes provided — use your best editorial judgement purely from the profile data.)`}
 4. CERTIFICATIONS & ACADEMICS (RIGOROUS HIGH-SIGNAL STANDARD):
-   - ONLY include verified, accredited, or industry-recognized credentials (e.g. AWS Academy Graduate, Prompt Engineering Specialization, Degrees).
+   - INSPECT CANDIDATE'S UPLOADED CERTIFICATIONS IN MASTER PROFILE: Look at profile.certifications! If accredited or industry-relevant certifications exist (such as AWS Academy Graduate, Prompt Engineering with ChatGPT / AI Specializations, Google Cloud, or professional tech credentials), ALWAYS INCLUDE THEM in the certifications[] array with verified titles and issuers (e.g. "AWS Academy Graduate — Cloud Foundations", Issuer: "Amazon Web Services"; "Prompt Engineering with ChatGPT", Issuer: "Simplilearn SkillUp").
    - NEVER fabricate or upgrade titles! (e.g., NEVER turn a "Certificate of Participation" into a "National Finalist" or "Certificate of Innovation"!).
    - DROP ALL BARE PARTICIPATION CERTIFICATES (e.g. general hackathon attendance, webinar participation, completion of simple contests). If a certificate is just participation or attendance with no accredited credential or rank/placement, EXCLUDE IT ENTIRELY from the resume. A resume must contain only diamonds, zero clutter.
    - Do NOT include 10th/12th marksheets in certifications (they belong ONLY under Education).
