@@ -8191,7 +8191,6 @@ document.getElementById('resume-generate-btn')?.addEventListener('click', async 
       latestGeneratedResumeData = res.resumeData;
       resultsBox.style.display = 'block';
       renderResumeCardPreview(res.resumeData);
-      renderResumeSelfAudit(res.selfAudit);
       if (statusEl) statusEl.textContent = '✅ Resume generated! Fed data was auto-synced.';
     }
   } catch (err) {

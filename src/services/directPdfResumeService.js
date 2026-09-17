@@ -1,5 +1,5 @@
 ﻿// ---------------------------------------------------------------------------
-// Bob Resume Intelligence â€” Direct PDF Generation Service (PDFKit Engine)
+// Bob Resume Intelligence — Direct PDF Generation Service (PDFKit Engine)
 // Builds high-quality, ATS-standard, beautifully formatted single/multi-page
 // technical resumes directly inside Node.js without any LaTeX compiler dependency.
 // ---------------------------------------------------------------------------
@@ -33,9 +33,9 @@ function entityMatch(normChunk, key, core) {
   return hits >= 2;
 }
 
-// "Bloom â€“ AI-Powered..." -> core "bloom", "Smart Attendance System â€“ ..." -> core "smart attendance system"
+// "Bloom – AI-Powered..." -> core "bloom", "Smart Attendance System – ..." -> core "smart attendance system"
 function coreOfName(str) {
-  return normalizeForMatch(String(str || '').split(/[â€“â€”\-|:]/)[0]);
+  return normalizeForMatch(String(str || '').split(/[–—\-|:]/)[0]);
 }
 
 function applyResumeNotesDirectives(data, profile, notes) {
@@ -44,7 +44,7 @@ function applyResumeNotesDirectives(data, profile, notes) {
   if (!notesText) return data;
 
   const chunks = notesText
-    .split(/[.;\nâ€¢â–ª\-]+/)
+    .split(/[.;\n•▪\-]+/)
     .map(normalizeForMatch)
     .filter(c => c.length > 3);
 
@@ -158,8 +158,8 @@ function applyResumeNotesDirectives(data, profile, notes) {
     const entity = entities.find(e => e.key === key);
     if (!entity) return;
     const title = entity.type === 'experience'
-      ? `${entity.obj.role || ''}${entity.obj.bullets && entity.obj.bullets[0] ? ` â€” ${entity.obj.bullets[0]}` : ''}`.trim()
-      : `${entity.obj.title || ''}${entity.obj.bullets && entity.obj.bullets[0] ? ` â€” ${entity.obj.bullets[0]}` : ''}`.trim();
+      ? `${entity.obj.role || ''}${entity.obj.bullets && entity.obj.bullets[0] ? ` — ${entity.obj.bullets[0]}` : ''}`.trim()
+      : `${entity.obj.title || ''}${entity.obj.bullets && entity.obj.bullets[0] ? ` — ${entity.obj.bullets[0]}` : ''}`.trim();
     const issuer = entity.obj.company || entity.obj.issuer || '';
     if (!certifications.find(c => normalizeForMatch(c.title) === normalizeForMatch(title))) {
       certifications.push({ title: title.slice(0, 220), issuer });
@@ -341,7 +341,7 @@ function parseStructuredResumeJson(rawText) {
 }
 
 // ---------------------------------------------------------------------------
-// Deterministic Showcase Polish â€” self-audit backstop
+// Deterministic Showcase Polish — self-audit backstop
 // Guarantees "SELF-AUDIT & SHOWCASE" standards even if the LLM misses them:
 //   1. Weak/low competitive stats (a bare small LeetCode count) are re-framed
 //      into DSA topic-coverage + consistency language using ONLY the real count.
@@ -391,7 +391,7 @@ function applyShowcasePolish(data) {
         const weak = solved > 0 && solved < 60;
         const reframed = /array|string|hash|recursion|pointer|linked|dsa|topic|fundamental|coverage|foundation/i.test(hl);
         if (weak && !reframed) {
-          s.highlight = `${DSA_COVERAGE} â€” ${solved} LeetCode problems solved${range ? ` (${range[0]})` : ''} (steady, consistent practice)`;
+          s.highlight = `${DSA_COVERAGE} — ${solved} LeetCode problems solved${range ? ` (${range[0]})` : ''} (steady, consistent practice)`;
         }
       }
       return s;
@@ -401,9 +401,9 @@ function applyShowcasePolish(data) {
   return data;
 }
 
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─────────────────────────────────────────────────────────────────────────────
 // SELF-AUDIT REFINEMENT LOOP
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─────────────────────────────────────────────────────────────────────────────
 const SELF_AUDIT_MAX_ITERATIONS = 3;
 const SELF_AUDIT_PASS_SCORE     = 85;
 const WEAK_VERB_RE = /^(Focused on|Contributed to|Assisted|Participated in|Was responsible for|Helped|Worked on|Supported|Involved in)/i;
@@ -412,7 +412,7 @@ const PLACEHOLDER_METRIC_RE = /\b[XxYyZz][0-9]*%|\bX%|\bY%|\bZ%|by [XxYy]%|by an
 function resumeDataToText(data) {
   const lines = [];
   if (data.basics) {
-    lines.push(`${data.basics.name || ''} â€” ${data.basics.title || ''}`);
+    lines.push(`${data.basics.name || ''} — ${data.basics.title || ''}`);
     lines.push(`${data.basics.email || ''} | ${data.basics.phone || ''} | ${data.basics.location || ''}`);
   }
   if (data.summary) lines.push(`\nSUMMARY\n${data.summary}`);
@@ -427,14 +427,14 @@ function resumeDataToText(data) {
     data.projects.forEach(p => {
       lines.push(`${p.title}${p.link ? ` | ${p.link}` : ''}`);
       if (p.techStack) lines.push(`Stack: ${p.techStack.join(', ')}`);
-      (p.bullets || []).forEach(b => lines.push(`â€¢ ${b}`));
+      (p.bullets || []).forEach(b => lines.push(`• ${b}`));
     });
   }
   if (Array.isArray(data.experience) && data.experience.length > 0) {
     lines.push('\nEXPERIENCE');
     data.experience.forEach(e => {
-      lines.push(`${e.role} â€” ${e.company} (${e.duration || ''})`);
-      (e.bullets || []).forEach(b => lines.push(`â€¢ ${b}`));
+      lines.push(`${e.role} — ${e.company} (${e.duration || ''})`);
+      (e.bullets || []).forEach(b => lines.push(`• ${b}`));
     });
   }
   if (Array.isArray(data.codingStats)) {
@@ -443,11 +443,11 @@ function resumeDataToText(data) {
   }
   if (Array.isArray(data.education)) {
     lines.push('\nEDUCATION');
-    data.education.forEach(e => lines.push(`${e.degree} â€” ${e.institution} (${e.duration || ''}) ${e.score || ''}`));
+    data.education.forEach(e => lines.push(`${e.degree} — ${e.institution} (${e.duration || ''}) ${e.score || ''}`));
   }
   if (Array.isArray(data.certifications)) {
     lines.push('\nCERTIFICATIONS');
-    data.certifications.forEach(c => lines.push(`â€¢ ${c.title}${c.issuer ? ` â€” ${c.issuer}` : ''}`));
+    data.certifications.forEach(c => lines.push(`• ${c.title}${c.issuer ? ` — ${c.issuer}` : ''}`));
   }
   return lines.join('\n');
 }
@@ -600,7 +600,7 @@ function applyDirectBulletSwaps(data, bulletMappings) {
   });
 
   if (swappedCount > 0) {
-    console.log(`[selfAudit] âš¡ Successfully auto-swapped ${swappedCount} weak bullets with Google XYZ ATS upgrades directly!`);
+    console.log(`[selfAudit] ⚡ Successfully auto-swapped ${swappedCount} weak bullets with Google XYZ ATS upgrades directly!`);
   }
   return data;
 }
@@ -626,7 +626,7 @@ function detectCreatorIssues(data, auditResult) {
     });
   });
   if (periodBullets.length > 0) {
-    issues.push(`TRAILING PERIODS: ${periodBullets.length} bullet(s) still end with '.' â€” remove ALL trailing periods. Examples: "${periodBullets.slice(0, 2).join('", "')}"`);
+    issues.push(`TRAILING PERIODS: ${periodBullets.length} bullet(s) still end with '.' — remove ALL trailing periods. Examples: "${periodBullets.slice(0, 2).join('", "')}"`);
   }
 
   // 2. X/Y/Z placeholder metrics
@@ -637,7 +637,7 @@ function detectCreatorIssues(data, auditResult) {
     });
   });
   if (placeholderBullets.length > 0) {
-    issues.push(`PLACEHOLDER METRICS: ${placeholderBullets.length} bullet(s) still have X/Y/Z placeholders â€” use concrete outcome phrases. NO invented numbers. Examples: "${placeholderBullets.slice(0, 2).join('", "')}"`);
+    issues.push(`PLACEHOLDER METRICS: ${placeholderBullets.length} bullet(s) still have X/Y/Z placeholders — use concrete outcome phrases. NO invented numbers. Examples: "${placeholderBullets.slice(0, 2).join('", "')}"`);
   }
 
   // 3. Weak / passive action verbs
@@ -648,7 +648,7 @@ function detectCreatorIssues(data, auditResult) {
     });
   });
   if (weakVerbBullets.length > 0) {
-    issues.push(`WEAK VERBS: ${weakVerbBullets.length} bullet(s) use passive verbs â€” upgrade to Architected/Engineered/Implemented/Spearheaded/Automated/Optimized. Examples: "${weakVerbBullets.slice(0, 2).join('", "')}"`);
+    issues.push(`WEAK VERBS: ${weakVerbBullets.length} bullet(s) use passive verbs — upgrade to Architected/Engineered/Implemented/Spearheaded/Automated/Optimized. Examples: "${weakVerbBullets.slice(0, 2).join('", "')}"`);
   }
 
   // 4. Low impactAndMetrics from audit
@@ -664,7 +664,7 @@ function detectCreatorIssues(data, auditResult) {
     projectTitles.some(pt => pt.length > 4 && ct.includes(pt.split(' ')[0]))
   );
   if (duplicates.length > 0) {
-    issues.push(`DUPLICATE CONTENT: Certifications repeats project descriptions ("${duplicates.slice(0, 2).join('", "')}"). Certifications = only awards, accolades, licences â€” NOT project summaries.`);
+    issues.push(`DUPLICATE CONTENT: Certifications repeats project descriptions ("${duplicates.slice(0, 2).join('", "')}"). Certifications = only awards, accolades, licences — NOT project summaries.`);
   }
 
   return issues;
@@ -672,10 +672,10 @@ function detectCreatorIssues(data, auditResult) {
 
 /**
  * Run the self-audit loop:
- *   deterministic fixes â†’ audit â†’ map bulletImprovements â†’ detect issues
- *   â†’ targeted LLM refinement with EXACT bullet swaps â†’ repeat
+ *   deterministic fixes → audit → map bulletImprovements → detect issues
+ *   → targeted LLM refinement with EXACT bullet swaps → repeat
  *
- * KEY: The audit returns exact originalâ†’improved bullet pairs.
+ * KEY: The audit returns exact original→improved bullet pairs.
  *      We match them back to their project section and give the LLM
  *      PRECISE "replace A with B in project X" instructions instead of
  *      vague hints. No guessing required.
@@ -733,7 +733,7 @@ async function generateStructuredResumeData({ profile, jobDescription = '', cust
     safeProfile.rawText = safeProfile.rawText.slice(0, 2000) + '... [truncated]';
   }
   if (safeProfile.fileBuffer) delete safeProfile.fileBuffer;
-  // Strip the previous generated resume + parsed PDF text â€” they balloon the
+  // Strip the previous generated resume + parsed PDF text — they balloon the
   // prompt (baseResume.rawText can be 10s of KB) and cause token-limit errors.
   delete safeProfile.latestResumeData;
   delete safeProfile.resumeNotes;
@@ -751,7 +751,7 @@ async function generateStructuredResumeData({ profile, jobDescription = '', cust
       languages: Array.isArray(proj.languages) ? proj.languages.slice(0, 10) : proj.languages,
       stars: proj.stars,
       topics: Array.isArray(proj.topics) ? proj.topics.slice(0, 10) : proj.topics,
-      readmeSummary: proj.readmeSummary ? String(proj.readmeSummary).slice(0, 800) : ''
+      readmeSummary: String(proj.readmeSummary || proj.summary || '').slice(0, 1400)
     }));
   }
   if (safeProfile.smartLinksResult && Array.isArray(safeProfile.smartLinksResult)) {
@@ -767,23 +767,23 @@ ${JSON.stringify(safeProfile, null, 2)}
 CRITICAL RULES:
 1. LINKS INTEGRITY: ONLY include links that the candidate ACTUALLY has provided in their master profile, smartLinks array, or base resume (e.g. GitHub, LinkedIn, LeetCode, CodeChef, Portfolios). Do NOT hallucinate or insert links if the user has NOT provided them! Ensure link labels are clean and accurate.
 2. PROJECT PRESERVATION, CLASSIFICATION & HIRATION BULLETS:
-   - The candidate's own named signature projects (BoB, The Falcon Tour, Bloom, Smart Attendance System, Market Kingdom, or any project named in their profile / base resume / notes) MUST all be preserved in the projects array with accurate titles â€” never drop them, never swap in hallucinated projects. If it is a lot of projects it is fine: this resume is built for high density.
-   - CLASSIFY PERSONAL vs FREELANCE/CLIENT WORK â€” CRITICAL ROUTING RULE:
-     * FREELANCING / CLIENT WORK â†’ MUST go in "experience" array, NOT "projects" array.
-       If the candidate (or their custom instructions) says a project was freelancing, for a client, or paid service work â€” keywords: "client ke liye banaya", "freelancing me banaya", "service project", "client work" â€” place it in experience[] as:
+   - The candidate's own named signature projects (BoB, The Falcon Tour, Bloom, Smart Attendance System, Market Kingdom, or any project named in their profile / base resume / notes) MUST all be preserved in the projects array with accurate titles — never drop them, never swap in hallucinated projects. If it is a lot of projects it is fine: this resume is built for high density.
+   - CLASSIFY PERSONAL vs FREELANCE/CLIENT WORK — CRITICAL ROUTING RULE:
+     * FREELANCING / CLIENT WORK → MUST go in "experience" array, NOT "projects" array.
+       If the candidate (or their custom instructions) says a project was freelancing, for a client, or paid service work — keywords: "client ke liye banaya", "freelancing me banaya", "service project", "client work" — place it in experience[] as:
          "role": "Freelance Web Developer"  (adjust tech: Freelance Full-Stack / Freelance Frontend etc.)
          "company": "[The client/project name, e.g. The Falcon Tour]"
-         "duration": "[Duration if stated, otherwise estimate e.g. 2023 â€“ 2024]"
+         "duration": "[Duration if stated, otherwise estimate e.g. 2023 – 2024]"
          "location": "Remote"
          "bullets": [client-delivery framing: deployed for client, business outcome, real users, on-time delivery, revenue/traffic impact]
        Do NOT put this entry in projects[]. Do NOT duplicate it.
-     * PERSONAL / PORTFOLIO / HACKATHON â†’ projects[] array only.
+     * PERSONAL / PORTFOLIO / HACKATHON → projects[] array only.
        Personal side projects, open-source contributions, hackathon submissions stay in projects[].
    - HIRATION & GOOGLE XYZ FORMULA: Every bullet MUST start with a strong active verb (e.g. Architected, Engineered, Implemented, Spearheaded, Optimized), contain a clear technical task, and end with a quantified metric or measurable outcome (e.g. 'reducing latency by 40%', 'processing 500+ records with 99.2% accuracy', 'generating 210+ static pages').
    - MAXIMIZE ATS KEYWORD COVERAGE: Weave the candidate's actual languages, frameworks, platforms and tools (e.g. React, Node.js, Firebase, Cloudinary, Gemini AI, Next.js, REST APIs, Computer Vision) into project titles, tech stacks and bullets so ATS keyword matching is maximised. Never use a keyword the candidate has not actually used.
    - NO ENDING PERIODS: Do NOT put a period '.' at the end of any bullet point (as per modern ATS / Hiration resume standards).
    - Single focus per bullet: Each bullet must describe one coherent high-impact engineering accomplishment.
-3. CUSTOM INSTRUCTIONS (HIGHEST PRIORITY â€” ALWAYS FOLLOW EXACTLY):
+3. CUSTOM INSTRUCTIONS (HIGHEST PRIORITY — ALWAYS FOLLOW EXACTLY):
 ${truncatedNotes && truncatedNotes.trim().length > 0 ? `USER'S OWN RESUME NOTES / INSTRUCTIONS:
 """
 ${truncatedNotes.trim()}
@@ -793,22 +793,26 @@ HOW TO APPLY THEM:
    - If the user says "replace X with Y", drop project X and put project Y in exactly that position.
    - If the user says to add something to certifications ("certificates mein dalna"), add it as a certifications entry (action-oriented title + issuer).
    - If the user gives a personal overview / story / context, weave the meaningful parts naturally into the summary and project descriptions without inventing any facts or metrics.
-   - These notes OVERRIDE any conflicting default behaviour above.` : `(No custom notes provided â€” use your best editorial judgement purely from the profile data.)`}
+   - These notes OVERRIDE any conflicting default behaviour above.` : `(No custom notes provided — use your best editorial judgement purely from the profile data.)`}
 4. CERTIFICATIONS & ACHIEVEMENTS (HIRATION ACTION & METRIC STANDARD):
    - NEVER include 10th/12th marksheets or school grade records here (marksheets belong ONLY under Education).
    - Do NOT just list raw titles like "CodeChef Badge" or "Vibe-2-Vision Participant" without context!
    - Format each certification/achievement into an active, quantifiable accolade:
-     â€¢ CodeChef: "Awarded CodeChef Problem Solving Milestone (Rating: 1176), solving 30+ algorithmic challenges in Div 3/4 contests" (Issuer: CodeChef)
-     â€¢ ViCoDathon: "Selected as National Finalist at ViCoDathon 2026, building AI solutions under high-pressure 36-hr hackathon" (Issuer: ABTalks)
-     â€¢ Vibe-2-Vision: "Awarded Certificate of Innovation at Vibe-2-Vision Hackathon for developing AI-driven social impact workflows" (Issuer: Vibe-2-Vision)
-     â€¢ AWS: "Completed AWS Academy Graduate â€” Cloud Foundations, mastering cloud infrastructure, IAM security, and serverless compute" (Issuer: Amazon Web Services)
+     • CodeChef: "Awarded CodeChef Problem Solving Milestone (Rating: 1176), solving 30+ algorithmic challenges in Div 3/4 contests" (Issuer: CodeChef)
+     • ViCoDathon: "Selected as National Finalist at ViCoDathon 2026, building AI solutions under high-pressure 36-hr hackathon" (Issuer: ABTalks)
+     • Vibe-2-Vision: "Awarded Certificate of Innovation at Vibe-2-Vision Hackathon for developing AI-driven social impact workflows" (Issuer: Vibe-2-Vision)
+     • AWS: "Completed AWS Academy Graduate — Cloud Foundations, mastering cloud infrastructure, IAM security, and serverless compute" (Issuer: Amazon Web Services)
    - Respect any user request above to also move/duplicate a project into certifications.
+    - PARTICIPATION CERTIFICATES — GROUP & CONDENSE: Most of the candidate's certificates are mere participation proofs (e.g. plain "Participated in X", "Participant", "Certificate of Participation", hackathon attendance) that add little signal. NEVER list each participation certificate as its own row. Instead, merge ALL participation-type certificates into a SINGLE condensed entry phrased as "Participated in <A>, <B>, <C>" (or similar one-line list) + issuer, e.g.:
+      • "Participated in Uplift-A-Thon, National Finals and multiple competitive coding rounds, translating classroom skills into applied problem-solving" (Issuer: Various)
+    - REAL ACHIEVEMENTS stay as their own distinct rows ONLY if they carry verifiable substance: a rating/number (CodeChef rating), a placement ("National Finalist"), a won/shortlisted status, or a completed course (AWS Academy). Everything else is a participation and belongs in the single grouped entry.
 5. NO INVENTED CONTACT DETAILS: Use verified email, phone (+91-8700113731), location (Ghaziabad, India).
-6. SELF-AUDIT & SHOWCASE (MANDATORY FINAL PASS â€” fix the PRESENTATION, never the facts):
-   - WEAK COMPETITIVE STATS: A bare low numeric rank / solved-count is NOT recruiter-grade. NEVER surface it as a plain low number. Re-frame it with the candidate's REAL data into coverage & consistency language. Example: LeetCode "31 Solved (25 Easy, 6 Medium)" â†’ "Built core DSA fundamentals across arrays, strings, hashing, recursion and two-pointer patterns with 31 LeetCode problems solved (25 Easy, 6 Medium)". Never increase or hide the actual count â€” only re-frame HOW it is presented. Same idea for any platform where the raw number is unimpressive (consistency, coverage, topics, effort).
+6. SELF-AUDIT & SHOWCASE (MANDATORY FINAL PASS — fix the PRESENTATION, never the facts):
+   - WEAK COMPETITIVE STATS: A bare low numeric rank / solved-count is NOT recruiter-grade. NEVER surface it as a plain low number. Re-frame it with the candidate's REAL data into coverage & consistency language. Example: LeetCode "31 Solved (25 Easy, 6 Medium)" → "Built core DSA fundamentals across arrays, strings, hashing, recursion and two-pointer patterns with 31 LeetCode problems solved (25 Easy, 6 Medium)". Never increase or hide the actual count — only re-frame HOW it is presented. Same idea for any platform where the raw number is unimpressive (consistency, coverage, topics, effort).
    - METRIC-READY BULLETS: Shape every bullet as ACTIVE VERB + TASK + OUTCOME using ONLY real numbers that actually exist in the candidate data (e.g. 210+ static pages, 36-hr hackathon, 31 problems, 1176 rating, 84.5% Class X, 25 Easy / 6 Medium).
-   - NEVER INVENT METRICS: Fake numbers AND X/Y/Z placeholders are FORBIDDEN in the final JSON (no "X% reduction", "Y users", "Z concurrent", "Lighthouse score of X", "by an estimated X%"). If a real metric is NOT available, do NOT add a number at all â€” close the bullet with a concrete outcome phrase instead (e.g. "enabling fast, searchable browsing across every destination page").
+   - NEVER INVENT METRICS: Fake numbers AND X/Y/Z placeholders are FORBIDDEN in the final JSON (no "X% reduction", "Y users", "Z concurrent", "Lighthouse score of X", "by an estimated X%"). If a real metric is NOT available, do NOT add a number at all — close the bullet with a concrete outcome phrase instead (e.g. "enabling fast, searchable browsing across every destination page").
    - WEAK VERB UPGRADE: Upgrade passive/weak verbs (Contributed to, Focused on, Assisted, Participated in, Was responsible for) to strong active verbs (Architected, Engineered, Implemented, Designed, Spearheaded, Automated) with the same factual meaning and the same real numbers only.
+    - README-DRIVEN PROJECT BULLETS: Each githubProjects entry includes a readmeSummary. Mine it to extract the project's true purpose, architecture, features and outcomes, then write 3-4 strong, distinct, specific bullets per signature project (5-6 for flagship projects like BoB when the readme supports it). Never fabricate metrics that are not in the readme or profile — use the real technical details found there (features, modules, integrations, scale, performance) to make bullets concrete and recruiter-grade.
 
 ${isTargeted ? `TARGET JOB VACANCY / JD:
 """
@@ -863,8 +867,8 @@ RETURN ONLY A VALID JSON OBJECT (no markdown around it, no backticks, no comment
     }
   ],
   "codingStats": [
-    { "platform": "LeetCode", "highlight": "Built core DSA fundamentals (arrays, strings, hashing, recursion, two pointers) â€” 31 problems solved (25 Easy, 6 Medium)" },
-    { "platform": "CodeChef", "highlight": "Active competitive programmer â€” CodeChef Rating 1176 (Div 4 Contender)" }
+    { "platform": "LeetCode", "highlight": "Built core DSA fundamentals (arrays, strings, hashing, recursion, two pointers) — 31 problems solved (25 Easy, 6 Medium)" },
+    { "platform": "CodeChef", "highlight": "Active competitive programmer — CodeChef Rating 1176 (Div 4 Contender)" }
   ],
   "education": [
     {
@@ -896,12 +900,12 @@ RETURN ONLY A VALID JSON OBJECT (no markdown around it, no backticks, no comment
   data = applyResumeNotesDirectives(data, profile, customInstructions);
   data = applyShowcasePolish(data);
 
-  // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ─────────────────────────────────────────────────────────────────────────
   // SELF-AUDIT REFINEMENT LOOP
   // After generating the first draft, Bob audits its own work and identifies
   // CREATOR-SIDE issues (things Bob did wrong, not the candidate's fault).
   // It then re-generates with specific fix instructions until quality passes.
-  // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ─────────────────────────────────────────────────────────────────────────
   data = await selfAuditAndRefine(data, profile, customInstructions, isTargeted, jobDescription);
 
   return { data: data.data, audit: data.audit, isTargeted };
@@ -962,7 +966,7 @@ function buildDirectPdfBuffer(resumeData) {
         }
       }
 
-      // --- Helper: Truncate a string with 'â€¦' so it never wraps or overlaps ---
+      // --- Helper: Truncate a string with '…' so it never wraps or overlaps ---
       function fitTextWidth(text, fontName, fontSize, maxWidth) {
         doc.font(fontName).fontSize(fontSize);
         let t = String(text || '');
@@ -970,7 +974,7 @@ function buildDirectPdfBuffer(resumeData) {
         while (t.length > 1 && doc.widthOfString(t) > maxWidth) {
           t = t.slice(0, -1);
         }
-        return t.slice(0, -1) + 'â€¦';
+        return t.slice(0, -1) + '…';
       }
 
       if (doc.info) {
@@ -1038,7 +1042,7 @@ function buildDirectPdfBuffer(resumeData) {
         ensureSpace(14);
         doc.x = doc.page.margins.left;
         doc.font('Helvetica').fontSize(L.bullet).fillColor(secondaryColor);
-        doc.text(`â€¢  ${b}`, { indent: 10, lineGap: 1.2 });
+        doc.text(`•  ${b}`, { indent: 10, lineGap: 1.2 });
       }
 
       // --- Helper: Normalize a link label to a clean, recruiter-friendly name ---
@@ -1170,7 +1174,7 @@ function buildDirectPdfBuffer(resumeData) {
         doc.font('Helvetica')
            .fontSize(L.contact)
            .fillColor(secondaryColor)
-           .text(contactItems.join('  â€¢  '), { align: 'center' });
+           .text(contactItems.join('  •  '), { align: 'center' });
       }
 
       // Profile Links bar (clean labeled, clickable hyperlinks)
@@ -1210,7 +1214,7 @@ function buildDirectPdfBuffer(resumeData) {
       // --- 4. CODING & PROBLEM SOLVING HIGHLIGHTS ---
       if (Array.isArray(codingStats) && codingStats.length > 0) {
         drawSectionHeader('Competitive Programming & Problem Solving');
-        const statsLine = codingStats.map(s => `${s.platform}: ${s.highlight}`).join('   â€¢   ');
+        const statsLine = codingStats.map(s => `${s.platform}: ${s.highlight}`).join('   •   ');
         ensureSpace(20);
         doc.font('Helvetica')
            .fontSize(L.stats)
@@ -1287,7 +1291,7 @@ function buildDirectPdfBuffer(resumeData) {
           doc.font('Helvetica')
              .fontSize(L.cert)
              .fillColor(secondaryColor)
-             .text(`â€¢  ${c.title}${c.issuer ? ` (${c.issuer})` : ''}`, { indent: 10, lineGap: 1 });
+             .text(`•  ${c.title}${c.issuer ? ` (${c.issuer})` : ''}`, { indent: 10, lineGap: 1 });
         });
       }
 
@@ -1303,7 +1307,7 @@ function buildDirectPdfBuffer(resumeData) {
   // pages, rebuild denser so everything packs into one page.
   return build(false).then(result => {
     if (result.pages <= 1) return result.buffer;
-    console.log(`[DirectPdfResume] ${result.pages} pages â†’ rebuilding compact single-page layout`);
+    console.log(`[DirectPdfResume] ${result.pages} pages → rebuilding compact single-page layout`);
     return build(true).then(r => r.buffer);
   });
 }
