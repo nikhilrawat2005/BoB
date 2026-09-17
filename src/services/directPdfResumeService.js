@@ -685,6 +685,7 @@ async function selfAuditAndRefine(data, profile, customInstructions, isTargeted,
 
   let lastAudit = null;
   let appliedSwaps = [];
+  let best = null; // { score, data, audit, swaps } — highest-scoring version seen
 
   for (let iteration = 1; iteration <= SELF_AUDIT_MAX_ITERATIONS; iteration++) {
     // ── Step A: Apply deterministic fixes first (no LLM needed) ──────────────
@@ -706,6 +707,19 @@ async function selfAuditAndRefine(data, profile, customInstructions, isTargeted,
     const score  = auditResult?.atsScore ?? 0;
     const impact = auditResult?.breakdown?.impactAndMetrics ?? 0;
     console.log(`[selfAudit] Iteration ${iteration}/${SELF_AUDIT_MAX_ITERATIONS}: atsScore=${score}, impactAndMetrics=${impact}`);
+
+    // Snapshot the best-scoring version seen so far (data + matching audit).
+    // Refinement iterations can randomly degrade the resume, so we always keep
+    // the highest-scoring candidate and return THAT — never a regression.
+    if (!best || score > best.score) {
+      best = {
+        score,
+        data: JSON.parse(JSON.stringify(data)),
+        audit: auditResult,
+        swaps: appliedSwaps.slice()
+      };
+      console.log(`[selfAudit] 📈 New best version at iteration ${iteration} (score=${score})`);
+    }
 
     // ── Step D: Apply Google XYZ bullet rewrites DIRECTLY in memory ──────────
     const bulletMappings = mapBulletImprovementsToSections(data, auditResult?.bulletImprovements || []);
@@ -810,20 +824,23 @@ RETURN ONLY the corrected JSON in the exact same schema. Raw JSON only — no ma
     }
   }
 
+  // Return the HIGHEST-scoring version seen (never a regression from refinement).
+  const winner = best || { score: lastAudit?.atsScore ?? 0, data, audit: lastAudit, swaps: appliedSwaps };
+
   return {
-    data,
-    audit: lastAudit ? {
-      atsScore: lastAudit.atsScore ?? 0,
-      verdict: lastAudit.verdict ?? '',
-      breakdown: lastAudit.breakdown ?? {},
-      executiveSummary: lastAudit.executiveSummary ?? '',
-      strengths: lastAudit.strengths ?? [],
-      criticalNegatives: lastAudit.criticalNegatives ?? [],
-      atsKeywordsFound: lastAudit.atsKeywordsFound ?? [],
-      missingRecommendedKeywords: lastAudit.missingRecommendedKeywords ?? [],
-      bulletImprovements: lastAudit.bulletImprovements ?? [],
-      actionPlan: lastAudit.actionPlan ?? [],
-      appliedSwaps
+    data: winner.data,
+    audit: winner.audit ? {
+      atsScore: winner.audit.atsScore ?? 0,
+      verdict: winner.audit.verdict ?? '',
+      breakdown: winner.audit.breakdown ?? {},
+      executiveSummary: winner.audit.executiveSummary ?? '',
+      strengths: winner.audit.strengths ?? [],
+      criticalNegatives: winner.audit.criticalNegatives ?? [],
+      atsKeywordsFound: winner.audit.atsKeywordsFound ?? [],
+      missingRecommendedKeywords: winner.audit.missingRecommendedKeywords ?? [],
+      bulletImprovements: winner.audit.bulletImprovements ?? [],
+      actionPlan: winner.audit.actionPlan ?? [],
+      appliedSwaps: winner.swaps
     } : null
   };
 }
