@@ -1,4 +1,4 @@
-// ---------------------------------------------------------------------------
+﻿// ---------------------------------------------------------------------------
 // Bob Resume Intelligence — Direct PDF Generation Service (PDFKit Engine)
 // Builds high-quality, ATS-standard, beautifully formatted single/multi-page
 // technical resumes directly inside Node.js without any LaTeX compiler dependency.
@@ -831,7 +831,7 @@ CRITICAL RULES:
        If the candidate (or their custom instructions) says a project was freelancing, for a client, or paid service work — keywords: "client ke liye banaya", "freelancing me banaya", "service project", "client work" — place it in experience[] as:
          "role": "Freelance Web Developer"  (adjust tech: Freelance Full-Stack / Freelance Frontend etc.)
          "company": "[The client/project name, e.g. The Falcon Tour]"
-         "duration": "[Duration if stated, otherwise estimate e.g. 2023 – 2024]"
+         "duration": "[Use EXACT dates from user notes or profile data only. If not stated, use the project createdAt year from githubProjects. NEVER invent years like 2023 or 2024 if not in the data!]"
          "location": "Remote"
          "bullets": [client-delivery framing: deployed for client, business outcome, real users, on-time delivery, revenue/traffic impact]
        Do NOT put this entry in projects[]. Do NOT duplicate it.
@@ -864,6 +864,10 @@ HOW TO APPLY THEM:
    - REPUTABLE PROBLEM SOLVING ONLY: Do NOT include Competitive Programming / Coding Profiles (LeetCode, CodeChef, HackerRank) unless the candidate has solved >= 100 problems or has a rating >= 1500. Low problem counts (like 20-30 problems or 1-star ratings) create a beginner impression and MUST BE COMPLETELY OMITTED.
    - NEVER INVENT METRICS: Fake numbers AND X/Y/Z placeholders are FORBIDDEN in the final JSON.
    - WEAK VERB UPGRADE: Upgrade passive/weak verbs to strong active verbs (Architected, Engineered, Implemented, Designed, Spearheaded, Automated).
+7. DATES - NO INVENTION POLICY:
+   - EDUCATION YEARS: NEVER invent college start/end years. If the profile education section or uploaded documents specify years (e.g. 2024-2028), use those exactly. If no year is provided in the data, write 'Pursuing' only. Do NOT guess a start year.
+   - FREELANCE / PROJECT DURATIONS: For freelance or client projects in experience[], use ONLY dates explicitly stated in user notes. If not stated, derive from the project createdAt field in githubProjects (e.g. 'Jul 2026 - Present'). NEVER default to 2023 or any guessed year.
+   - PERSONAL PROJECTS: If a project has no stated duration, write an empty string for duration. Do NOT invent a date range.
 
 ${isTargeted ? `TARGET JOB VACANCY / JD:
 """

@@ -270,7 +270,9 @@ async function syncGitHubProjects(username) {
         liveUrl: repo.homepage || '',
         techStack: combinedStack.length > 0 ? combinedStack : ['General Software'],
         stars: repo.stargazers_count,
-        summary: readmeSummary || repo.description || ''
+        summary: readmeSummary || repo.description || '',
+        createdAt: repo.created_at || null,
+        updatedAt: repo.updated_at || null
       };
     });
 
