@@ -1,4 +1,4 @@
-﻿// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
 // Bob Resume Intelligence — Direct PDF Generation Service (PDFKit Engine)
 // Builds high-quality, ATS-standard, beautifully formatted single/multi-page
 // technical resumes directly inside Node.js without any LaTeX compiler dependency.
@@ -360,41 +360,74 @@ function sanitizeBullet(b) {
 function applyShowcasePolish(data) {
   if (!data || typeof data !== 'object') return data;
 
+  // Regex to strip internal codebase variable names / raw readme config identifiers from resume bullets
+  const INTERNAL_CODE_VAR_RE = /\b(SELF_EDIT_MAX_DIFF_CHARS|DISCOVERY_INTERVAL_MS|requireAuth|processDueReAudits|directPdfResumeService|resumeProfileService|geminiPoolService|builderTaskService)\b/g;
+
   ['projects', 'experience'].forEach(sec => {
     if (!Array.isArray(data[sec])) return;
     data[sec].forEach(entry => {
       if (entry && Array.isArray(entry.bullets)) {
-        entry.bullets = entry.bullets.map(sanitizeBullet).filter(Boolean);
+        entry.bullets = entry.bullets
+          .map(b => sanitizeBullet(String(b || '').replace(INTERNAL_CODE_VAR_RE, 'configured limits')))
+          .filter(Boolean)
+          .slice(0, 3); // Cap at 3 strong recruiter-grade bullets per entry to guarantee strict 1-page fit
       }
     });
   });
 
-  if (Array.isArray(data.certifications)) {
-    data.certifications = data.certifications.map(c => {
-      if (c && c.title) {
-        const t = sanitizeBullet(c.title);
-        if (t) c.title = t;
-      }
-      return c;
-    }).filter(c => c && c.title);
+  // Cap projects to top 3 signature projects if experience exists, or top 4 if no experience
+  if (Array.isArray(data.projects)) {
+    const maxProjects = (Array.isArray(data.experience) && data.experience.length > 0) ? 3 : 4;
+    data.projects = data.projects.slice(0, maxProjects);
   }
 
+  // Filter out low-signal participation certs. Keep only genuine, accredited or high-value certifications
+  if (Array.isArray(data.certifications)) {
+    const PARTICIPATION_DROP_RE = /certificate of participation|participated in|participant|attendance|milestone \(rating: 1[0-3]\d\d\)/i;
+    data.certifications = data.certifications
+      .map(c => {
+        if (c && c.title) {
+          const t = sanitizeBullet(c.title);
+          if (t) c.title = t;
+        }
+        return c;
+      })
+      .filter(c => c && c.title && !PARTICIPATION_DROP_RE.test(c.title));
+  }
+
+  // Quality Gate: Only surface Competitive Programming if it is genuinely recruiter-grade
+  // (LeetCode >= 100 problems or CodeChef rating >= 1500). Otherwise, completely drop it to avoid beginner signals!
   if (Array.isArray(data.codingStats)) {
-    const DSA_COVERAGE = 'Building core DSA fundamentals across arrays, strings, hashing, recursion, two pointers and linked lists';
-    data.codingStats = data.codingStats.map(s => {
+    data.codingStats = data.codingStats.filter(s => {
       const platform = String(s.platform || '').toLowerCase();
       const hl = String(s.highlight || '');
       if (platform.includes('leetcode')) {
         const m = hl.match(/(\d+)\s*(?:solved|problems|solutions)/i);
         const solved = m ? parseInt(m[1], 10) : 0;
-        const range = hl.match(/\(\d+\s+Easy,\s*\d+\s+Medium\)/i);
-        const weak = solved > 0 && solved < 60;
-        const reframed = /array|string|hash|recursion|pointer|linked|dsa|topic|fundamental|coverage|foundation/i.test(hl);
-        if (weak && !reframed) {
-          s.highlight = `${DSA_COVERAGE} — ${solved} LeetCode problems solved${range ? ` (${range[0]})` : ''} (steady, consistent practice)`;
-        }
+        return solved >= 100;
       }
-      return s;
+      if (platform.includes('codechef')) {
+        const m = hl.match(/rating[:\s]*(\d+)/i);
+        const rating = m ? parseInt(m[1], 10) : 0;
+        return rating >= 1500;
+      }
+      return false; // drop low-signal stats by default
+    });
+
+    if (data.codingStats.length === 0) {
+      delete data.codingStats;
+    }
+  }
+
+  // Filter out CP links from header if they don't meet the recruiter-grade threshold
+  if (data.basics && Array.isArray(data.basics.links)) {
+    data.basics.links = data.basics.links.filter(l => {
+      const label = String(l.label || '').toLowerCase();
+      const url = String(l.url || '').toLowerCase();
+      if (label.includes('leetcode') || url.includes('leetcode.com')) return false; // hide unless master level
+      if (label.includes('codechef') || url.includes('codechef.com')) return false;
+      if (label.includes('hackerrank') || url.includes('hackerrank.com')) return false;
+      return true;
     });
   }
 
@@ -799,25 +832,18 @@ HOW TO APPLY THEM:
    - If the user says to add something to certifications ("certificates mein dalna"), add it as a certifications entry (action-oriented title + issuer).
    - If the user gives a personal overview / story / context, weave the meaningful parts naturally into the summary and project descriptions without inventing any facts or metrics.
    - These notes OVERRIDE any conflicting default behaviour above.` : `(No custom notes provided — use your best editorial judgement purely from the profile data.)`}
-4. CERTIFICATIONS & ACHIEVEMENTS (HIRATION ACTION & METRIC STANDARD):
-   - NEVER include 10th/12th marksheets or school grade records here (marksheets belong ONLY under Education).
-   - Do NOT just list raw titles like "CodeChef Badge" or "Vibe-2-Vision Participant" without context!
-   - Format each certification/achievement into an active, quantifiable accolade:
-     • CodeChef: "Awarded CodeChef Problem Solving Milestone (Rating: 1176), solving 30+ algorithmic challenges in Div 3/4 contests" (Issuer: CodeChef)
-     • ViCoDathon: "Selected as National Finalist at ViCoDathon 2026, building AI solutions under high-pressure 36-hr hackathon" (Issuer: ABTalks)
-     • Vibe-2-Vision: "Awarded Certificate of Innovation at Vibe-2-Vision Hackathon for developing AI-driven social impact workflows" (Issuer: Vibe-2-Vision)
-     • AWS: "Completed AWS Academy Graduate — Cloud Foundations, mastering cloud infrastructure, IAM security, and serverless compute" (Issuer: Amazon Web Services)
-   - Respect any user request above to also move/duplicate a project into certifications.
-    - PARTICIPATION CERTIFICATES — GROUP & CONDENSE: Most of the candidate's certificates are mere participation proofs (e.g. plain "Participated in X", "Participant", "Certificate of Participation", hackathon attendance) that add little signal. NEVER list each participation certificate as its own row. Instead, merge ALL participation-type certificates into a SINGLE condensed entry phrased as "Participated in <A>, <B>, <C>" (or similar one-line list) + issuer, e.g.:
-      • "Participated in Uplift-A-Thon, National Finals and multiple competitive coding rounds, translating classroom skills into applied problem-solving" (Issuer: Various)
-    - REAL ACHIEVEMENTS stay as their own distinct rows ONLY if they carry verifiable substance: a rating/number (CodeChef rating), a placement ("National Finalist"), a won/shortlisted status, or a completed course (AWS Academy). Everything else is a participation and belongs in the single grouped entry.
+4. CERTIFICATIONS & ACADEMICS (RIGOROUS HIGH-SIGNAL STANDARD):
+   - ONLY include verified, accredited, or industry-recognized credentials (e.g. AWS Academy Graduate, Prompt Engineering Specialization, Degrees).
+   - NEVER fabricate or upgrade titles! (e.g., NEVER turn a "Certificate of Participation" into a "National Finalist" or "Certificate of Innovation"!).
+   - DROP ALL BARE PARTICIPATION CERTIFICATES (e.g. general hackathon attendance, webinar participation, completion of simple contests). If a certificate is just participation or attendance with no accredited credential or rank/placement, EXCLUDE IT ENTIRELY from the resume. A resume must contain only diamonds, zero clutter.
+   - Do NOT include 10th/12th marksheets in certifications (they belong ONLY under Education).
 5. NO INVENTED CONTACT DETAILS: Use verified email, phone (+91-8700113731), location (Ghaziabad, India).
-6. SELF-AUDIT & SHOWCASE (MANDATORY FINAL PASS — fix the PRESENTATION, never the facts):
-   - WEAK COMPETITIVE STATS: A bare low numeric rank / solved-count is NOT recruiter-grade. NEVER surface it as a plain low number. Re-frame it with the candidate's REAL data into coverage & consistency language. Example: LeetCode "31 Solved (25 Easy, 6 Medium)" → "Built core DSA fundamentals across arrays, strings, hashing, recursion and two-pointer patterns with 31 LeetCode problems solved (25 Easy, 6 Medium)". Never increase or hide the actual count — only re-frame HOW it is presented. Same idea for any platform where the raw number is unimpressive (consistency, coverage, topics, effort).
-   - METRIC-READY BULLETS: Shape every bullet as ACTIVE VERB + TASK + OUTCOME using ONLY real numbers that actually exist in the candidate data (e.g. 210+ static pages, 36-hr hackathon, 31 problems, 1176 rating, 84.5% Class X, 25 Easy / 6 Medium).
-   - NEVER INVENT METRICS: Fake numbers AND X/Y/Z placeholders are FORBIDDEN in the final JSON (no "X% reduction", "Y users", "Z concurrent", "Lighthouse score of X", "by an estimated X%"). If a real metric is NOT available, do NOT add a number at all — close the bullet with a concrete outcome phrase instead (e.g. "enabling fast, searchable browsing across every destination page").
-   - WEAK VERB UPGRADE: Upgrade passive/weak verbs (Contributed to, Focused on, Assisted, Participated in, Was responsible for) to strong active verbs (Architected, Engineered, Implemented, Designed, Spearheaded, Automated) with the same factual meaning and the same real numbers only.
-    - README-DRIVEN PROJECT BULLETS: Each githubProjects entry includes a raw readmeSummary (large, uncut for flagship repos). Mine it thoroughly — including the later deep-dive sections that a short preview would miss — to extract the project's TRUE purpose, architecture, modules, integrations, scale and outcomes, then write 3-4 strong, distinct, specific bullets per signature project (5-7 for flagship multi-module systems like BoB, one bullet per major subsystem/module when the readme supports it). Never fabricate metrics that are not in the readme or profile — use the real technical details found there (features, modules, integrations, scale, performance, crawlers, engines, automation) to make bullets concrete and recruiter-grade. If the readme describes distinct subsystems (e.g. a resume/ATS engine, an SEO auditing engine, hackathon crawlers, a memory bank, schedulers), call the specific subsystems out by name in separate bullets — generic rewordings of the repo description are weak and forbidden.
+6. SELF-AUDIT & RECRUITER-GRADE BULLET PRESENTATION:
+   - NO CODE VARIABLE / COMMIT DUMPS: Never dump internal configuration variables, env constants, or raw code filenames into bullet points (e.g. FORBIDDEN: "SELF_EDIT_MAX_DIFF_CHARS", "DISCOVERY_INTERVAL_MS", "geminiPoolService"). Explain what the system ACCOMPLISHED architecturally in clear, professional English.
+   - METRIC-READY BULLETS (MAX 3 BULLETS PER PROJECT): Write at most 3 punchy, high-impact bullets per project following the Google XYZ formula (Active Verb + Technical Context + Measurable Outcome).
+   - REPUTABLE PROBLEM SOLVING ONLY: Do NOT include Competitive Programming / Coding Profiles (LeetCode, CodeChef, HackerRank) unless the candidate has solved >= 100 problems or has a rating >= 1500. Low problem counts (like 20-30 problems or 1-star ratings) create a beginner impression and MUST BE COMPLETELY OMITTED.
+   - NEVER INVENT METRICS: Fake numbers AND X/Y/Z placeholders are FORBIDDEN in the final JSON.
+   - WEAK VERB UPGRADE: Upgrade passive/weak verbs to strong active verbs (Architected, Engineered, Implemented, Designed, Spearheaded, Automated).
 
 ${isTargeted ? `TARGET JOB VACANCY / JD:
 """
@@ -871,10 +897,6 @@ RETURN ONLY A VALID JSON OBJECT (no markdown around it, no backticks, no comment
       ]
     }
   ],
-  "codingStats": [
-    { "platform": "LeetCode", "highlight": "Built core DSA fundamentals (arrays, strings, hashing, recursion, two pointers) — 31 problems solved (25 Easy, 6 Medium)" },
-    { "platform": "CodeChef", "highlight": "Active competitive programmer — CodeChef Rating 1176 (Div 4 Contender)" }
-  ],
   "education": [
     {
       "degree": "Degree",
@@ -884,7 +906,7 @@ RETURN ONLY A VALID JSON OBJECT (no markdown around it, no backticks, no comment
     }
   ],
   "certifications": [
-    { "title": "Action-oriented certification achievement", "issuer": "Issuing Org" }
+    { "title": "Accredited / Verified Certification Title", "issuer": "Issuing Org" }
   ]
 }`;
 
