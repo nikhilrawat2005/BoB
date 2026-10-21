@@ -800,14 +800,20 @@ async function generateStructuredResumeData({ profile, jobDescription = '', cust
   if (Array.isArray(safeProfile.githubProjects)) {
     safeProfile.githubProjects = safeProfile.githubProjects.slice(0, 30).map(proj => {
       const readmeText = String(proj.readmeSummary || proj.summary || '');
-      const isSignature = SIGNATURE_PROJECTS.has(String(proj.name || '').trim().toLowerCase());
+      const projectName = String(proj.title || proj.name || '').trim();
+      const isSignature = SIGNATURE_PROJECTS.has(projectName.toLowerCase());
       return {
-        name: proj.name,
-        description: proj.description,
-        language: proj.language,
-        languages: Array.isArray(proj.languages) ? proj.languages.slice(0, 10) : proj.languages,
-        stars: proj.stars,
-        topics: Array.isArray(proj.topics) ? proj.topics.slice(0, 10) : proj.topics,
+        name: projectName,
+        title: projectName,
+        description: proj.description || '',
+        language: proj.language || (Array.isArray(proj.techStack) ? proj.techStack[0] : ''),
+        techStack: Array.isArray(proj.techStack) ? proj.techStack : [],
+        languages: Array.isArray(proj.languages) ? proj.languages.slice(0, 10) : (Array.isArray(proj.techStack) ? proj.techStack.slice(0, 10) : []),
+        stars: proj.stars || 0,
+        topics: Array.isArray(proj.topics) ? proj.topics.slice(0, 10) : [],
+        githubUrl: proj.githubUrl || '',
+        liveUrl: proj.liveUrl || '',
+        createdAt: proj.createdAt || null,
         readmeSummary: readmeText.slice(0, isSignature ? 32000 : 2500)
       };
     });

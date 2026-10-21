@@ -729,8 +729,13 @@ https://your-portfolio.com" style="width:100%; padding:8px 12px; border-radius:6
                 <!-- Synced GitHub Repositories Preview & Selection -->
                 <div id="resume-repos-container" style="display:none; margin-top:12px; border-top: 1px solid var(--border); padding-top: 10px;">
                   <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
-                    <strong style="font-size: 12px; color: var(--text);">Synced Repositories (<span id="resume-repos-count">0</span>):</strong>
-                    <span style="font-size: 11px; color: var(--text3);">Click any repo to view or customize details</span>
+                    <div>
+                      <strong style="font-size: 12px; color: var(--text);">Synced Repositories (<span id="resume-repos-count">0</span>):</strong>
+                      <span id="resume-repos-excluded-note" style="font-size: 11px; color: var(--text3); margin-left: 6px;"></span>
+                    </div>
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                      <button id="resume-reset-repos-btn" type="button" style="background: none; border: 1px solid var(--border); border-radius: 4px; padding: 2px 8px; font-size: 11px; color: var(--accent); cursor: pointer;" title="Restore all excluded repos">🔄 Restore All Repos</button>
+                    </div>
                   </div>
                   <div id="resume-repos-list" style="display: flex; flex-wrap: wrap; gap: 6px; max-height: 120px; overflow-y: auto;"></div>
                 </div>

@@ -7459,12 +7459,17 @@ async function loadResumeProfile(profileId = activeCandidateProfileId) {
       const reposContainer = document.getElementById('resume-repos-container');
       const reposList = document.getElementById('resume-repos-list');
       const reposCount = document.getElementById('resume-repos-count');
+      const excludedNote = document.getElementById('resume-repos-excluded-note');
       const projects = res.profile.githubProjects || [];
+      const excludedList = res.profile.excludedRepos || [];
 
       if (reposContainer && reposList) {
-        if (projects.length > 0) {
+        if (projects.length > 0 || excludedList.length > 0) {
           reposContainer.style.display = 'block';
           if (reposCount) reposCount.textContent = projects.length;
+          if (excludedNote) {
+            excludedNote.textContent = excludedList.length > 0 ? `(${excludedList.length} excluded)` : '';
+          }
           reposList.innerHTML = projects.map(p => {
             const stack = (p.techStack || []).slice(0, 3).join(', ');
             return `
@@ -7551,6 +7556,25 @@ document.getElementById('resume-add-candidate-btn')?.addEventListener('click', a
     alert(`Candidate Profile for "${cleanName}" created! You can now sync their GitHub, upload their resume/certs, and generate their resume independently without altering your own data.`);
   } catch (err) {
     alert(`Failed to create candidate profile: ${err.message}`);
+  }
+});
+
+
+// Reset / Restore all excluded GitHub repositories
+document.getElementById('resume-reset-repos-btn')?.addEventListener('click', async () => {
+  if (!confirm('Restore all excluded repositories for this profile?')) return;
+  try {
+    const btn = document.getElementById('resume-reset-repos-btn');
+    if (btn) btn.textContent = '⏳ Restoring...';
+    await apiFetch(`/api/resume/repos/reset?profileId=${encodeURIComponent(activeCandidateProfileId)}`, {
+      method: 'POST'
+    });
+    await loadResumeProfile(activeCandidateProfileId);
+    if (btn) btn.textContent = '🔄 Restore All Repos';
+  } catch (err) {
+    alert(`Failed to restore repos: ${err.message}`);
+    const btn = document.getElementById('resume-reset-repos-btn');
+    if (btn) btn.textContent = '🔄 Restore All Repos';
   }
 });
 

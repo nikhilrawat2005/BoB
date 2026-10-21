@@ -73,6 +73,7 @@ router.post('/profile', requireAuth, async (req, res) => {
 router.post('/sync/github', requireAuth, async (req, res) => {
   try {
     const profileId = req.query.profileId || req.body.profileId || 'master';
+    const resetExcluded = req.query.reset === 'true' || req.body.reset === true;
     let { username } = req.body || {};
     if (username) {
       username = username.trim()
@@ -84,14 +85,17 @@ router.post('/sync/github', requireAuth, async (req, res) => {
 
     const projects = await resumeProfile.syncGitHubProjects(username);
     
-    // Save to target candidate profile, preserving excluded repos
+    // Save to target candidate profile, optionally resetting excluded repos
     const profile = await resumeProfile.getMasterProfile(req.userId, profileId);
+    if (resetExcluded) {
+      profile.excludedRepos = [];
+    }
     const excluded = new Set(profile.excludedRepos || []);
     profile.githubUsername = username;
     profile.githubProjects = projects.filter(p => !excluded.has(p.title));
     await resumeProfile.saveMasterProfile(req.userId, profile, profileId);
 
-    res.json({ success: true, projects: profile.githubProjects, total: profile.githubProjects.length });
+    res.json({ success: true, projects: profile.githubProjects, total: profile.githubProjects.length, excludedCount: (profile.excludedRepos || []).length });
   } catch (err) {
     console.error('[ResumeAPI] Sync GitHub Error:', err);
     res.status(500).json({ error: err.message });
@@ -104,7 +108,8 @@ router.post('/sync/github', requireAuth, async (req, res) => {
 router.delete('/project/:title', requireAuth, async (req, res) => {
   try {
     const { title } = req.params;
-    const profile = await resumeProfile.getMasterProfile(req.userId);
+    const profileId = req.query.profileId || 'master';
+    const profile = await resumeProfile.getMasterProfile(req.userId, profileId);
     const existing = profile.githubProjects || [];
     profile.githubProjects = existing.filter(p => p.title.toLowerCase() !== title.toLowerCase());
     
@@ -115,10 +120,38 @@ router.delete('/project/:title', requireAuth, async (req, res) => {
     }
     profile.excludedRepos = excluded;
 
-    await resumeProfile.saveMasterProfile(req.userId, profile);
-    res.json({ success: true, removed: title, remaining: profile.githubProjects.length });
+    await resumeProfile.saveMasterProfile(req.userId, profile, profileId);
+    res.json({ success: true, removed: title, remaining: profile.githubProjects.length, profileId });
   } catch (err) {
     console.error('[ResumeAPI] Delete Project Error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * 3c. POST /api/resume/repos/reset — Reset excluded repos so all repositories reappear on refresh
+ */
+router.post('/repos/reset', requireAuth, async (req, res) => {
+  try {
+    const profileId = req.query.profileId || req.body.profileId || 'master';
+    const profile = await resumeProfile.getMasterProfile(req.userId, profileId);
+    profile.excludedRepos = [];
+    
+    // If username exists, immediately re-sync full repo list
+    if (profile.githubUsername) {
+      const projects = await resumeProfile.syncGitHubProjects(profile.githubUsername);
+      profile.githubProjects = projects;
+    }
+    
+    await resumeProfile.saveMasterProfile(req.userId, profile, profileId);
+    res.json({
+      success: true,
+      message: 'Excluded repos reset. All GitHub repositories restored.',
+      projects: profile.githubProjects || [],
+      total: (profile.githubProjects || []).length
+    });
+  } catch (err) {
+    console.error('[ResumeAPI] Reset Repos Error:', err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -355,11 +388,12 @@ router.post('/generate', requireAuth, async (req, res) => {
  */
 router.post('/download-direct-pdf', requireAuth, async (req, res) => {
   try {
+    const profileId = req.query.profileId || req.body.profileId || 'master';
     const { resumeData, filename } = req.body;
     let data = resumeData;
 
     if (!data) {
-      const profile = await resumeProfile.getMasterProfile(req.userId);
+      const profile = await resumeProfile.getMasterProfile(req.userId, profileId);
       data = profile.latestResumeData;
     }
 
@@ -385,6 +419,7 @@ router.post('/download-direct-pdf', requireAuth, async (req, res) => {
  */
 router.post('/analyze', requireAuth, upload.single('file'), async (req, res) => {
   try {
+    const profileId = req.query.profileId || req.body.profileId || 'master';
     const { targetJobDescription } = req.body || {};
     let fileBuffer = req.file ? req.file.buffer : null;
     let fileName = req.file ? req.file.originalname : 'resume.pdf';
@@ -400,7 +435,7 @@ router.post('/analyze', requireAuth, upload.single('file'), async (req, res) => 
         return res.json({ success: true, audit, fileName: 'Pasted Resume Text' });
       }
 
-      const profile = await resumeProfile.getMasterProfile(req.userId);
+      const profile = await resumeProfile.getMasterProfile(req.userId, profileId);
       if (profile.baseResume?.rawText) {
         const audit = await resumeAnalyzer.auditResume({
           resumeText: profile.baseResume.rawText,
@@ -431,11 +466,12 @@ router.post('/analyze', requireAuth, upload.single('file'), async (req, res) => 
  */
 router.post('/analyze-generated', requireAuth, async (req, res) => {
   try {
+    const profileId = req.query.profileId || req.body.profileId || 'master';
     const { resumeData, targetJobDescription } = req.body || {};
     let data = resumeData;
 
     if (!data) {
-      const profile = await resumeProfile.getMasterProfile(req.userId);
+      const profile = await resumeProfile.getMasterProfile(req.userId, profileId);
       data = profile.latestResumeData;
     }
 
