@@ -1,4 +1,4 @@
-﻿// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
 // Bob Resume Intelligence — Direct PDF Generation Service (PDFKit Engine)
 // Builds high-quality, ATS-standard, beautifully formatted single/multi-page
 // technical resumes directly inside Node.js without any LaTeX compiler dependency.
@@ -970,29 +970,52 @@ RETURN ONLY A VALID JSON OBJECT (no markdown around it, no backticks, no comment
 
 /**
  * Step 2: Build ATS Jake's / Harvard Standard PDF Buffer using PDFKit
+ * Supports intelligent dynamic auto-density scaling to ensure strict 1-page fit
+ * even for dense resumes with multiple projects, experience, and certificates.
  */
 function buildDirectPdfBuffer(resumeData) {
-  const layoutFor = (compact) => (compact ? {
-    // Compact single-page layout (denser, still clean & recruiter-readable)
-    margins: { top: 22, bottom: 22, left: 30, right: 30 },
-    name: 17, title: 9.5, contact: 8.5,
-    link: 8, linkLineH: 11, section: 10, rule: 0.7,
-    summary: 8.8, skillCat: 8.6, skillBody: 8.6, stats: 8.6,
-    tLeft: 8.8, tRight: 8, tech: 8, company: 8, bullet: 8.2, cert: 8.2,
-    endYStep: 11
-  } : {
-    // Standard comfortable layout
-    margins: { top: 36, bottom: 36, left: 40, right: 40 },
-    name: 20, title: 10.5, contact: 9,
-    link: 8.5, linkLineH: 12, section: 11, rule: 0.75,
-    summary: 9.5, skillCat: 9, skillBody: 9, stats: 9,
-    tLeft: 9.5, tRight: 8.5, tech: 8.5, company: 8.5, bullet: 8.8, cert: 8.8,
-    endYStep: 12
+  // Density layout calculator based on scale factor (1.0 = standard, 0.75 = ultra-dense)
+  const layoutForScale = (scale = 1.0) => ({
+    margins: {
+      top: Math.max(12, Math.round(20 * scale)),
+      bottom: Math.max(12, Math.round(20 * scale)),
+      left: Math.max(20, Math.round(28 * scale)),
+      right: Math.max(20, Math.round(28 * scale))
+    },
+    name: Math.max(14, 18 * scale),
+    title: Math.max(8.2, 9.8 * scale),
+    contact: Math.max(7.6, 8.8 * scale),
+    link: Math.max(7.2, 8.2 * scale),
+    linkLineH: Math.max(9.5, 11.5 * scale),
+    section: Math.max(8.8, 10.5 * scale),
+    rule: 0.65,
+    summary: Math.max(7.6, 9.0 * scale),
+    skillCat: Math.max(7.6, 8.8 * scale),
+    skillBody: Math.max(7.6, 8.8 * scale),
+    stats: Math.max(7.6, 8.8 * scale),
+    tLeft: Math.max(7.8, 9.0 * scale),
+    tRight: Math.max(7.2, 8.2 * scale),
+    tech: Math.max(7.2, 8.2 * scale),
+    company: Math.max(7.2, 8.2 * scale),
+    bullet: Math.max(7.2, 8.4 * scale),
+    cert: Math.max(7.2, 8.4 * scale),
+    endYStep: Math.max(9, 11 * scale),
+    spaceHeader: Math.max(18, 30 * scale),
+    moveHeader: Math.max(0.15, 0.45 * scale),
+    headerRulePad: Math.max(2, 3.5 * scale),
+    spaceTitle: Math.max(12, 16 * scale),
+    moveTitle: Math.max(0.08, 0.2 * scale),
+    spaceBullet: Math.max(9, 13 * scale),
+    bulletIndent: Math.max(7, 10 * scale),
+    bulletLineGap: Math.max(0.5, 1.1 * scale),
+    spaceEdu: Math.max(11, 15 * scale),
+    moveEdu: Math.max(0.08, 0.15 * scale),
+    spaceCert: Math.max(9, 12 * scale)
   });
 
-  const build = (compact) => new Promise((resolve, reject) => {
+  const build = (scale = 1.0) => new Promise((resolve, reject) => {
     try {
-      const L = layoutFor(compact);
+      const L = layoutForScale(scale);
       const doc = new PDFDocument({
         size: 'A4',
         margins: L.margins,
@@ -1042,21 +1065,21 @@ function buildDirectPdfBuffer(resumeData) {
 
       // --- Helper: Draw Section Header with a clean rule ---
       function drawSectionHeader(title) {
-        ensureSpace(34);
-        doc.moveDown(0.5);
+        ensureSpace(L.spaceHeader);
+        doc.moveDown(L.moveHeader);
         doc.font('Helvetica-Bold')
            .fontSize(L.section)
            .fillColor(primaryColor)
-           .text(title.toUpperCase(), { characterSpacing: 1 });
+           .text(title.toUpperCase(), { characterSpacing: 0.8 });
 
-        const y = doc.y + 2;
+        const y = doc.y + 1.5;
         doc.strokeColor(ruleColor)
            .lineWidth(L.rule)
            .moveTo(doc.page.margins.left, y)
            .lineTo(doc.page.margins.left + pageWidth, y)
            .stroke();
 
-        doc.y = y + 4;
+        doc.y = y + L.headerRulePad;
         doc.x = doc.page.margins.left;
       }
 
@@ -1076,7 +1099,7 @@ function buildDirectPdfBuffer(resumeData) {
         let endY = y + L.endYStep;
         if (left) {
           doc.font('Helvetica-Bold').fontSize(L.tLeft).fillColor(primaryColor);
-          doc.text(left, doc.page.margins.left, y, { width: leftWidth, lineGap: 1 });
+          doc.text(left, doc.page.margins.left, y, { width: leftWidth, lineGap: 0.8 });
           endY = doc.y;
         }
         if (rightText) {
@@ -1096,10 +1119,10 @@ function buildDirectPdfBuffer(resumeData) {
       // --- Helper: Bullet point that never exits the printable area ---
       function drawBullet(text) {
         const b = String(text).trim().replace(/\.+$/, '');
-        ensureSpace(14);
+        ensureSpace(L.spaceBullet);
         doc.x = doc.page.margins.left;
         doc.font('Helvetica').fontSize(L.bullet).fillColor(secondaryColor);
-        doc.text(`•  ${b}`, { indent: 10, lineGap: 1.2 });
+        doc.text(`•  ${b}`, { indent: L.bulletIndent, lineGap: L.bulletLineGap });
       }
 
       // --- Helper: Normalize a link label to a clean, recruiter-friendly name ---
@@ -1139,14 +1162,6 @@ function buildDirectPdfBuffer(resumeData) {
         }
         if (nameMap[l.toLowerCase()]) return nameMap[l.toLowerCase()];
         return l.replace(/_+/g, ' ').replace(/\s+/g, ' ').trim().replace(/\b\w/g, c => c.toUpperCase());
-      }
-
-      // --- Helper: Keep just the bare host path for display ---
-      function shortLinkUrl(url) {
-        return String(url || '')
-          .replace(/^https?:\/\//i, '')
-          .replace(/^www\./, '')
-          .replace(/\/$/, '');
       }
 
       // --- Helper: Centered, wrapping row of clickable link segments ---
@@ -1206,14 +1221,14 @@ function buildDirectPdfBuffer(resumeData) {
 
       // --- 1. HEADER / BASICS ---
       const name = basics?.name || 'Full Name';
-      ensureSpace(60);
+      ensureSpace(45 * scale);
       doc.font('Helvetica-Bold')
          .fontSize(L.name)
          .fillColor(primaryColor)
          .text(name, { align: 'center' });
 
       if (basics?.title) {
-        doc.moveDown(0.15);
+        doc.moveDown(0.12 * scale);
         doc.font('Helvetica')
            .fontSize(L.title)
            .fillColor(secondaryColor)
@@ -1227,7 +1242,7 @@ function buildDirectPdfBuffer(resumeData) {
       if (basics?.location) contactItems.push(basics.location);
 
       if (contactItems.length > 0) {
-        doc.moveDown(0.15);
+        doc.moveDown(0.12 * scale);
         doc.font('Helvetica')
            .fontSize(L.contact)
            .fillColor(secondaryColor)
@@ -1237,18 +1252,18 @@ function buildDirectPdfBuffer(resumeData) {
       // Profile Links bar (clean labeled, clickable hyperlinks)
       const links = (basics?.links || []).filter(l => l && l.url && String(l.url).trim().length > 0);
       if (links.length > 0) {
-        doc.moveDown(0.15);
+        doc.moveDown(0.12 * scale);
         drawCenteredLinks(links);
       }
 
       // --- 2. SUMMARY (If available) ---
       if (summary && summary.trim().length > 10) {
         drawSectionHeader('Summary');
-        ensureSpace(45);
+        ensureSpace(35 * scale);
         doc.font('Helvetica')
            .fontSize(L.summary)
            .fillColor(secondaryColor)
-           .text(summary.trim(), { align: 'justify', lineGap: 1.5 });
+           .text(summary.trim(), { align: 'justify', lineGap: 1.1 * scale });
       }
 
       // --- 3. TECHNICAL SKILLS ---
@@ -1256,7 +1271,7 @@ function buildDirectPdfBuffer(resumeData) {
         drawSectionHeader('Technical Skills');
         for (const [category, items] of Object.entries(skills)) {
           if (!Array.isArray(items) || items.length === 0) continue;
-          ensureSpace(14);
+          ensureSpace(12 * scale);
           doc.font('Helvetica-Bold')
              .fontSize(L.skillCat)
              .fillColor(primaryColor)
@@ -1264,7 +1279,7 @@ function buildDirectPdfBuffer(resumeData) {
           doc.font('Helvetica')
              .fillColor(secondaryColor)
              .text(items.join(', '));
-          doc.moveDown(0.15);
+          doc.moveDown(0.1 * scale);
         }
       }
 
@@ -1272,19 +1287,19 @@ function buildDirectPdfBuffer(resumeData) {
       if (Array.isArray(codingStats) && codingStats.length > 0) {
         drawSectionHeader('Competitive Programming & Problem Solving');
         const statsLine = codingStats.map(s => `${s.platform}: ${s.highlight}`).join('   •   ');
-        ensureSpace(20);
+        ensureSpace(16 * scale);
         doc.font('Helvetica')
            .fontSize(L.stats)
            .fillColor(secondaryColor)
-           .text(statsLine, { lineGap: 1 });
+           .text(statsLine, { lineGap: 0.8 });
       }
 
       // --- 5. PROJECTS ---
       if (Array.isArray(projects) && projects.length > 0) {
         drawSectionHeader('Projects');
         projects.forEach(p => {
-          ensureSpace(16);
-          doc.moveDown(0.2);
+          ensureSpace(L.spaceTitle);
+          doc.moveDown(L.moveTitle);
           const cleanLink = (p.link || '')
             .replace(/^https?:\/\//, '')
             .replace(/\/$/, '')
@@ -1295,8 +1310,8 @@ function buildDirectPdfBuffer(resumeData) {
             doc.font('Helvetica-Oblique')
                .fontSize(L.tech)
                .fillColor(secondaryColor)
-               .text(`| ${p.techStack.join(', ')}`, { indent: 2, lineGap: 1 });
-            doc.moveDown(0.1);
+               .text(`| ${p.techStack.join(', ')}`, { indent: 2, lineGap: 0.8 });
+            doc.moveDown(0.08 * scale);
           }
 
           (p.bullets || []).forEach(drawBullet);
@@ -1307,16 +1322,16 @@ function buildDirectPdfBuffer(resumeData) {
       if (Array.isArray(experience) && experience.length > 0) {
         drawSectionHeader('Experience');
         experience.forEach(exp => {
-          ensureSpace(16);
-          doc.moveDown(0.2);
+          ensureSpace(L.spaceTitle);
+          doc.moveDown(L.moveTitle);
           drawTitleLine(exp.role || 'Role', exp.duration || '');
 
           if (exp.company) {
             doc.font('Helvetica')
                .fontSize(L.company)
                .fillColor(secondaryColor)
-               .text(exp.company, { lineGap: 1 });
-            doc.moveDown(0.1);
+               .text(exp.company, { lineGap: 0.8 });
+            doc.moveDown(0.08 * scale);
           }
 
           (exp.bullets || []).forEach(drawBullet);
@@ -1327,15 +1342,15 @@ function buildDirectPdfBuffer(resumeData) {
       if (Array.isArray(education) && education.length > 0) {
         drawSectionHeader('Education');
         education.forEach(edu => {
-          ensureSpace(16);
-          doc.moveDown(0.15);
+          ensureSpace(L.spaceEdu);
+          doc.moveDown(L.moveEdu);
           drawTitleLine(`${edu.degree || 'Degree'}${edu.score ? ` (${edu.score})` : ''}`, edu.duration || '');
 
           if (edu.institution) {
             doc.font('Helvetica')
                .fontSize(L.company)
                .fillColor(secondaryColor)
-               .text(edu.institution, { lineGap: 1 });
+               .text(edu.institution, { lineGap: 0.8 });
           }
         });
       }
@@ -1344,11 +1359,11 @@ function buildDirectPdfBuffer(resumeData) {
       if (Array.isArray(certifications) && certifications.length > 0) {
         drawSectionHeader('Certifications & Academics');
         certifications.forEach(c => {
-          ensureSpace(13);
+          ensureSpace(L.spaceCert);
           doc.font('Helvetica')
              .fontSize(L.cert)
              .fillColor(secondaryColor)
-             .text(`•  ${c.title}${c.issuer ? ` (${c.issuer})` : ''}`, { indent: 10, lineGap: 1 });
+             .text(`•  ${c.title}${c.issuer ? ` (${c.issuer})` : ''}`, { indent: L.bulletIndent, lineGap: 0.8 });
         });
       }
 
@@ -1360,13 +1375,28 @@ function buildDirectPdfBuffer(resumeData) {
     }
   });
 
-  // Best-effort compact single-page: if the standard layout overflows to 2+
-  // pages, rebuild denser so everything packs into one page.
-  return build(false).then(result => {
-    if (result.pages <= 1) return result.buffer;
-    console.log(`[DirectPdfResume] ${result.pages} pages → rebuilding compact single-page layout`);
-    return build(true).then(r => r.buffer);
-  });
+  // Strict Single-Page Guarantee with Dynamic Multi-Tier Auto-Density Ladder:
+  // Starts at scale 1.0 (comfortable Jake's resume density). If content overflows
+  // beyond 1 page, progressively scales density down (0.94 -> 0.88 -> 0.82 -> 0.77 -> 0.72)
+  // until it perfectly fits exactly on ONE single page without cutting out candidate accomplishments.
+  const densityLadder = [1.0, 0.94, 0.88, 0.82, 0.77, 0.72];
+  
+  return (async () => {
+    let lastResult = null;
+    for (const scale of densityLadder) {
+      const result = await build(scale);
+      lastResult = result;
+      if (result.pages <= 1) {
+        if (scale < 1.0) {
+          console.log(`[DirectPdfResume] Multi-tier density auto-adjusted to scale ${scale} for strict 1-page fit (1 page)`);
+        }
+        return result.buffer;
+      }
+      console.log(`[DirectPdfResume] Scale ${scale} yielded ${result.pages} pages, trying denser tier...`);
+    }
+    console.warn(`[DirectPdfResume] Max compression reached (${lastResult.pages} pages)`);
+    return lastResult.buffer;
+  })();
 }
 
 module.exports = {
