@@ -736,36 +736,62 @@ function detectCreatorIssues(data, auditResult) {
 async function selfAuditAndRefine(data, profile, customInstructions, isTargeted, jobDescription) {
   const { auditResume } = require('./resumeAnalyzerService');
 
-  // REVERSED (user request): return the generated resume data UNCHANGED. The
-  // iterative LLM refinement + Google XYZ bullet-rewrite loop below is DISABLED
-  // because it corrupted generated PDFs and regressed ATS scores (82 -> 55).
-  // We only run ONE ATS audit for scoring + recommendations; data is never
-  // mutated, so the PDF/build output is always the clean original.
-  let auditOnly = null;
+  // Step 1: Apply immediate deterministic fixes (trailing periods, undefined entries, placeholders)
+  data = applyDeterministicBulletFixes(data);
+
+  let auditResult = null;
+  const appliedSwaps = [];
+
   try {
     const auditText = resumeDataToText(data);
-    auditOnly = await auditResume({ resumeText: auditText, targetJobDescription: jobDescription || '' });
-    const s = auditOnly?.atsScore ?? 0;
-    const im = auditOnly?.breakdown?.impactAndMetrics ?? 0;
-    console.log(`[selfAudit] ATS audit complete: atsScore=${s}, impactAndMetrics=${im}`);
+    auditResult = await auditResume({ resumeText: auditText, targetJobDescription: jobDescription || '' });
+    const s = auditResult?.atsScore ?? 0;
+    const im = auditResult?.breakdown?.impactAndMetrics ?? 0;
+    console.log(`[selfAudit] Initial ATS audit complete: atsScore=${s}, impactAndMetrics=${im}`);
+
+    // Step 2: Extract verified Google XYZ bullet improvements from the audit
+    if (Array.isArray(auditResult?.bulletImprovements) && auditResult.bulletImprovements.length > 0) {
+      // Filter safe improvements: ensure improved bullet has no placeholder metrics (X%, Y users)
+      const safeImprovements = auditResult.bulletImprovements.filter(bi => {
+        if (!bi.original || !bi.improved) return false;
+        if (PLACEHOLDER_METRIC_RE.test(bi.improved)) return false;
+        // Don't swap if improved is too short or corrupted
+        if (bi.improved.trim().length < 25) return false;
+        return true;
+      });
+
+      if (safeImprovements.length > 0) {
+        const mapped = mapBulletImprovementsToData(data, safeImprovements);
+        if (mapped.length > 0) {
+          data = applyDirectBulletSwaps(data, mapped);
+          mapped.forEach(m => appliedSwaps.push({ original: m.original, improved: m.improved }));
+          console.log(`[selfAudit] Applied ${mapped.length} verified ATS Google XYZ bullet upgrades.`);
+        }
+      }
+    }
+
+    // Step 3: Re-apply deterministic checks after swap to guarantee no periods or leaked tokens
+    data = applyDeterministicBulletFixes(data);
+    data = applyShowcasePolish(data);
+
   } catch (e) {
-    console.warn(`[selfAudit] audit failed (${e.message}), skipping`);
+    console.warn(`[selfAudit] ATS audit / refine non-blocking warning (${e.message})`);
   }
 
   return {
     data,
-    audit: auditOnly ? {
-      atsScore: auditOnly.atsScore ?? 0,
-      verdict: auditOnly.verdict ?? '',
-      breakdown: auditOnly.breakdown ?? {},
-      executiveSummary: auditOnly.executiveSummary ?? '',
-      strengths: auditOnly.strengths ?? [],
-      criticalNegatives: auditOnly.criticalNegatives ?? [],
-      atsKeywordsFound: auditOnly.atsKeywordsFound ?? [],
-      missingRecommendedKeywords: auditOnly.missingRecommendedKeywords ?? [],
-      bulletImprovements: auditOnly.bulletImprovements ?? [],
-      actionPlan: auditOnly.actionPlan ?? [],
-      appliedSwaps: []
+    audit: auditResult ? {
+      atsScore: auditResult.atsScore ?? 0,
+      verdict: auditResult.verdict ?? '',
+      breakdown: auditResult.breakdown ?? {},
+      executiveSummary: auditResult.executiveSummary ?? '',
+      strengths: auditResult.strengths ?? [],
+      criticalNegatives: auditResult.criticalNegatives ?? [],
+      atsKeywordsFound: auditResult.atsKeywordsFound ?? [],
+      missingRecommendedKeywords: auditResult.missingRecommendedKeywords ?? [],
+      bulletImprovements: auditResult.bulletImprovements ?? [],
+      actionPlan: auditResult.actionPlan ?? [],
+      appliedSwaps
     } : null
   };
 }
@@ -822,11 +848,88 @@ async function generateStructuredResumeData({ profile, jobDescription = '', cust
     safeProfile.smartLinksResult = safeProfile.smartLinksResult.slice(0, 15);
   }
 
-  const prompt = `You are a World-Class Technical Career Strategist and Harvard/Google Resume Expert.
-Convert the candidate's master profile into a polished, high-impact ATS Technical Resume dataset.
+  // Aggregate candidate data strictly from 3 primary source buckets:
+  // 1. Source: LINKS (Smart Links, GitHub, LinkedIn, Portfolios, Dev handles)
+  // 2. Source: DOCUMENTS (Uploaded base resume rawText, verified certificates & marksheets)
+  // 3. Source: GITHUB (Deep inspected repos, languages, dependencies, README summaries)
+  const sourceBuckets = {
+    links: {
+      githubUsername: safeProfile.githubUsername || '',
+      smartLinks: safeProfile.smartLinks || [],
+      developerPlatforms: safeProfile.developerPlatforms || {},
+      savedHandles: safeProfile.savedHandles || {}
+    },
+    documents: {
+      baseResumeText: safeProfile.baseResume?.rawText || '',
+      uploadedCertifications: safeProfile.certifications || [],
+      educationRecords: safeProfile.education || []
+    },
+    githubProjects: safeProfile.githubProjects || []
+  };
 
-CANDIDATE MASTER PROFILE:
-${JSON.stringify(safeProfile, null, 2)}
+  const prompt = `You are a World-Class Technical Career Strategist, Chief Recruiter, and Harvard/Google Resume Expert.
+Synthesize the candidate's verified profile data from 3 PRIMARY SOURCE BUCKETS into a polished, high-impact ATS Technical Resume dataset.
+
+==================================================
+PRIMARY SOURCE BUCKET 1: LINKS & ONLINE HANDLES
+==================================================
+${JSON.stringify(sourceBuckets.links, null, 2)}
+
+==================================================
+PRIMARY SOURCE BUCKET 2: DOCUMENTS & VERIFIED RECORDS
+==================================================
+${JSON.stringify(sourceBuckets.documents, null, 2)}
+
+==================================================
+PRIMARY SOURCE BUCKET 3: GITHUB REPOSITORIES & ARCHITECTURE
+==================================================
+${JSON.stringify(sourceBuckets.githubProjects, null, 2)}
+
+STRICT SECTION-BY-SECTION SYNTHESIS PROTOCOL:
+
+1. HEADER & BASICS (Derived from Source 1 & 2):
+   - Extract verified full name, professional email, phone number, and location.
+   - Links: ONLY include links that genuinely exist in Source 1 (GitHub, LinkedIn, Portfolios, LeetCode/CodeChef if high rating). NEVER hallucinate links.
+   - Clean labels: "GitHub", "LinkedIn", "Portfolio" with valid URLs.
+
+2. PROFESSIONAL SUMMARY (Derived from Source 2 & 3):
+   - Exactly 2 to 3 concise, powerful lines highlighting core engineering focus, primary tech stack, and distributed/AI systems built.
+   - Must be strictly evidence-based. No fluffy buzzwords ("passionate developer looking for...").
+   - NO ending period at the end of summary.
+
+3. TECHNICAL SKILLS (Categorized strictly from Source 2 & 3):
+   - Group into 4 clean categories:
+     * "Languages": (e.g. JavaScript, TypeScript, Python, C++, SQL)
+     * "Frameworks & Backend": (e.g. Node.js, Express, React, Next.js)
+     * "Cloud & Databases": (e.g. Firebase, MongoDB, PostgreSQL, Docker, AWS, Cloudinary)
+     * "Core Competencies": (e.g. REST APIs, Microservices, System Architecture, Computer Vision)
+   - Only list skills that appear in their GitHub packages/languages or base resume documents.
+
+4. WORK EXPERIENCE / CLIENT WORK (Routing Rule):
+   - If the candidate indicates freelancing or client work (or if notes say "client ke liye / freelancing me banaya"):
+     * Place in experience[] as role (e.g. "Freelance Full-Stack Developer"), company (client name), duration, location ("Remote"), and client-delivery outcome bullets.
+     * Do NOT duplicate it in projects[].
+   - If there is no formal or freelance work experience in data, leave experience[] as empty array [].
+
+5. PROJECTS (Derived directly from Source 3 GitHub Repos):
+   - Signature projects (BoB, The Falcon Tour, Bloom, Smart Attendance System, or top GitHub repos) must be preserved.
+   - Tech Stack: Extract the real languages & tools from repo data.
+   - Links: Provide genuine GitHub repo URL or live demo URL.
+   - Google XYZ Formula Bullets (Max 2-3 per project):
+     * Format: [Strong Action Verb] + [Technical Scope / Implementation] + [Measurable Technical Outcome / Benchmark].
+     * Examples of verbs: Architected, Engineered, Implemented, Spearheaded, Optimized, Automated.
+     * Use real numbers/specs from the README / repo summary (e.g. "sub-200ms latency", "128-dimensional embeddings", "handling multi-document uploads").
+     * CRITICAL: NEVER use placeholder metrics like "X%", "Y users", "Z records". If no exact number exists, describe the concrete engineering outcome (e.g. "automating real-time face matching pipeline with zero manual intervention").
+     * NO ENDING PERIODS: Do NOT put '.' at the end of any bullet point.
+
+6. EDUCATION & CERTIFICATIONS (Derived from Source 2 Documents):
+   - Education: Degree, institution, duration, and score/CGPA if present in documents. Do NOT invent start/end years.
+   - Certifications: Include verified industry credentials (AWS, Google Cloud, AI Specializations). EXCLUDE generic attendance/participation certificates. Marksheets belong to Education only.
+
+7. STRICT GRAMMAR & LAYOUT STANDARDS:
+   - Impeccable professional English and grammar.
+   - Single-focus statements without redundancy.
+   - High ATS keyword density tailored to modern software engineering roles.
 
 CRITICAL RULES:
 1. LINKS INTEGRITY: ONLY include links that the candidate ACTUALLY has provided in their master profile, smartLinks array, or base resume (e.g. GitHub, LinkedIn, LeetCode, CodeChef, Portfolios). Do NOT hallucinate or insert links if the user has NOT provided them! Ensure link labels are clean and accurate.
