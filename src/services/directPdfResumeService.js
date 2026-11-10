@@ -812,16 +812,11 @@ async function generateStructuredResumeData({ profile, jobDescription = '', cust
     safeProfile.rawText = safeProfile.rawText.slice(0, 2000) + '... [truncated]';
   }
   if (safeProfile.fileBuffer) delete safeProfile.fileBuffer;
-  // Strip the previous generated resume + parsed PDF text — they balloon the
-  // prompt (baseResume.rawText can be 10s of KB) and cause token-limit errors.
+  // Strip previous generated resume, notes snapshot, and previous baseResume
+  // to avoid biased, corrupted, or stale text polluting generation.
   delete safeProfile.latestResumeData;
   delete safeProfile.resumeNotes;
-  if (safeProfile.baseResume && typeof safeProfile.baseResume === 'object') {
-    safeProfile.baseResume = {
-      ...safeProfile.baseResume,
-      rawText: safeProfile.baseResume.rawText ? String(safeProfile.baseResume.rawText).slice(0, 3000) : ''
-    };
-  }
+  delete safeProfile.baseResume;
   const SIGNATURE_PROJECTS = new Set(['bob', 'the falcon tour', 'bloom', 'smart attendance system', 'market kingdom']);
   if (Array.isArray(safeProfile.githubProjects)) {
     safeProfile.githubProjects = safeProfile.githubProjects.slice(0, 30).map(proj => {
@@ -850,17 +845,20 @@ async function generateStructuredResumeData({ profile, jobDescription = '', cust
 
   // Aggregate candidate data strictly from 3 primary source buckets:
   // 1. Source: LINKS (Smart Links, GitHub, LinkedIn, Portfolios, Dev handles)
-  // 2. Source: DOCUMENTS (Uploaded base resume rawText, verified certificates & marksheets)
+  // 2. Source: DOCUMENTS (Verified certificates, 10th/12th marksheets, college degree records)
   // 3. Source: GITHUB (Deep inspected repos, languages, dependencies, README summaries)
   const sourceBuckets = {
     links: {
+      name: safeProfile.name || safeProfile.personal?.name || '',
+      email: safeProfile.email || safeProfile.personal?.email || '',
+      phone: safeProfile.phone || safeProfile.personal?.phone || '',
+      location: safeProfile.location || safeProfile.personal?.location || '',
       githubUsername: safeProfile.githubUsername || '',
       smartLinks: safeProfile.smartLinks || [],
       developerPlatforms: safeProfile.developerPlatforms || {},
       savedHandles: safeProfile.savedHandles || {}
     },
     documents: {
-      baseResumeText: safeProfile.baseResume?.rawText || '',
       uploadedCertifications: safeProfile.certifications || [],
       educationRecords: safeProfile.education || []
     },
@@ -869,6 +867,7 @@ async function generateStructuredResumeData({ profile, jobDescription = '', cust
 
   const prompt = `You are a World-Class Technical Career Strategist, Chief Recruiter, and Harvard/Google Resume Expert.
 Synthesize the candidate's verified profile data from 3 PRIMARY SOURCE BUCKETS into a polished, high-impact ATS Technical Resume dataset.
+(Note: Base/old resume parsing has been intentionally removed to prevent hallucination or stale text from contaminating this resume. Rely strictly on genuine GitHub projects, authentic marksheets/certificates, and verified links.)
 
 ==================================================
 PRIMARY SOURCE BUCKET 1: LINKS & ONLINE HANDLES
@@ -939,9 +938,9 @@ STRICT SECTION-BY-SECTION SYNTHESIS PROTOCOL:
    - High ATS keyword density tailored to modern software engineering roles.
 
 CRITICAL RULES:
-1. LINKS INTEGRITY: ONLY include links that the candidate ACTUALLY has provided in their master profile, smartLinks array, or base resume (e.g. GitHub, LinkedIn, LeetCode, CodeChef, Portfolios). Do NOT hallucinate or insert links if the user has NOT provided them! Ensure link labels are clean and accurate.
+1. LINKS & CONTACT INTEGRITY: Extract name, email, phone, location from profile. ONLY include links that the candidate ACTUALLY has provided in their master profile or smartLinks array (e.g. GitHub, LinkedIn, LeetCode, CodeChef, Portfolios). Do NOT hallucinate or insert links if the user has NOT provided them! Ensure link labels are clean and accurate.
 2. PROJECT PRESERVATION, CLASSIFICATION & HIRATION BULLETS:
-   - The candidate's own named signature projects (BoB, The Falcon Tour, Bloom, Smart Attendance System, Market Kingdom, or any project named in their profile / base resume / notes) MUST all be preserved in the projects array with accurate titles — never drop them, never swap in hallucinated projects. If it is a lot of projects it is fine: this resume is built for high density.
+   - The candidate's own named signature projects (BoB, The Falcon Tour, Bloom, Smart Attendance System, Market Kingdom, or any project named in their profile / notes) MUST all be preserved in the projects array with accurate titles — never drop them, never swap in hallucinated projects. If it is a lot of projects it is fine: this resume is built for high density.
    - CLASSIFY PERSONAL vs FREELANCE/CLIENT WORK — CRITICAL ROUTING RULE:
      * FREELANCING / CLIENT WORK → MUST go in "experience" array, NOT "projects" array.
        If the candidate (or their custom instructions) says a project was freelancing, for a client, or paid service work — keywords: "client ke liye banaya", "freelancing me banaya", "service project", "client work" — place it in experience[] as:
