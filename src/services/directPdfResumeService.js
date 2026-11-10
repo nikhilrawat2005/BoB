@@ -922,9 +922,16 @@ STRICT SECTION-BY-SECTION SYNTHESIS PROTOCOL:
      * CRITICAL: NEVER use placeholder metrics like "X%", "Y users", "Z records". If no exact number exists, describe the concrete engineering outcome (e.g. "automating real-time face matching pipeline with zero manual intervention").
      * NO ENDING PERIODS: Do NOT put '.' at the end of any bullet point.
 
-6. EDUCATION & CERTIFICATIONS (Derived from Source 2 Documents):
-   - Education: Degree, institution, duration, and score/CGPA if present in documents. Do NOT invent start/end years.
-   - Certifications: Include verified industry credentials (AWS, Google Cloud, AI Specializations). EXCLUDE generic attendance/participation certificates. Marksheets belong to Education only.
+6. EDUCATION & ACADEMIC RECORDS (Derived from Source 2 Documents & Marksheets):
+   - CRITICAL REQUIREMENT FOR 10th & 12th MARKSHEETS / ACADEMIC RECORDS:
+     * Inspect Source 2 ("uploadedCertifications" and "educationRecords") for 10th, 12th, Senior Secondary, Secondary School, CBSE, ICSE, or State Board marksheets and report cards.
+     * When 10th or 12th marksheet/record exists in Source 2:
+       - You MUST add them to the "education" array as dedicated entries!
+       - Format 10th: degree="Class X (Secondary School Examination)" or "10th Grade / CBSE", institution=School name or Board (e.g. CBSE / State Board), duration=Passing Year (e.g. "2019" or "2020"), score=Percentage or CGPA (e.g. "88%" or "9.2 CGPA").
+       - Format 12th: degree="Class XII (Senior School Certificate Examination)" or "12th Grade (PCM)", institution=School name or Board, duration=Passing Year (e.g. "2021" or "2022"), score=Percentage or PCM % (e.g. "85%").
+     * College Degree: Place B.Tech / BCA / Degree entry first, followed by Class XII, then Class X in reverse chronological order.
+     * Do NOT place 10th/12th marksheets in certifications[] (they belong strictly in education[]).
+   - Certifications: Include verified industry credentials (AWS, Google Cloud, AI Specializations). EXCLUDE generic attendance/participation certificates.
 
 7. STRICT GRAMMAR & LAYOUT STANDARDS:
    - Impeccable professional English and grammar.
@@ -962,6 +969,7 @@ HOW TO APPLY THEM:
    - If the user gives a personal overview / story / context, weave the meaningful parts naturally into the summary and project descriptions without inventing any facts or metrics.
    - These notes OVERRIDE any conflicting default behaviour above.` : `(No custom notes provided — use your best editorial judgement purely from the profile data.)`}
 4. CERTIFICATIONS & ACADEMICS (RIGOROUS HIGH-SIGNAL STANDARD):
+   - 10th & 12th MARKSHEETS GO UNDER EDUCATION: If candidate uploaded 10th/12th marksheets, extract their Board/School, Year, and Percentage/CGPA and add them to education[].
    - INSPECT CANDIDATE'S UPLOADED CERTIFICATIONS IN MASTER PROFILE: Look at profile.certifications! If accredited or industry-relevant certifications exist (such as AWS Academy Graduate, Prompt Engineering with ChatGPT / AI Specializations, Google Cloud, or professional tech credentials), ALWAYS INCLUDE THEM in the certifications[] array with verified titles and issuers (e.g. "AWS Academy Graduate — Cloud Foundations", Issuer: "Amazon Web Services"; "Prompt Engineering with ChatGPT", Issuer: "Simplilearn SkillUp").
    - NEVER fabricate or upgrade titles! (e.g., NEVER turn a "Certificate of Participation" into a "National Finalist" or "Certificate of Innovation"!).
    - DROP ALL BARE PARTICIPATION CERTIFICATES (e.g. general hackathon attendance, webinar participation, completion of simple contests). If a certificate is just participation or attendance with no accredited credential or rank/placement, EXCLUDE IT ENTIRELY from the resume. A resume must contain only diamonds, zero clutter.

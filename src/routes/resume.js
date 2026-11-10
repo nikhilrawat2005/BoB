@@ -279,12 +279,25 @@ router.post(['/upload/certificate', '/upload/documents'], requireAuth, upload.ar
         category = 'Degree / Diploma';
       }
 
+      // 3. Extract text content from document (Marksheets, Transcripts, Certificates)
+      let extractedText = '';
+      try {
+        if (file.buffer) {
+          const documentReader = require('../services/documentReaderService');
+          const extResult = await documentReader.extractText(file.buffer, file.originalname);
+          extractedText = (extResult && extResult.text) ? extResult.text.slice(0, 5000) : '';
+        }
+      } catch (err) {
+        console.warn(`[ResumeAPI] Could not extract text from ${file.originalname}:`, err.message);
+      }
+
       const docRecord = {
         id: storedFile.id,
         title: cleanTitle,
         category,
         issuer: req.body.issuer || 'Verified Academic/Cert Authority',
         url: storedFile.url,
+        extractedText: extractedText || undefined,
         createdAt: Date.now()
       };
 
