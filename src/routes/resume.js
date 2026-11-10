@@ -302,16 +302,62 @@ router.post(['/upload/certificate', '/upload/documents'], requireAuth, upload.ar
         category = 'Marksheet / Academic Record';
       }
 
+      // 4b. Smart Academic & Cert Parsing (Extract School, Board, Year, Score & Issuer)
+      let academicMeta = null;
+      let detectedIssuer = req.body.issuer || '';
+
+      if (isMarksheet && extractedText) {
+        const boardMatch = extractedText.match(/(?:CENTRAL\s+BOARD\s+OF\s+SECONDARY\s+EDUCATION|CBSE|ICSE|COUNCIL\s+FOR\s+THE\s+INDIAN\s+SCHOOL|STATE\s+BOARD|UP\s+BOARD)/i);
+        const board = boardMatch ? (boardMatch[0].toUpperCase().includes('CBSE') ? 'CBSE' : boardMatch[0].trim()) : 'CBSE';
+
+        // Extract passing year e.g. 2018, 2019, 2020, 2021, 2022, 2023, 2024
+        const yearMatches = extractedText.match(/\b(201\d|202[0-5])\b/g);
+        const year = yearMatches ? yearMatches[yearMatches.length - 1] : '';
+
+        // Extract percentage or CGPA e.g. 88.4%, 92%, 8.8 CGPA
+        const scoreMatch = extractedText.match(/(\d{2}(?:\.\d{1,2})?\s*%)|(?:(?:CGPA|GRADE\s+POINT\s+AVERAGE)[\s:]*([0-9]\.[0-9]{1,2}))/i);
+        const score = scoreMatch ? (scoreMatch[1] || `${scoreMatch[2]} CGPA`) : '';
+
+        // Extract School name e.g. "School: XYZ Public School" or "KV ..."
+        const schoolMatch = extractedText.match(/(?:SCHOOL|INSTITUTION|NAME OF SCHOOL)[\s:\-]+([A-Z0-9\s,\.]{4,60})/i);
+        const schoolName = schoolMatch ? schoolMatch[1].trim().replace(/\s+/g, ' ') : '';
+
+        academicMeta = {
+          board,
+          schoolName: schoolName || `${board} Affiliated School`,
+          year,
+          score
+        };
+        detectedIssuer = academicMeta.schoolName ? `${academicMeta.schoolName} (${board})` : board;
+      } else {
+        // Detect issuer for certificates
+        const lowerText = (cleanTitle + ' ' + extractedText).toLowerCase();
+        if (lowerText.includes('aws') || lowerText.includes('amazon web services')) {
+          detectedIssuer = 'Amazon Web Services (AWS)';
+        } else if (lowerText.includes('google cloud') || lowerText.includes('google')) {
+          detectedIssuer = 'Google Cloud';
+        } else if (lowerText.includes('deeplearning.ai')) {
+          detectedIssuer = 'DeepLearning.AI';
+        } else if (lowerText.includes('coursera')) {
+          detectedIssuer = 'Coursera';
+        } else if (lowerText.includes('simplilearn')) {
+          detectedIssuer = 'Simplilearn SkillUp';
+        } else if (!detectedIssuer) {
+          detectedIssuer = 'Certified Authority';
+        }
+      }
+
       const docRecord = {
         id: storedFile.id,
         title: cleanTitle,
         category,
+        academicMeta: academicMeta || undefined,
         isParticipation: Boolean(isParticipation),
         isResumeWorthy: !isParticipation,
         qualificationReason: isMarksheet
           ? 'Academic Record (10th/12th/Degree) for Education'
           : (isParticipation ? 'Generic Participation Certificate (Omitted from ATS resume)' : 'Verified Achievement / Course Certificate'),
-        issuer: req.body.issuer || 'Verified Academic/Cert Authority',
+        issuer: detectedIssuer || req.body.issuer || 'Certified Authority',
         url: storedFile.url,
         extractedText: extractedText || undefined,
         createdAt: Date.now()

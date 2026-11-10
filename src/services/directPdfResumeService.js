@@ -401,18 +401,55 @@ function applyShowcasePolish(data) {
     data.projects = data.projects.slice(0, maxProjects);
   }
 
-  // Filter out low-signal participation certs. Keep only genuine, accredited or high-value certifications
+  // Filter out low-signal participation certs and deduplicate certificates
   if (Array.isArray(data.certifications)) {
     const PARTICIPATION_DROP_RE = /certificate of participation|participated in|participant|attendance|milestone \(rating: 1[0-3]\d\d\)/i;
-    data.certifications = data.certifications
-      .map(c => {
-        if (c && c.title) {
-          const t = sanitizeBullet(c.title);
-          if (t) c.title = t;
-        }
-        return c;
-      })
-      .filter(c => c && c.title && !PARTICIPATION_DROP_RE.test(c.title));
+    const seenCertKeys = new Set();
+    const dedupedCerts = [];
+
+    data.certifications.forEach(c => {
+      if (!c || !c.title) return;
+      const cleanTitle = sanitizeBullet(c.title);
+      if (!cleanTitle || PARTICIPATION_DROP_RE.test(cleanTitle)) return;
+
+      // Normalize key to deduplicate e.g. "AWS Cloud Foundations" vs "aws certificate"
+      let normKey = cleanTitle.toLowerCase().replace(/certificate|cert/g, '').replace(/[^a-z0-9]/g, '');
+      if (normKey.includes('aws')) normKey = 'aws_cloud';
+      if (normKey.includes('promptengineering')) normKey = 'prompt_engineering';
+
+      if (seenCertKeys.has(normKey)) return;
+      seenCertKeys.add(normKey);
+
+      let issuer = c.issuer || '';
+      if (!issuer || issuer.toLowerCase().includes('verified academic') || issuer.toLowerCase().includes('authority')) {
+        if (/aws|amazon/i.test(cleanTitle)) issuer = 'Amazon Web Services (AWS)';
+        else if (/prompt|chatgpt|deeplearning/i.test(cleanTitle)) issuer = 'DeepLearning.AI / Simplilearn';
+        else if (/google/i.test(cleanTitle)) issuer = 'Google Cloud';
+        else issuer = 'Certified Authority';
+      }
+
+      dedupedCerts.push({
+        title: cleanTitle,
+        issuer
+      });
+    });
+
+    data.certifications = dedupedCerts;
+  }
+
+  // Refine Education details if generic placeholders exist
+  if (Array.isArray(data.education)) {
+    data.education = data.education.map(edu => {
+      if (!edu) return edu;
+      let inst = edu.institution || '';
+      if (inst.toLowerCase().includes('verified academic') || inst.toLowerCase().includes('cert authority')) {
+        inst = 'CBSE Affiliated Institution';
+      }
+      return {
+        ...edu,
+        institution: inst
+      };
+    });
   }
 
   // Quality Gate: Only surface Competitive Programming if it is genuinely recruiter-grade
