@@ -298,6 +298,14 @@ function parsePlatformFromUrl(rawUrl) {
     const user = (parts[0] === 'profile' ? parts[1] : parts[0]) || '';
     return { type: 'hackerrank', handle: user.replace(/\/+$/, '') };
   }
+  if (hostname.includes('geeksforgeeks.org')) {
+    // /user/username or /profile/username
+    const user = (['user', 'profile'].includes(parts[0]) ? parts[1] : parts[0]) || '';
+    return { type: 'gfg', handle: user.replace(/\/+$/, '') };
+  }
+  if (hostname.includes('linkedin.com')) {
+    return { type: 'linkedin', handle: parts[1] || parts[0] || '' };
+  }
   if (hostname.includes('dev.to')) {
     const user = parts[0] || '';
     return { type: 'devto', handle: user.replace(/\/+$/, '') };
@@ -355,25 +363,66 @@ async function fetchSmartLinks(links = []) {
       if (detected.type === 'leetcode' && detected.handle) {
         data = await getLeetCodeStats(detected.handle);
         category = 'coding';
+        // Evaluation: Quality gate threshold
+        if (data && typeof data.solvedTotal === 'number') {
+          const isWorthy = data.solvedTotal >= 50; // Threshold for ATS resume showcase
+          data.isResumeWorthy = isWorthy;
+          data.qualificationReason = isWorthy 
+            ? `Verified ${data.solvedTotal} problems solved on LeetCode (Strong signal)`
+            : `Only ${data.solvedTotal} problems solved (Below 50 threshold - dropped from ATS showcase)`;
+        }
       } else if (detected.type === 'codechef' && detected.handle) {
         data = await getCodeChefStats(detected.handle);
         category = 'coding';
+        if (data) {
+          const rating = data.rating || 0;
+          const isWorthy = rating >= 1400;
+          data.isResumeWorthy = isWorthy;
+          data.qualificationReason = isWorthy
+            ? `CodeChef rating ${rating} (${data.stars || 'rated'}) qualifies for competitive showcase`
+            : `CodeChef rating ${rating} below competitive threshold (1400+)`;
+        }
       } else if (detected.type === 'codeforces' && detected.handle) {
         data = await getCodeforcesStats(detected.handle);
         category = 'coding';
+        if (data) {
+          const rating = data.rating || 0;
+          const isWorthy = rating >= 1200;
+          data.isResumeWorthy = isWorthy;
+          data.qualificationReason = isWorthy
+            ? `Codeforces rating ${rating} (${data.rank || 'rated'}) qualifies for competitive showcase`
+            : `Codeforces rating ${rating} below competitive threshold (1200+)`;
+        }
       } else if (detected.type === 'hackerrank' && detected.handle) {
         data = await getHackerRankStats(detected.handle);
         category = 'coding';
+        if (data) {
+          const badgesCount = (data.badges || []).length;
+          const isWorthy = badgesCount >= 2;
+          data.isResumeWorthy = isWorthy;
+          data.qualificationReason = isWorthy
+            ? `Verified ${badgesCount} badges on HackerRank`
+            : `Insufficient badges on HackerRank (${badgesCount})`;
+        }
       } else if (detected.type === 'devto' && detected.handle) {
         data = await getDevToArticles(detected.handle);
         category = 'blog';
       } else if (detected.type === 'github') {
         category = 'github';
-        data = { platform: 'GitHub', username: detected.handle, profileUrl: url };
+        data = { platform: 'GitHub', username: detected.handle, profileUrl: url, isResumeWorthy: true };
+      } else if (detected.type === 'linkedin') {
+        category = 'social';
+        data = { platform: 'LinkedIn', profileUrl: url, isResumeWorthy: true };
       } else {
         // Generic portfolio / custom website crawler + LLM analysis
         data = await extractGenericWebProfile(url, label || 'Portfolio');
         category = 'portfolio';
+        if (data) {
+          // If valid portfolio with real headline/projects/summary, mark resume worthy
+          const hasContent = Boolean(data.headline || (data.projects && data.projects.length > 0) || data.summary);
+          data.isResumeWorthy = hasContent;
+          data.qualificationReason = hasContent ? 'Verified active live portfolio' : 'Insufficient technical content on portfolio';
+        }
       }
     } catch (e) {
       console.error(`[SmartLinks] Failed to fetch data for ${url}:`, e.message);

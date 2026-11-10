@@ -291,10 +291,26 @@ router.post(['/upload/certificate', '/upload/documents'], requireAuth, upload.ar
         console.warn(`[ResumeAPI] Could not extract text from ${file.originalname}:`, err.message);
       }
 
+      // 4. Intelligence Tagging: Distinguish 10th/12th marksheets, real completion/achievement certs vs low-value participation
+      const isParticipation = /(?:certificate\s+of\s+participation|participated\s+in|participant|attendance|webinar|seminar)/i.test(cleanTitle) ||
+        (extractedText && /(?:certificate\s+of\s+participation|successfully\s+participated|participated\s+in\s+the|for\s+participating)/i.test(extractedText));
+
+      const isMarksheet = category === 'Marksheet / Academic Record' ||
+        /(?:secondary\s+school|senior\s+school|class\s+(?:x|xii|10th|12th)|mark\s*sheet|statement\s+of\s+marks|board\s+of\s+secondary)/i.test(extractedText);
+
+      if (isMarksheet) {
+        category = 'Marksheet / Academic Record';
+      }
+
       const docRecord = {
         id: storedFile.id,
         title: cleanTitle,
         category,
+        isParticipation: Boolean(isParticipation),
+        isResumeWorthy: !isParticipation,
+        qualificationReason: isMarksheet
+          ? 'Academic Record (10th/12th/Degree) for Education'
+          : (isParticipation ? 'Generic Participation Certificate (Omitted from ATS resume)' : 'Verified Achievement / Course Certificate'),
         issuer: req.body.issuer || 'Verified Academic/Cert Authority',
         url: storedFile.url,
         extractedText: extractedText || undefined,

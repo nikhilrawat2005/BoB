@@ -844,9 +844,27 @@ async function generateStructuredResumeData({ profile, jobDescription = '', cust
   }
 
   // Aggregate candidate data strictly from 3 primary source buckets:
-  // 1. Source: LINKS (Smart Links, GitHub, LinkedIn, Portfolios, Dev handles)
-  // 2. Source: DOCUMENTS (Verified certificates, 10th/12th marksheets, college degree records)
+  // 1. Source: LINKS (Smart Links, GitHub, LinkedIn, Portfolios, Dev handles - pre-filtered for quality)
+  // 2. Source: DOCUMENTS (Verified certificates, 10th/12th marksheets, college degree records - participation dropped)
   // 3. Source: GITHUB (Deep inspected repos, languages, dependencies, README summaries)
+
+  // Filter out low-value participation documents early
+  const qualifiedDocs = (safeProfile.certifications || []).filter(c => {
+    if (c.isParticipation) return false;
+    const title = (c.title || '').toLowerCase();
+    return !/certificate of participation|participated in|webinar|attendance/i.test(title);
+  });
+
+  // Filter links for qualified developer platforms (LeetCode >= 50, CodeChef >= 1400)
+  const qualifiedPlatforms = {};
+  if (safeProfile.developerPlatforms) {
+    for (const [key, plat] of Object.entries(safeProfile.developerPlatforms)) {
+      if (plat && plat.isResumeWorthy !== false) {
+        qualifiedPlatforms[key] = plat;
+      }
+    }
+  }
+
   const sourceBuckets = {
     links: {
       name: safeProfile.name || safeProfile.personal?.name || '',
@@ -855,11 +873,11 @@ async function generateStructuredResumeData({ profile, jobDescription = '', cust
       location: safeProfile.location || safeProfile.personal?.location || '',
       githubUsername: safeProfile.githubUsername || '',
       smartLinks: safeProfile.smartLinks || [],
-      developerPlatforms: safeProfile.developerPlatforms || {},
+      developerPlatforms: qualifiedPlatforms,
       savedHandles: safeProfile.savedHandles || {}
     },
     documents: {
-      uploadedCertifications: safeProfile.certifications || [],
+      uploadedCertifications: qualifiedDocs,
       educationRecords: safeProfile.education || []
     },
     githubProjects: safeProfile.githubProjects || []
