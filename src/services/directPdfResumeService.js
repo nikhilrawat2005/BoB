@@ -896,13 +896,13 @@ STRICT SECTION-BY-SECTION SYNTHESIS PROTOCOL:
    - Must be strictly evidence-based. No fluffy buzzwords ("passionate developer looking for...").
    - NO ending period at the end of summary.
 
-3. TECHNICAL SKILLS (Categorized strictly from Source 2 & 3):
+3. TECHNICAL SKILLS (Categorized strictly from GitHub & Document data):
    - Group into 4 clean categories:
      * "Languages": (e.g. JavaScript, TypeScript, Python, C++, SQL)
      * "Frameworks & Backend": (e.g. Node.js, Express, React, Next.js)
      * "Cloud & Databases": (e.g. Firebase, MongoDB, PostgreSQL, Docker, AWS, Cloudinary)
      * "Core Competencies": (e.g. REST APIs, Microservices, System Architecture, Computer Vision)
-   - Only list skills that appear in their GitHub packages/languages or base resume documents.
+   - STRICT DATA GROUNDING: Only list skills and technologies that literally appear in GitHub repository dependencies/languages or uploaded documents. Do NOT assume, invent, or add generic skills that are not present in the provided data.
 
 4. WORK EXPERIENCE / CLIENT WORK (Routing Rule):
    - If the candidate indicates freelancing or client work (or if notes say "client ke liye / freelancing me banaya"):
