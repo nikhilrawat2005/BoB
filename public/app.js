@@ -7379,7 +7379,6 @@ async function loadCandidateProfilesList() {
 async function loadResumeProfile(profileId = activeCandidateProfileId) {
   activeCandidateProfileId = profileId || 'master';
   const syncStatus = document.getElementById('resume-sync-status');
-  const baseStatus = document.getElementById('resume-base-status');
   const certCount = document.getElementById('resume-cert-count');
   const ghInput = document.getElementById('resume-github-username');
   const lcInput = document.getElementById('resume-leetcode-username');
@@ -7426,14 +7425,6 @@ async function loadResumeProfile(profileId = activeCandidateProfileId) {
 
       renderSmartLinksUI(savedSmartLinks);
       renderSmartLinksBadges(res.profile.smartLinksResult || [], res.profile.developerPlatforms || {});
-
-      if (baseStatus) {
-        if (res.profile.baseResume?.url) {
-          baseStatus.innerHTML = `✅ <a href="${res.profile.baseResume.url}" target="_blank" style="color:var(--accent);">View Uploaded PDF</a> (${res.profile.baseResume.originalName || 'base_resume.pdf'})`;
-        } else {
-          baseStatus.textContent = 'No PDF uploaded yet';
-        }
-      }
 
       if (certCount) {
         const total = (res.profile.certifications || []).length;
@@ -7793,40 +7784,6 @@ document.getElementById('resume-sync-all-btn')?.addEventListener('click', async 
     await loadResumeProfile(activeCandidateProfileId);
   } catch (err) {
     statusEl.textContent = `❌ Sync failed: ${err.message}`;
-  }
-});
-
-// Base Resume PDF Upload
-document.getElementById('resume-base-input')?.addEventListener('change', async (e) => {
-  const file = e.target.files[0];
-  if (!file) return;
-  const statusEl = document.getElementById('resume-base-status');
-  statusEl.textContent = '⏳ Uploading and parsing previous resume PDF...';
-
-  const formData = new FormData();
-  formData.append('file', file);
-  formData.append('profileId', activeCandidateProfileId);
-
-  try {
-    const token = await auth.currentUser.getIdToken();
-    const res = await fetch(API + `/api/resume/upload/base?profileId=${encodeURIComponent(activeCandidateProfileId)}`, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${token}` },
-      body: formData
-    });
-    const text = await res.text();
-    let data = {};
-    try { data = JSON.parse(text); } catch {
-      if (res.status === 413 || text.includes('Request Entity')) {
-        throw new Error('PDF file size is too large. Please upload a file under 25MB.');
-      }
-      throw new Error(text.slice(0, 150) || `HTTP ${res.status}`);
-    }
-    if (!res.ok) throw new Error(data.error || 'Upload failed');
-    statusEl.innerHTML = `✅ <a href="${data.baseResume.url}" target="_blank" style="color:var(--accent);">View Uploaded PDF</a>`;
-    await loadResumeProfile(activeCandidateProfileId);
-  } catch (err) {
-    statusEl.textContent = `❌ Error: ${err.message}`;
   }
 });
 

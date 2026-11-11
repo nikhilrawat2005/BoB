@@ -214,41 +214,7 @@ router.get('/smart-links', requireAuth, async (req, res) => {
   }
 });
 
-/**
- * 5. POST /api/resume/upload/base — Upload & Parse Previous Resume (PDF)
- */
-router.post('/upload/base', requireAuth, upload.single('file'), async (req, res) => {
-  try {
-    if (!req.file) return res.status(400).json({ error: 'No PDF file uploaded' });
-    const profileId = req.query.profileId || req.body.profileId || 'master';
-
-    // 1. Upload to Cloudinary via fileService
-    const storedFile = await fileService.uploadFile(req.userId, req.file);
-
-    // 2. Parse text
-    const parsed = await resumeProfile.parseResumePdf(req.file.buffer);
-
-    // 3. Update candidate profile with baseResume reference
-    const currentProfile = await resumeProfile.getMasterProfile(req.userId, profileId);
-    currentProfile.baseResume = {
-      fileId: storedFile.id,
-      url: storedFile.url,
-      originalName: req.file.originalname,
-      uploadedAt: Date.now(),
-      rawText: parsed.rawText
-    };
-    await resumeProfile.saveMasterProfile(req.userId, currentProfile, profileId);
-
-    res.json({
-      success: true,
-      baseResume: currentProfile.baseResume,
-      message: 'Base resume uploaded and stored in Cloudinary successfully'
-    });
-  } catch (err) {
-    console.error('[ResumeAPI] Upload Base Resume Error:', err);
-    res.status(500).json({ error: err.message });
-  }
-});
+// (Deprecated) /upload/base route removed — resume generation is 100% grounded on verified documents, GitHub repos, and links without base resume pollution.
 
 /**
  * 6. POST /api/resume/upload/certificate & /upload/documents
@@ -499,7 +465,7 @@ router.post('/analyze', requireAuth, upload.single('file'), async (req, res) => 
     let fileBuffer = req.file ? req.file.buffer : null;
     let fileName = req.file ? req.file.originalname : 'resume.pdf';
 
-    // If no file uploaded in this request, check if user provided raw text or has a stored baseResume
+    // If no file uploaded in this request, check if user provided raw text
     if (!fileBuffer) {
       const { resumeText } = req.body || {};
       if (resumeText && resumeText.trim().length > 50) {
@@ -508,15 +474,6 @@ router.post('/analyze', requireAuth, upload.single('file'), async (req, res) => 
           targetJobDescription
         });
         return res.json({ success: true, audit, fileName: 'Pasted Resume Text' });
-      }
-
-      const profile = await resumeProfile.getMasterProfile(req.userId, profileId);
-      if (profile.baseResume?.rawText) {
-        const audit = await resumeAnalyzer.auditResume({
-          resumeText: profile.baseResume.rawText,
-          targetJobDescription
-        });
-        return res.json({ success: true, audit, fileName: profile.baseResume.originalName || 'Base Resume' });
       }
 
       return res.status(400).json({ error: 'Please upload a PDF/DOCX resume or provide resume text to analyze.' });
