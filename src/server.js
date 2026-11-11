@@ -18,7 +18,6 @@ const hqRoute            = require('./routes/hq');
 const selfEditRoute      = require('./routes/selfEdit');
 const keysRoute          = require('./routes/keys');
 const seoRoute           = require('./routes/seo');
-const resumeRoute        = require('./routes/resume');
 const keywordsRoute      = require('./routes/keywords');
 
 const app = express();
@@ -116,7 +115,6 @@ app.use('/api/hq',            hqRoute);
 app.use('/api/self-edit',     selfEditRoute);
 app.use('/api/keys',          keysRoute);
 app.use('/api/seo',           seoRoute);
-app.use('/api/resume',        resumeRoute);
 app.use('/api/keywords',      keywordsRoute);
 
 // 404 handler for unknown API routes

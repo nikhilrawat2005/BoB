@@ -32,7 +32,15 @@ const firebaseAdmin = initFirebase();
 
 // db and auth will be null when Firebase is not configured —
 // any route that calls them will get a runtime error with a descriptive message.
-const db   = firebaseAdmin ? firebaseAdmin.firestore() : null;
-const auth = firebaseAdmin ? firebaseAdmin.auth()      : null;
+let db = null;
+if (firebaseAdmin) {
+  db = firebaseAdmin.firestore();
+  try {
+    db.settings({ ignoreUndefinedProperties: true });
+  } catch (err) {
+    console.warn('[firebase] Could not set ignoreUndefinedProperties:', err.message);
+  }
+}
+const auth = firebaseAdmin ? firebaseAdmin.auth() : null;
 
 module.exports = { firebaseAdmin, db, auth };
