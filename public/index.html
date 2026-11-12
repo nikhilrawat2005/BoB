@@ -671,7 +671,13 @@
           </div>
 
           <div class="view-body resume-view-body">
-            <!-- Upload & Scan Banner -->
+            <!-- Segmented Mode Control: Audit Existing vs Autonomous Builder -->
+            <div class="resume-mode-switch">
+              <button type="button" class="resume-mode-btn active" id="resume-tab-audit-btn">🔍 Audit Existing Resume</button>
+              <button type="button" class="resume-mode-btn" id="resume-tab-build-btn">⚡ Autonomous ATS Builder (95+ Score)</button>
+            </div>
+
+            <!-- Upload & Scan Banner (Audit Mode) -->
             <div class="resume-hero-banner" id="resume-hero-dropzone">
               <div class="resume-hero-content">
                 <div class="resume-hero-icon">📄</div>
@@ -684,6 +690,64 @@
               <div id="resume-loading-state" class="resume-loading-state hidden">
                 <div class="spinner"></div>
                 <span id="resume-loading-text">Extracting document structure & evaluating institutional compliance…</span>
+              </div>
+            </div>
+
+            <!-- Autonomous Builder Panel (Build Mode) -->
+            <div id="resume-builder-panel" class="resume-builder-panel hidden">
+              <div class="builder-inputs-card">
+                <div class="builder-header-flex">
+                  <div>
+                    <h3 class="builder-card-title">🤖 3-Source Autonomous Evidence Ingestion</h3>
+                    <p class="builder-card-desc">Ingests GitHub READMEs, documents vault (marksheets/certs), and CP profiles to synthesize a verified 1-page ATS resume.</p>
+                  </div>
+                  <button type="button" id="resume-run-build-btn" class="btn-primary-action">🚀 Generate & Verify (95+ ATS)</button>
+                </div>
+
+                <div class="builder-form-grid">
+                  <div class="builder-form-col">
+                    <label class="builder-field-label">Candidate Name</label>
+                    <input type="text" id="builder-name-input" class="builder-text-input" value="Nikhil Rawat" placeholder="Full Name" />
+
+                    <label class="builder-field-label">Contact Email & Phone</label>
+                    <div class="builder-inline-inputs">
+                      <input type="email" id="builder-email-input" class="builder-text-input" value="nikhil2005114@gmail.com" placeholder="Email" />
+                      <input type="text" id="builder-phone-input" class="builder-text-input" value="+91-8700113731" placeholder="Phone" />
+                    </div>
+
+                    <label class="builder-field-label">GitHub Username / Profile URL</label>
+                    <input type="text" id="builder-github-input" class="builder-text-input" value="nikhilrawat2005" placeholder="e.g. nikhilrawat2005" />
+                  </div>
+
+                  <div class="builder-form-col">
+                    <label class="builder-field-label">Coding & Project URLs (one per line: LeetCode, Portfolio, Deployed Apps)</label>
+                    <textarea id="builder-urls-input" class="builder-textarea" rows="3" placeholder="https://leetcode.com/u/username&#10;https://bob-jade-tau.vercel.app&#10;https://thefalcontour.com">https://linkedin.com/in/nikhilrawat-dev&#10;https://leetcode.com/u/nikhilrawat_dev&#10;https://bob-jade-tau.vercel.app&#10;https://thefalcontour.com</textarea>
+
+                    <label class="builder-field-label">Upload Marksheets & Certificates (Optional PDF/Images)</label>
+                    <input type="file" id="builder-docs-input" class="builder-file-input" multiple accept=".pdf,.png,.jpg,.jpeg" />
+                  </div>
+                </div>
+              </div>
+
+              <!-- Live Download & Preview Bar (Appears upon generation) -->
+              <div id="builder-success-banner" class="builder-success-banner hidden">
+                <div class="success-banner-left">
+                  <span class="success-badge-icon">✅</span>
+                  <div>
+                    <h4 id="builder-result-title">1-Page ATS Resume Generated & Verified</h4>
+                    <p id="builder-result-sub">Audit score: 100/100 · Zero formatting violations · Embedded clickable PDF links</p>
+                  </div>
+                </div>
+                <div class="success-banner-actions">
+                  <button type="button" id="builder-download-pdf-btn" class="btn-download-pdf">📥 Download 1-Page PDF</button>
+                  <button type="button" id="builder-view-audit-btn" class="btn-view-audit">📊 View Deep Audit Report</button>
+                </div>
+              </div>
+
+              <!-- Loading spinner for build -->
+              <div id="builder-loading-state" class="resume-loading-state hidden">
+                <div class="spinner"></div>
+                <span id="builder-loading-text">Ingesting GitHub repositories, parsing marksheets & compiling strict 1-page PDF…</span>
               </div>
             </div>
 

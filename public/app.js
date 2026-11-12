@@ -7371,6 +7371,133 @@ function initResumeAuditWorkspace() {
   const heroBtn = document.getElementById('resume-hero-btn');
   const dropzone = document.getElementById('resume-hero-dropzone');
 
+  // Mode buttons
+  const tabAuditBtn = document.getElementById('resume-tab-audit-btn');
+  const tabBuildBtn = document.getElementById('resume-tab-build-btn');
+  const builderPanel = document.getElementById('resume-builder-panel');
+  const runBuildBtn = document.getElementById('resume-run-build-btn');
+  const downloadPdfBtn = document.getElementById('builder-download-pdf-btn');
+  const viewAuditBtn = document.getElementById('builder-view-audit-btn');
+
+  if (tabAuditBtn && tabBuildBtn && dropzone && builderPanel) {
+    tabAuditBtn.addEventListener('click', () => {
+      tabAuditBtn.classList.add('active');
+      tabBuildBtn.classList.remove('active');
+      dropzone.classList.remove('hidden');
+      builderPanel.classList.add('hidden');
+    });
+
+    tabBuildBtn.addEventListener('click', () => {
+      tabBuildBtn.classList.add('active');
+      tabAuditBtn.classList.remove('active');
+      dropzone.classList.add('hidden');
+      builderPanel.classList.remove('hidden');
+    });
+  }
+
+  // Autonomous Builder execution
+  let currentGeneratedPdfBase64 = null;
+  let currentGeneratedFilename = 'Nikhil_Rawat_ATS_Resume.pdf';
+
+  if (runBuildBtn) {
+    runBuildBtn.addEventListener('click', async () => {
+      const name = (document.getElementById('builder-name-input')?.value || 'Nikhil Rawat').trim();
+      const email = (document.getElementById('builder-email-input')?.value || '').trim();
+      const phone = (document.getElementById('builder-phone-input')?.value || '').trim();
+      const githubUsername = (document.getElementById('builder-github-input')?.value || '').trim();
+      const rawUrls = (document.getElementById('builder-urls-input')?.value || '').trim();
+      const docsInput = document.getElementById('builder-docs-input');
+
+      const loadingState = document.getElementById('builder-loading-state');
+      const successBanner = document.getElementById('builder-success-banner');
+
+      if (loadingState) loadingState.classList.remove('hidden');
+      if (successBanner) successBanner.classList.add('hidden');
+      runBuildBtn.disabled = true;
+
+      try {
+        const formData = new FormData();
+        formData.append('name', name);
+        formData.append('email', email);
+        formData.append('phone', phone);
+        formData.append('githubUsername', githubUsername);
+
+        const urlsArray = rawUrls.split(/[\n,]+/).map(u => u.trim()).filter(Boolean);
+        formData.append('urls', JSON.stringify(urlsArray));
+
+        if (docsInput && docsInput.files) {
+          for (let i = 0; i < docsInput.files.length; i++) {
+            formData.append('documents', docsInput.files[i]);
+          }
+        }
+
+        let token = idToken;
+        if (!token && currentUser) {
+          try { token = await currentUser.getIdToken(); } catch (e) {}
+        }
+        const headers = {};
+        if (token) headers['Authorization'] = 'Bearer ' + token;
+
+        const res = await fetch('/api/resume/build', {
+          method: 'POST',
+          headers,
+          body: formData
+        });
+
+        const data = await res.json();
+        if (!res.ok || !data.success) {
+          throw new Error(data.error || 'Failed to build resume');
+        }
+
+        currentGeneratedPdfBase64 = data.pdfBase64;
+        currentGeneratedFilename = data.filename || 'ATS_Resume.pdf';
+
+        if (successBanner) {
+          successBanner.classList.remove('hidden');
+          const titleEl = document.getElementById('builder-result-title');
+          const subEl = document.getElementById('builder-result-sub');
+          if (titleEl) titleEl.textContent = `1-Page ATS Resume Generated (${data.report.overallAtsScore}/100)`;
+          if (subEl) subEl.textContent = `Tier: ${data.report.performanceTier} · Verified strictly 1 page with zero formatting violations.`;
+        }
+
+        // Render audit report directly underneath
+        renderResumeAuditReport(data.report, data.historyMeta, data.history);
+      } catch (err) {
+        alert('Autonomous Resume Builder Error: ' + err.message);
+      } finally {
+        if (loadingState) loadingState.classList.add('hidden');
+        runBuildBtn.disabled = false;
+      }
+    });
+  }
+
+  // Handle PDF Download
+  if (downloadPdfBtn) {
+    downloadPdfBtn.addEventListener('click', () => {
+      if (!currentGeneratedPdfBase64) {
+        alert('No generated PDF available yet. Tap "Generate & Verify" first.');
+        return;
+      }
+      const link = document.createElement('a');
+      link.href = 'data:application/pdf;base64,' + currentGeneratedPdfBase64;
+      link.download = currentGeneratedFilename;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    });
+  }
+
+  // View Deep Audit Report smooth scroll
+  if (viewAuditBtn) {
+    viewAuditBtn.addEventListener('click', () => {
+      const rep = document.getElementById('resume-report-container');
+      if (rep) {
+        rep.classList.remove('hidden');
+        rep.scrollIntoView({ behavior: 'smooth' });
+      }
+    });
+  }
+
   if (uploadBtn && fileInput) {
     uploadBtn.addEventListener('click', () => fileInput.click());
   }
