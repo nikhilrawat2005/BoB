@@ -67,8 +67,31 @@ function toStandaloneBytes(buffer) {
 }
 
 async function extractFromPdf(buffer) {
-  const data = await pdfParse(toStandaloneBytes(buffer));
-  return { text: truncate(data.text), pageCount: data.numpages || null };
+  const pageTexts = [];
+  const options = {
+    pagerender: function (pageData) {
+      return pageData.getTextContent().then(function (textContent) {
+        let lastY, text = '';
+        for (let item of textContent.items) {
+          if (lastY == item.transform[5] || !lastY) {
+            text += item.str;
+          } else {
+            text += '\n' + item.str;
+          }
+          lastY = item.transform[5];
+        }
+        pageTexts.push(text);
+        return text;
+      });
+    }
+  };
+
+  const data = await pdfParse(toStandaloneBytes(buffer), options);
+  return {
+    text: truncate(data.text),
+    pageCount: data.numpages || null,
+    pageTexts: pageTexts.length > 0 ? pageTexts : [data.text]
+  };
 }
 
 /**
