@@ -7616,12 +7616,9 @@ function renderResumeAuditReport(report, historyMeta = null, pastHistory = null)
   if (issuesList) {
     const issues = (report.deterministicIssues || []);
     issuesList.innerHTML = issues.length ? issues.map(iss => {
-      const isGarbled = iss.rule === 'GARBLED_TEXT_DETECTED';
-      const snippetTag = (isGarbled && iss.snippet) ? `<div class="garbled-snippet-callout">Corrupted glyphs detected: <code>${escHtml(iss.snippet)}</code></div>` : '';
       return `
         <li class="issue-item issue-item--${(iss.severity || 'medium').toLowerCase()}">
           <strong>[${escHtml(iss.section || 'General')}]</strong> ${escHtml(iss.detail || iss)}
-          ${snippetTag}
         </li>
       `;
     }).join('') : '<li class="no-issues">✨ Zero structural violations detected. Single-column format verified.</li>';

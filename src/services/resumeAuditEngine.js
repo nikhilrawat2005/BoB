@@ -670,6 +670,58 @@ function analyzeDeterministicRules(rawText, metadata = {}) {
 }
 
 /**
+ * Helper: Map an issue to a strictly concise, punchy 1-line priority (<= 15 words) with exact point deduction
+ */
+function formatTopPriority(issue) {
+  const pts = Math.abs(issue.deduction || 0);
+  const prefix = pts > 0 ? `[-${pts} pts] ` : '';
+
+  if (issue.rule === '1_PAGE_BUDGET') {
+    return `${prefix}Compress spacing and margins to fit strictly on 1 page.`;
+  }
+  if (issue.rule && issue.rule.includes('EDUCATION')) {
+    return `${prefix}Add dedicated Education section with Degree, College, CGPA, and Year.`;
+  }
+  if (issue.rule === 'GARBLED_TEXT_DETECTED') {
+    return `${prefix}Re-export PDF with standard Unicode fonts to fix broken glyphs.`;
+  }
+  if (issue.rule === 'NO_DECLARATION') {
+    return `${prefix}Delete obsolete Declaration section to reclaim resume space.`;
+  }
+  if (issue.rule === 'NO_SUMMARY_FOR_UG') {
+    return `${prefix}Remove Summary section to free up vertical space for projects.`;
+  }
+  if (issue.rule === 'NO_RESUME_TITLE') {
+    return `${prefix}Remove "Resume/CV" header title; place candidate name at top.`;
+  }
+  if (issue.rule === 'MISSING_EMAIL' || issue.rule === 'MISSING_PHONE') {
+    return `${prefix}Add missing professional email and phone contact details.`;
+  }
+  if (issue.rule === 'MISSING_LINKEDIN' || issue.rule === 'MISSING_GITHUB') {
+    return `${prefix}Add active LinkedIn and GitHub profile links in header.`;
+  }
+  if (issue.rule === 'GENERIC_CERT_NAME') {
+    return `${prefix}Replace placeholder certificate names with official titles and issuers.`;
+  }
+  if (issue.rule === 'LACK_OF_METRICS') {
+    return `${prefix}Quantify project impact with measurable numbers and % improvements.`;
+  }
+  if (issue.rule === 'MISSING_PROJECT_TIMELINES') {
+    return `${prefix}Add Month/Year dates to projects to establish chronological recency.`;
+  }
+  if (issue.rule === 'DUPLICATE_BULLET_CONCEPT') {
+    return `${prefix}Diversify project descriptions to eliminate duplicate concept phrasing.`;
+  }
+  if (issue.rule === 'UNCLICKABLE_URL_ANNOTATIONS') {
+    return `${prefix}Add clickable PDF link annotations to deployed web app URLs.`;
+  }
+  if (issue.rule === 'NO_SOFT_SKILLS_IN_RESUME') {
+    return `${prefix}Remove generic soft skills and replace with technical proficiencies.`;
+  }
+  return `${prefix}Fix ${issue.section} issue to align with ATS standards.`;
+}
+
+/**
  * Deep AI Semantic Audit via Bob's LLM Service (OpenRouter)
  */
 async function auditWithAISemantic(rawText, deterministicResult) {
@@ -780,18 +832,10 @@ async function auditWithAISemantic(rawText, deterministicResult) {
       oneLineVerdict: deterministicResult.issues.length
         ? `${deterministicResult.issues.filter(i => i.severity === 'HIGH').length} critical structural issues detected by deterministic engine.`
         : 'Format verified against 1-page single-column rules with zero critical flags.',
-      top3PrioritiesToReach75Plus: deterministicResult.issues
-        .filter(i => i.severity === 'HIGH' || i.severity === 'MEDIUM')
+      top3PrioritiesToReach75Plus: [...deterministicResult.issues]
+        .sort((a, b) => Math.abs(b.deduction || 0) - Math.abs(a.deduction || 0))
         .slice(0, 3)
-        .map(i => {
-          if (i.rule.includes('EDUCATION')) return 'Add dedicated Education section with B.Tech, AKTU, CGPA, and Passing Year.';
-          if (i.rule === '1_PAGE_BUDGET') return 'Compress spacing and margins to strictly fit resume on 1 single page.';
-          if (i.rule === 'GARBLED_TEXT_DETECTED') return 'Re-export PDF with standard Unicode fonts to eliminate broken font glyphs.';
-          if (i.rule === 'LACK_OF_METRICS') return 'Quantify project impact with measurable numbers and % improvements.';
-          if (i.rule === 'UNCLICKABLE_URL_ANNOTATIONS') return 'Add clickable PDF link annotations to deployed web app URLs.';
-          if (i.rule === 'DUPLICATE_BULLET_CONCEPT') return 'Diversify project descriptions to eliminate duplicate concept phrasing.';
-          return `Resolve ${i.section} issue to align with ATS standards.`;
-        })
+        .map(formatTopPriority)
     },
     sectionsAudited: deterministicResult.issues.map(i => ({
       sectionName: i.section,
@@ -837,22 +881,11 @@ async function auditResume(buffer, originalFilename = 'resume.pdf') {
   const performanceTier = overallAtsScore >= 85 ? 'Elite Standard (90-100)' :
     overallAtsScore >= 75 ? 'ATS Ready (75-89)' : 'Needs Improvement (<75)';
 
-  // Build clean top 3 priorities (strictly 1 line <= 15 words)
-  let top3Priorities = (aiAudit.executiveSummary && aiAudit.executiveSummary.top3PrioritiesToReach75Plus) || [];
-  if (!top3Priorities.length || top3Priorities.some(p => p.length > 120)) {
-    top3Priorities = deterministicResult.issues
-      .filter(i => i.severity === 'HIGH' || i.severity === 'MEDIUM')
-      .slice(0, 3)
-      .map(i => {
-        if (i.rule.includes('EDUCATION')) return 'Add dedicated Education section with B.Tech, AKTU, CGPA, and Passing Year.';
-        if (i.rule === '1_PAGE_BUDGET') return 'Compress spacing and margins to strictly fit resume on 1 single page.';
-        if (i.rule === 'GARBLED_TEXT_DETECTED') return 'Re-export PDF with standard Unicode fonts to eliminate broken font glyphs.';
-        if (i.rule === 'LACK_OF_METRICS') return 'Quantify project impact with measurable numbers and % improvements.';
-        if (i.rule === 'UNCLICKABLE_URL_ANNOTATIONS') return 'Add clickable PDF link annotations to deployed web app URLs.';
-        if (i.rule === 'DUPLICATE_BULLET_CONCEPT') return 'Diversify project descriptions to eliminate duplicate concept phrasing.';
-        return `Fix ${i.section} issue to align with ATS standards.`;
-      });
-  }
+  // Build clean top 3 priorities strictly ordered by highest point deduction descending
+  const sortedDeterministicIssues = [...deterministicResult.issues]
+    .sort((a, b) => Math.abs(b.deduction || 0) - Math.abs(a.deduction || 0));
+
+  let top3Priorities = sortedDeterministicIssues.slice(0, 3).map(formatTopPriority);
 
   // Create clean sectionsAudited: map each issue with concrete gap_message and action_fix
   const ruleMap = new Map();
