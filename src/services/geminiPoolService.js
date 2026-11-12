@@ -11,12 +11,10 @@ const path = require('path');
  */
 
 const GEMINI_MODELS = [
-  process.env.GEMINI_MODEL || 'gemini-2.5-flash',
-  'gemini-3.6-flash',
-  'gemini-3.5-flash',
+  process.env.GEMINI_MODEL || 'gemini-3.5-flash-lite',
+  'gemini-2.5-flash',
+  'gemini-3.8-flash',
   'gemini-flash-latest',
-  'gemini-2.5-flash-lite',
-  'gemini-flash-lite-latest',
 ];
 const DAILY_LIMIT_PER_KEY = Number(process.env.GEMINI_DAILY_LIMIT_PER_KEY || 1000);
 
