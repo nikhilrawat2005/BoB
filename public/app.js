@@ -4179,6 +4179,7 @@ async function loadHQSummary() {
     if (subEl) subEl.textContent = 'Builder workspace — development tools aur audiences ke cards.';
 
     const builderCards = [
+      hqCard({ id: 'resume', icon: '📄', title: 'Resume Audit & Builder', color: 'green', badge: 'ATS 75%+', meta: 'institutional standard · 1-page · X-Y-Z rewrites · gap analysis', items: [{ text: 'Deep ATS Audit Engine', sub: 'Instant PDF/DOCX scan', dot: 'green' }, { text: 'ABES & Industry Standard', sub: 'Zero-tolerance rule checking', dot: 'green' }], action: 'Open Resume Audit' }),
       hqCard({ id: 'seo', icon: '🔍', title: 'SEO Working', color: 'amber', badge: 'V1', meta: 'website audit · score · fix recommendations', items: [], action: '' }),
     ];
 
@@ -4216,6 +4217,7 @@ function renderHQ(data) {
   const discMeta = disc.enabled === false ? 'auto-scan: paused' : `auto-scan: ${nextScanText} · 4-day cycle`;
 
   const cards = [
+    hqCard({ id: 'resume', icon: '📄', title: 'Resume Audit & Builder', color: 'green', badge: 'ATS 75%+', meta: 'institutional standard · 1-page · X-Y-Z rewrites · gap analysis', items: [{ text: 'Deep ATS Audit Engine', sub: 'Instant PDF/DOCX scan', dot: 'green' }, { text: 'ABES & Industry Standard', sub: 'Zero-tolerance rule checking', dot: 'green' }], action: 'Open Resume Audit' }),
     hqCard({ id: 'keys', icon: '🔑', title: 'Keys Limit', color: 'amber', badge: 'OpenRouter', meta: 'key health · auto-refresh', items: [], action: 'Open Keys Management' }),
     hqCard({ id: 'hackathons', icon: '🏆', title: 'Hackathons', color: (hacks.active || 0) > 0 ? 'green' : 'amber', badge: `${hacks.count || 0}`, meta: `active ${hacks.active || 0} · tracking ${hacks.tracking || 0} · 🟢 ${hacks.participating || 0}`, items: (hacks.items || []).slice(0, 3).map(h => ({ text: h.title, sub: `${h.status} · ${fmtDate(h.endDate)}`, dot: h.statusColor })), action: 'Open Hackathon Workspace' }),
     hqCard({ id: 'stalking', icon: '🕵️', title: 'Developer Radar', color: (stalks.researching || 0) > 0 ? 'amber' : 'green', badge: `${stalks.count || 0}`, meta: `ready ${stalks.ready || 0} · researching ${stalks.researching || 0}`, items: (stalks.items || []).slice(0, 3).map(s => ({ text: s.name, sub: s.status, dot: s.status === 'ready' ? 'green' : (s.status === 'researching' ? 'amber' : 'grey') })), action: 'Open Developer Radar' }),
@@ -4244,6 +4246,7 @@ function openHqCard(id) {
   if (id === 'files') { showView('files'); loadFiles(); return; }
   if (id === 'hackathons') { showView('hackathons'); loadHackathons(); return; }
   if (id === 'stalking') { showView('stalking'); loadStalking(); return; }
+  if (id === 'resume') { showView('resume'); initResumeAuditWorkspace(); return; }
   if (id === 'seo') { showView('seo'); loadSeoSites(); return; }
   if (id === 'routines') { showView('routines'); loadRoutines(); return; }
   if (id === 'live') { showView('live'); loadLive(); return; }
@@ -7343,3 +7346,238 @@ document.addEventListener('click', async (e) => {
     }
   }
 });
+
+
+// ═══════════════════════════════════════════════════════
+// RESUME AUDIT & BUILDER WORKSPACE
+// ═══════════════════════════════════════════════════════
+
+let resumeWorkspaceInitialized = false;
+
+function initResumeAuditWorkspace() {
+  if (resumeWorkspaceInitialized) return;
+  resumeWorkspaceInitialized = true;
+
+  const fileInput = document.getElementById('resume-audit-file-input');
+  const uploadBtn = document.getElementById('resume-audit-upload-btn');
+  const heroBtn = document.getElementById('resume-hero-btn');
+  const dropzone = document.getElementById('resume-hero-dropzone');
+
+  if (uploadBtn && fileInput) {
+    uploadBtn.addEventListener('click', () => fileInput.click());
+  }
+  if (heroBtn && fileInput) {
+    heroBtn.addEventListener('click', () => fileInput.click());
+  }
+
+  if (fileInput) {
+    fileInput.addEventListener('change', (e) => {
+      const file = e.target.files && e.target.files[0];
+      if (file) handleResumeUpload(file);
+    });
+  }
+
+  if (dropzone) {
+    ['dragenter', 'dragover'].forEach(evt => {
+      dropzone.addEventListener(evt, (e) => {
+        e.preventDefault();
+        dropzone.classList.add('dragover');
+      });
+    });
+    ['dragleave', 'drop'].forEach(evt => {
+      dropzone.addEventListener(evt, (e) => {
+        e.preventDefault();
+        dropzone.classList.remove('dragover');
+      });
+    });
+    dropzone.addEventListener('drop', (e) => {
+      const file = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+      if (file) handleResumeUpload(file);
+    });
+  }
+}
+
+async function handleResumeUpload(file) {
+  const loadingEl = document.getElementById('resume-loading-state');
+  const heroContent = document.querySelector('.resume-hero-content');
+  const reportContainer = document.getElementById('resume-report-container');
+
+  if (loadingEl) loadingEl.classList.remove('hidden');
+  if (heroContent) heroContent.classList.add('hidden');
+  if (reportContainer) reportContainer.classList.add('hidden');
+
+  try {
+    const formData = new FormData();
+    formData.append('resume', file);
+
+    const token = await getAuthTokenSafe();
+    const headers = {};
+    if (token) headers['Authorization'] = 'Bearer ' + token;
+
+    const res = await fetch('/api/resume/audit', {
+      method: 'POST',
+      headers,
+      body: formData
+    });
+
+    const data = await res.json();
+    if (!res.ok || !data.success) {
+      throw new Error(data.error || 'Failed to analyze resume');
+    }
+
+    renderResumeAuditReport(data.report);
+  } catch (err) {
+    alert('Resume Audit Error: ' + err.message);
+  } finally {
+    if (loadingEl) loadingEl.classList.add('hidden');
+    if (heroContent) heroContent.classList.remove('hidden');
+  }
+}
+
+function renderResumeAuditReport(report) {
+  const reportContainer = document.getElementById('resume-report-container');
+  if (!reportContainer) return;
+  reportContainer.classList.remove('hidden');
+
+  // 1. Overall Score & Tier
+  const scoreVal = document.getElementById('resume-score-value');
+  const tierBadge = document.getElementById('resume-tier-badge');
+  const verdictEl = document.getElementById('resume-summary-verdict');
+  const descEl = document.getElementById('resume-summary-desc');
+  const circleEl = document.getElementById('resume-score-circle');
+
+  const score = report.overallAtsScore || 0;
+  if (scoreVal) scoreVal.textContent = score;
+
+  const isCompliant = score >= (report.targetScore || 75);
+  if (tierBadge) {
+    tierBadge.textContent = report.performanceTier || (isCompliant ? 'ATS Ready' : 'Needs Improvement');
+    tierBadge.className = 'score-tier-badge ' + (score >= 85 ? 'tier-elite' : (isCompliant ? 'tier-ready' : 'tier-warn'));
+  }
+
+  if (circleEl) {
+    const circleColor = score >= 85 ? '#10b981' : (isCompliant ? '#3b82f6' : '#f59e0b');
+    circleEl.style.borderColor = circleColor;
+  }
+
+  const exec = report.executiveSummary || {};
+  if (verdictEl) verdictEl.textContent = exec.oneLineVerdict || 'Comprehensive Institutional ATS Evaluation Complete';
+  if (descEl) descEl.textContent = 'Tested against ABES 1-page institutional template & Hiration ATS scoring rules.';
+
+  const prioritiesEl = document.getElementById('resume-top-priorities');
+  if (prioritiesEl && exec.top3PrioritiesToReach75Plus) {
+    prioritiesEl.innerHTML = '<strong>Top 3 Priorities for Shortlisting:</strong><ul>' +
+      exec.top3PrioritiesToReach75Plus.map(p => '<li>' + escHtml(p) + '</li>').join('') +
+      '</ul>';
+  }
+
+  // 2. Category Breakdown
+  const breakdownGrid = document.getElementById('resume-breakdown-grid');
+  if (breakdownGrid && report.scoreBreakdown) {
+    const b = report.scoreBreakdown;
+    const cats = [
+      { key: 'atsFormatAndParseability', label: 'ATS Format & Geometry', max: 25 },
+      { key: 'headerAndOnlinePresence', label: 'Header & Contact Footprint', max: 15 },
+      { key: 'contentImpactAndActionVerbs', label: 'Action Verbs & Google X-Y-Z', max: 25 },
+      { key: 'technicalSkillsAndKeywords', label: 'Hard Skills & Category Groups', max: 15 },
+      { key: 'projectsAndExperienceQuality', label: 'Projects & Quantified Outcomes', max: 20 },
+    ];
+
+    breakdownGrid.innerHTML = cats.map(c => {
+      const item = b[c.key] || { score: Math.round(score * (c.max / 100)), verdict: '' };
+      const pct = Math.min(100, Math.round((item.score / c.max) * 100));
+      return `
+        <div class="breakdown-item">
+          <div class="breakdown-header">
+            <span class="breakdown-label">${escHtml(c.label)}</span>
+            <span class="breakdown-num">${item.score} / ${c.max} (${pct}%)</span>
+          </div>
+          <div class="breakdown-track">
+            <div class="breakdown-fill" style="width:${pct}%; background:${pct >= 75 ? '#10b981' : (pct >= 50 ? '#f59e0b' : '#ef4444')};"></div>
+          </div>
+          <small class="breakdown-verdict">${escHtml(item.verdict || '')}</small>
+        </div>
+      `;
+    }).join('');
+  }
+
+  // 3. Flags: Positives vs Issues
+  const positiveList = document.getElementById('resume-positive-list');
+  if (positiveList) {
+    const pts = (report.positivePoints || []);
+    positiveList.innerHTML = pts.length ? pts.map(p => '<li>' + escHtml(p.detail || p) + '</li>').join('') : '<li>Basic template structure parsed</li>';
+  }
+
+  const issuesList = document.getElementById('resume-issues-list');
+  if (issuesList) {
+    const issues = (report.deterministicIssues || []);
+    issuesList.innerHTML = issues.length ? issues.map(iss => `
+      <li class="issue-item issue-item--${(iss.severity || 'medium').toLowerCase()}">
+        <strong>[${escHtml(iss.section || 'General')}]</strong> ${escHtml(iss.detail || iss)}
+      </li>
+    `).join('') : '<li class="no-issues">✨ Zero structural violations detected. Single-column format verified.</li>';
+  }
+
+  // 4. Section by Section Diagnostics
+  const sectionsList = document.getElementById('resume-sections-list');
+  if (sectionsList && report.sectionsAudited) {
+    sectionsList.innerHTML = report.sectionsAudited.map(s => `
+      <div class="section-audit-card section-status--${(s.status || 'good').toLowerCase()}">
+        <div class="section-audit-header">
+          <strong>${escHtml(s.sectionName)}</strong>
+          <span class="section-badge">${escHtml(s.status || 'Audited')}</span>
+        </div>
+        <div class="section-audit-body">
+          ${(s.plusPoints && s.plusPoints.length) ? '<div class="audit-sub"><strong>Strengths:</strong> ' + s.plusPoints.map(p => escHtml(p)).join(' · ') + '</div>' : ''}
+          ${(s.mistakesAndGaps && s.mistakesAndGaps.length) ? '<div class="audit-sub text-danger"><strong>Gaps/Flaws:</strong> ' + s.mistakesAndGaps.map(g => escHtml(g)).join(' · ') + '</div>' : ''}
+          ${s.actionableAdvice ? '<div class="audit-advice">💡 <strong>Action:</strong> ' + escHtml(s.actionableAdvice) + '</div>' : ''}
+        </div>
+      </div>
+    `).join('');
+  }
+
+  // 5. Bullet Point Rewrites
+  const rewritesList = document.getElementById('resume-rewrites-list');
+  if (rewritesList) {
+    const rewrites = report.bulletPointAudits || [];
+    if (rewrites.length) {
+      rewritesList.innerHTML = rewrites.map(rw => `
+        <div class="rewrite-card">
+          <div class="rewrite-row rewrite-original">
+            <span class="rewrite-tag tag-weak">Original (Weak)</span>
+            <p>${escHtml(rw.originalBullet)}</p>
+          </div>
+          <div class="rewrite-critique">🔍 ${escHtml(rw.critique || 'Missing action verb and measurable metric')}</div>
+          <div class="rewrite-row rewrite-optimized">
+            <span class="rewrite-tag tag-strong">ATS Rewrite (Google X-Y-Z)</span>
+            <p><strong>${escHtml(rw.optimizedRewrite)}</strong></p>
+          </div>
+        </div>
+      `).join('');
+    } else {
+      rewritesList.innerHTML = '<div class="empty-msg">Project bullet points already follow strong action verb patterns.</div>';
+    }
+  }
+
+  // 6. Keywords
+  const kwContainer = document.getElementById('resume-keywords-content');
+  if (kwContainer && report.missingKeywordsAnalysis) {
+    const kw = report.missingKeywordsAnalysis;
+    kwContainer.innerHTML = `
+      <div class="keywords-wrap">
+        <div><strong>Detected Role/Domain:</strong> <span class="badge-domain">${escHtml(kw.detectedDomain || 'Engineering')}</span></div>
+        <div class="kw-tags-group">
+          <strong>Present Keywords:</strong>
+          <div class="kw-tags">${(kw.presentKeywords || []).map(k => '<span class="kw-tag kw-tag--present">' + escHtml(k) + '</span>').join('') || 'None'}</div>
+        </div>
+        <div class="kw-tags-group">
+          <strong>Recommended Keywords to Inject:</strong>
+          <div class="kw-tags">${(kw.recommendedKeywordsToInject || []).map(k => '<span class="kw-tag kw-tag--recommended">+ ' + escHtml(k) + '</span>').join('') || 'Fully aligned'}</div>
+        </div>
+      </div>
+    `;
+  }
+
+  // Smooth scroll down to results
+  reportContainer.scrollIntoView({ behavior: 'smooth' });
+}

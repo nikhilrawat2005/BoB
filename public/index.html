@@ -656,6 +656,95 @@
 
         
 
+        <!-- Resume Builder & ATS Audit Workspace -->
+        <section class="view" id="view-resume">
+          <div class="view-header">
+            <div>
+              <h2 class="view-title">📄 Resume Audit & Institutional Builder</h2>
+              <p class="view-sub">Institutional ATS standard (Single-column · 1-page budget · Google X-Y-Z formula · Instant diagnostics)</p>
+            </div>
+            <div class="view-header-actions">
+              <input type="file" id="resume-audit-file-input" style="display:none;" accept=".pdf,.docx" />
+              <button id="resume-audit-upload-btn" class="btn-small btn-accent" title="Upload resume PDF or DOCX">📤 Upload & Audit Resume</button>
+              <button class="view-close icon-btn" title="Close (back to chat)">✕</button>
+            </div>
+          </div>
+
+          <div class="view-body resume-view-body">
+            <!-- Upload & Scan Banner -->
+            <div class="resume-hero-banner" id="resume-hero-dropzone">
+              <div class="resume-hero-content">
+                <div class="resume-hero-icon">📄</div>
+                <div class="resume-hero-text">
+                  <h3>Upload Your Resume for Instant ATS Deep Audit</h3>
+                  <p>Checks strict 1-page limit, zero-tolerance red flags, contact links, action verbs, quantified metrics & missing keywords.</p>
+                </div>
+                <button type="button" id="resume-hero-btn" class="btn-small btn-accent">Select PDF / DOCX</button>
+              </div>
+              <div id="resume-loading-state" class="resume-loading-state hidden">
+                <div class="spinner"></div>
+                <span id="resume-loading-text">Extracting document structure & evaluating institutional compliance…</span>
+              </div>
+            </div>
+
+            <!-- Report Container (Hidden until audited) -->
+            <div id="resume-report-container" class="resume-report-container hidden">
+              <!-- Top Score Summary Card -->
+              <div class="resume-score-card">
+                <div class="score-circle-wrap">
+                  <div class="score-circle" id="resume-score-circle">
+                    <span id="resume-score-value">0</span>
+                    <small>/ 100</small>
+                  </div>
+                  <div class="score-tier-badge" id="resume-tier-badge">Checking...</div>
+                </div>
+                <div class="score-details-wrap">
+                  <div class="score-summary-title" id="resume-summary-verdict">Executive Verdict</div>
+                  <p class="score-summary-desc" id="resume-summary-desc">Detailed institutional breakdown below.</p>
+                  <div class="score-priorities" id="resume-top-priorities"></div>
+                </div>
+              </div>
+
+              <!-- Category Score Breakdown Bars -->
+              <div class="resume-breakdown-card">
+                <h4 class="resume-card-title">📊 ATS Category Breakdown (Target: 75%+)</h4>
+                <div class="breakdown-grid" id="resume-breakdown-grid"></div>
+              </div>
+
+              <!-- Deterministic Flags & Positive Highlights -->
+              <div class="resume-flags-grid">
+                <div class="flags-card flags-card--positive">
+                  <h4 class="flags-title">✅ Strong Points & Compliances</h4>
+                  <ul class="flags-list" id="resume-positive-list"></ul>
+                </div>
+                <div class="flags-card flags-card--issues">
+                  <h4 class="flags-title">⚠️ ATS Violations & Flaws</h4>
+                  <ul class="flags-list" id="resume-issues-list"></ul>
+                </div>
+              </div>
+
+              <!-- Section by Section Diagnostics -->
+              <div class="resume-sections-card">
+                <h4 class="resume-card-title">📑 Section-by-Section Deep Audit</h4>
+                <div class="sections-accordion" id="resume-sections-list"></div>
+              </div>
+
+              <!-- AI Bullet Point Rewriter (Google X-Y-Z Method) -->
+              <div class="resume-rewrites-card">
+                <h4 class="resume-card-title">✨ Bullet Point Rewrites (Google X-Y-Z Action Formula)</h4>
+                <p class="resume-card-sub">Weak, passive bullet points rewritten into quantifiable, recruiter-ready achievements.</p>
+                <div class="rewrites-list" id="resume-rewrites-list"></div>
+              </div>
+
+              <!-- Missing Technical Keywords -->
+              <div class="resume-keywords-card">
+                <h4 class="resume-card-title">🔑 Domain & Keyword Gap Analysis</h4>
+                <div class="keywords-content" id="resume-keywords-content"></div>
+              </div>
+            </div>
+          </div>
+        </section>
+
       </div><!-- /views -->
     </div><!-- /main-area -->
     <div id="panel-backdrop" class="panel-backdrop hidden"></div>
