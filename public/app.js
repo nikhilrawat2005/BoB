@@ -598,19 +598,18 @@ const FILE_TYPE_META = {
   swift:      { icon: '🍊', label: 'Swift Program',     ext: 'swift',mime: 'text/plain' },
 };
 
-// ── Background Polling Timer (30 sec) ────────────────
+// ── Background Polling Timer ─────────────────────────
+// Debounced & only runs when tab is active (saves massive Firestore reads)
 let pollInterval = null;
 function startBackgroundPolling() {
   stopBackgroundPolling();
-  // Poll every 30 seconds: check notifications + trigger scheduler tick
+  // Poll only every 5 minutes and only if document is visible
   pollInterval = setInterval(async () => {
-    if (!currentUser) return;
+    if (!currentUser || document.visibilityState === 'hidden') return;
     try {
-      // Pings scheduler tick to process any due tasks in real-time
-      await apiFetch('/api/scheduler/tick', { method: 'POST' }).catch(() => {});
       await loadNotifications();
     } catch (e) { /* silent */ }
-  }, 30000);
+  }, 5 * 60 * 1000);
 }
 function stopBackgroundPolling() {
   if (pollInterval) clearInterval(pollInterval);

@@ -596,9 +596,18 @@ async function disableAutoRoutine(userId, hackId, routineId) {
   } catch (e) { /* ignore */ }
 }
 
-// ── Pump: auto-expire + reminders (called every 5 min) ───
+// ── Pump: auto-expire + reminders (throttled in memory) ───
+let lastAutoExpireTs = 0;
+const AUTO_EXPIRE_THROTTLE_MS = 60 * 60 * 1000; // max once every 1 hour
+
 async function autoExpireAndRemind() {
   const now = Date.now();
+  // Throttle collectionGroup scan to at most once per hour
+  if (now - lastAutoExpireTs < AUTO_EXPIRE_THROTTLE_MS) {
+    return { skipped: true, reason: 'Throttled (runs once per hour)' };
+  }
+  lastAutoExpireTs = now;
+
   let processed = 0;
   const snap = await db.collectionGroup('hackathons').get();
   for (const doc of snap.docs) {

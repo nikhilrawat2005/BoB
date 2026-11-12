@@ -103,23 +103,38 @@ function tickAuth(req, res, next) {
   return requireAuth(req, res, next);
 }
 
+// In-memory throttling timestamps to prevent runaway Firestore reads on tick
+let lastHackDiscoveryRun = 0;
+let lastHackExpireRun = 0;
+const HACK_RUN_THROTTLE_MS = 12 * 60 * 60 * 1000; // max once every 12 hours
+const HACK_EXPIRE_THROTTLE_MS = 6 * 60 * 60 * 1000; // max once every 6 hours
+
 router.post('/tick', tickAuth, async (req, res) => {
   try {
     const result = await scheduler.tick();
 
-    // Run memory consolidation ONLY during the 4 AM - 6 AM IST window, not on every hourly tick!
+    // Run memory consolidation ONLY during the 4 AM - 6 AM IST window, not on every tick!
     const memoryManager = require('../services/memoryManager');
     const targetUserId = req.userId || process.env.PRIMARY_USER_ID;
     if (targetUserId) {
+      const now = Date.now();
       const currentHourIST = parseInt(new Date().toLocaleString('en-US', { timeZone: 'Asia/Kolkata', hour: 'numeric', hour12: false }), 10);
       if (currentHourIST >= 4 && currentHourIST <= 6) {
         memoryManager.runDailyConsolidation(targetUserId).catch(e => console.warn('[Scheduler tick] daily consolidation:', e.message));
       }
 
-      // ── Hackathon Discovery: run every 4 days + auto-expire stale cards ──
+      // ── Hackathon Discovery: strictly throttled in-memory (max 1 run per 12h) ──
       const hackDiscovery = require('../services/hackathonDiscoveryService');
-      hackDiscovery.runDiscovery(targetUserId).catch(e => console.warn('[Scheduler tick] hackDiscovery:', e.message));
-      hackDiscovery.autoExpireDiscovery(targetUserId).catch(e => console.warn('[Scheduler tick] hackDiscoveryExpire:', e.message));
+      if (now - lastHackDiscoveryRun > HACK_RUN_THROTTLE_MS) {
+        lastHackDiscoveryRun = now;
+        hackDiscovery.runDiscovery(targetUserId).catch(e => console.warn('[Scheduler tick] hackDiscovery:', e.message));
+      }
+
+      // ── Hackathon Auto-expire: strictly throttled in-memory (max 1 run per 6h) ──
+      if (now - lastHackExpireRun > HACK_EXPIRE_THROTTLE_MS) {
+        lastHackExpireRun = now;
+        hackDiscovery.autoExpireDiscovery(targetUserId).catch(e => console.warn('[Scheduler tick] hackDiscoveryExpire:', e.message));
+      }
     }
 
     res.json({ ok: true, ...result, timestamp: new Date().toISOString() });
