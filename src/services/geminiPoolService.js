@@ -230,9 +230,10 @@ async function callGeminiDirect({
             lastError = new Error(errMsg);
             break; // Try next key
           } else {
-            // If model is unsupported, try next fallback model
-            if (errMsg.includes('not found') || errMsg.includes('no longer available')) {
-              continue;
+            // If model is unsupported, unavailable, or free tier disabled on this key, mark key and continue to next key/model
+            if (errMsg.includes('not found') || errMsg.includes('no longer available') || errMsg.includes('free tier is not available')) {
+              markKeyExhausted(keyObj, errMsg);
+              break; // Try next key
             }
             keyObj.lastError = errMsg;
             throw new Error(`Gemini API error on Key #${keyObj.index}: ${errMsg}`);
