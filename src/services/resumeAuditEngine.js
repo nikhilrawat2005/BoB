@@ -1,5 +1,5 @@
 const documentReaderService = require('./documentReaderService');
-const geminiPoolService = require('./geminiPoolService');
+const llmService = require('./llmService');
 
 /**
  * resumeAuditEngine.js
@@ -223,150 +223,179 @@ function analyzeDeterministicRules(rawText, metadata = {}) {
 }
 
 /**
- * Deep AI Semantic Audit via Gemini Pool Service
+ * Deep AI Semantic Audit via Bob's LLM Service (OpenRouter)
  */
-async function auditWithGeminiSemantic(rawText, deterministicResult) {
-  const prompt = [
-    'You are the Chief Technical Resume Auditor for engineering institutions and tier-1 tech firms.',
-    'Evaluate this resume against institutional ATS guidelines (ABES standard single-column, Hiration 75%+ target, Google X-Y-Z: Accomplished [X] measured by [Y] by doing [Z]).',
+async function auditWithAISemantic(rawText, deterministicResult) {
+  const systemPrompt = [
+    'You are a strict, evidence-based Resume Auditor for engineering institutions.',
+    'You audit resumes against ABES 1-page institutional format and Hiration ATS scoring rules.',
     '',
-    'RESUME TEXT:',
+    '━━━━━ IRON-CLAD RULES (violation = your output is rejected) ━━━━━',
+    '1. NEVER invent numbers, percentages, rankings, or metrics not explicitly present in the resume text.',
+    '2. NEVER invent certificate names, issuing organizations, or credential IDs.',
+    '3. For bullet rewrites: restructure existing content using strong action verbs + X-Y-Z format only.',
+    '   If a metric is missing, use a placeholder like [X%] or [N users] — do NOT fabricate a number.',
+    '4. Every score deduction must cite the EXACT rule violated and WHAT was missing.',
+    '5. Keyword recommendations must include caveat: only add if the candidate ACTUALLY has that experience.',
+    '6. Detected domain must come from the resume content itself, not assumed.',
+    '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━',
+  ].join('\n');
+
+  const userPrompt = [
+    'RESUME TEXT (verbatim — your only source of truth):',
+    '---',
     rawText.slice(0, 5000),
+    '---',
     '',
     `DETERMINISTIC SCORE: ${deterministicResult.rawScore}/100`,
-    `DETERMINISTIC ISSUES: ${JSON.stringify(deterministicResult.issues.map(i => i.detail))}`,
+    `DETERMINISTIC ISSUES FOUND: ${JSON.stringify(deterministicResult.issues.map(i => `[${i.rule}] ${i.detail}`))}`,
     '',
-    'INSTRUCTIONS:',
-    'Return STRICT JSON ONLY (no markdown blocks, no fluff) matching this exact schema:',
+    'Return STRICT JSON ONLY — no markdown, no prose, no code fences — matching this exact schema:',
     '{',
-    '  "atsScore": 82,',
-    '  "performanceTier": "ATS Ready (75-89)",',
+    '  "atsScore": <integer 0-100 combining deterministic findings + your semantic depth>,',
+    '  "performanceTier": "<Elite Standard (90-100)|ATS Ready (75-89)|Needs Improvement (<75)>",',
     '  "scoreBreakdown": {',
-    '    "atsFormatAndParseability": { "score": 22, "max": 25, "verdict": "Single column parseable" },',
-    '    "headerAndOnlinePresence": { "score": 14, "max": 15, "verdict": "All profiles linked" },',
-    '    "contentImpactAndActionVerbs": { "score": 20, "max": 25, "verdict": "Good action verbs, need more metrics" },',
-    '    "technicalSkillsAndKeywords": { "score": 14, "max": 15, "verdict": "Strong tech stack" },',
-    '    "projectsAndExperienceQuality": { "score": 16, "max": 20, "verdict": "Detailed projects" }',
+    '    "atsFormatAndParseability": {',
+    '      "score": <0-25>,',
+    '      "max": 25,',
+    '      "verdict": "<what passed, what failed + exact rule citation for every deduction>"',
+    '    },',
+    '    "headerAndOnlinePresence": {',
+    '      "score": <0-15>,',
+    '      "max": 15,',
+    '      "verdict": "<what was found, what was missing>"',
+    '    },',
+    '    "contentImpactAndActionVerbs": {',
+    '      "score": <0-25>,',
+    '      "max": 25,',
+    '      "verdict": "<action verb quality, X-Y-Z compliance, metric usage>"',
+    '    },',
+    '    "technicalSkillsAndKeywords": {',
+    '      "score": <0-15>,',
+    '      "max": 15,',
+    '      "verdict": "<skill categories found, issues>"',
+    '    },',
+    '    "projectsAndExperienceQuality": {',
+    '      "score": <0-20>,',
+    '      "max": 20,',
+    '      "verdict": "<project depth, deployed URLs, missing metrics>"',
+    '    }',
     '  },',
     '  "sectionsAudited": [',
     '    {',
-    '      "sectionName": "Header",',
-    '      "status": "EXCELLENT",',
-    '      "plusPoints": ["Clean contact row", "GitHub and LinkedIn linked"],',
-    '      "mistakesAndGaps": [],',
-    '      "actionableAdvice": "Ensure links are clickable hyperlinked text."',
+    '      "sectionName": "<exact section name from resume>",',
+    '      "status": "<EXCELLENT|GOOD|NEEDS_IMPROVEMENT|CRITICAL_ERROR>",',
+    '      "plusPoints": ["<specific strong aspect using text from resume>"],',
+    '      "mistakesAndGaps": ["<specific problem with rule citation>"],',
+    '      "actionableAdvice": "<concrete 1-sentence fix using only real resume content>"',
     '    }',
     '  ],',
     '  "bulletPointAudits": [',
     '    {',
-    '      "originalBullet": "verbatim text of a weak bullet",',
-    '      "critique": "explanation of what is missing",',
-    '      "optimizedRewrite": "Google X-Y-Z rewritten bullet with action verb and metric"',
+    '      "originalBullet": "<verbatim weak bullet from resume — must exist in resume text>",',
+    '      "critique": "<specific structural/impact problem>",',
+    '      "optimizedRewrite": "<action verb + existing content restructured to X-Y-Z — use [X%] placeholder if metric missing, NEVER invent a number>"',
     '    }',
     '  ],',
     '  "missingKeywordsAnalysis": {',
-    '    "detectedDomain": "Full-Stack & AI Systems Engineering",',
-    '    "presentKeywords": ["FastAPI", "Next.js", "Docker", "FAISS"],',
-    '    "recommendedKeywordsToInject": ["Microservices", "CI/CD", "Redis", "PostgreSQL"]',
+    '    "detectedDomain": "<domain inferred from resume tech stack — must be based on resume content>",',
+    '    "presentKeywords": ["<keywords actually found in resume>"],',
+    '    "recommendedKeywordsToInject": ["<keyword — NOTE: add only if you have real experience with this>"]',
     '  },',
     '  "executiveSummary": {',
-    '    "oneLineVerdict": "Concise 1-sentence verdict on overall resume readiness.",',
+    '    "oneLineVerdict": "<honest 1-sentence verdict based on actual resume content>",',
     '    "top3PrioritiesToReach75Plus": [',
-    '      "Priority 1",',
-    '      "Priority 2",',
-    '      "Priority 3"',
+    '      "<specific actionable priority 1 citing actual resume gap>",',
+    '      "<specific actionable priority 2>",',
+    '      "<specific actionable priority 3>"',
     '    ]',
     '  }',
-    '}'
+    '}',
   ].join('\n');
 
   try {
-    const messages = [
-      {
-        role: 'user',
-        content: prompt
-      }
-    ];
-
-    const response = await geminiPoolService.callGeminiDirect({
-      messages,
-      model: 'gemini-2.5-flash',
-      temperature: 0.1
+    const response = await llmService.callOpenRouterDirect({
+      role: 'resume',
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt },
+      ],
+      temperature: 0.05,
+      max_tokens: 4096,
     });
 
     const rawOutput = (response && response.text) ? response.text : String(response || '');
     const cleanText = rawOutput
       .replace(/^```json\s*/i, '')
       .replace(/^```\s*/i, '')
-      .replace(/```$/i, '')
+      .replace(/```\s*$/i, '')
       .trim();
 
     const parsed = JSON.parse(cleanText);
     if (parsed && typeof parsed.atsScore === 'number') {
+      console.log(`[resumeAuditEngine] AI audit complete. Score: ${parsed.atsScore}, Model: ${response.model}`);
       return parsed;
     }
+    throw new Error('AI response missing atsScore field');
   } catch (err) {
-    console.error('[resumeAuditEngine] Gemini semantic analysis error:', err.message);
+    console.error('[resumeAuditEngine] AI semantic analysis error:', err.message);
   }
 
-  // High-accuracy fallback derived from deterministic checks
+  // ── Minimal safe fallback: NO fake data, NO invented metrics ──
+  // Only deterministic data is used. bulletPointAudits stays empty.
+  const deterministicTier =
+    deterministicResult.rawScore >= 85 ? 'Elite Standard (90-100)' :
+    deterministicResult.rawScore >= 75 ? 'ATS Ready (75-89)' :
+    'Needs Improvement (<75)';
+
+  const s = deterministicResult.rawScore;
   return {
-    atsScore: deterministicResult.rawScore,
-    performanceTier: deterministicResult.rawScore >= 85 ? 'Elite Standard (90-100)' : (deterministicResult.rawScore >= 75 ? 'ATS Ready (75-89)' : 'Needs Improvement (<75)'),
+    atsScore: s,
+    performanceTier: deterministicTier,
     scoreBreakdown: {
-      atsFormatAndParseability: { score: Math.round(deterministicResult.rawScore * 0.25), max: 25, verdict: 'Format verified against 1-page single-column rules.' },
-      headerAndOnlinePresence: { score: Math.round(deterministicResult.rawScore * 0.15), max: 15, verdict: 'Contact links and online footprint evaluated.' },
-      contentImpactAndActionVerbs: { score: Math.round(deterministicResult.rawScore * 0.25), max: 25, verdict: 'Google X-Y-Z formula and action verbs analyzed.' },
-      technicalSkillsAndKeywords: { score: Math.round(deterministicResult.rawScore * 0.15), max: 15, verdict: 'Technical skill categories verified.' },
-      projectsAndExperienceQuality: { score: Math.round(deterministicResult.rawScore * 0.20), max: 20, verdict: 'Project scope and metrics analyzed.' }
+      atsFormatAndParseability: {
+        score: Math.round(s * 0.25), max: 25,
+        verdict: deterministicResult.issues.filter(i => ['1_PAGE_BUDGET','NO_RESUME_TITLE','NO_DECLARATION','NO_SUMMARY_FOR_UG'].includes(i.rule)).map(i => `−${i.severity === 'HIGH' ? '5-15' : '5'} pts: ${i.detail}`).join(' | ') || 'Format verified against 1-page single-column rules.'
+      },
+      headerAndOnlinePresence: {
+        score: Math.round(s * 0.15), max: 15,
+        verdict: deterministicResult.issues.filter(i => ['MISSING_EMAIL','MISSING_PHONE','MISSING_LINKEDIN','MISSING_GITHUB','NO_SENSITIVE_DATA'].includes(i.rule)).map(i => `Missing: ${i.detail}`).join(' | ') || 'Contact links evaluated.'
+      },
+      contentImpactAndActionVerbs: {
+        score: Math.round(s * 0.25), max: 25,
+        verdict: deterministicResult.issues.some(i => i.rule === 'LACK_OF_METRICS') ? 'Insufficient quantifiable metrics found. Use Google X-Y-Z formula.' : 'Quantifiable metrics detected.'
+      },
+      technicalSkillsAndKeywords: {
+        score: Math.round(s * 0.15), max: 15,
+        verdict: deterministicResult.issues.filter(i => i.section === 'Technical Skills').map(i => i.detail).join(' | ') || 'Technical skill categories present.'
+      },
+      projectsAndExperienceQuality: {
+        score: Math.round(s * 0.20), max: 20,
+        verdict: 'AI analysis unavailable — deterministic score used. Upload again to retry AI deep audit.'
+      }
     },
-    sectionsAudited: [
-      {
-        sectionName: 'Education',
-        status: deterministicResult.issues.some(i => i.rule === 'MISSING_EDUCATION_SECTION') ? 'CRITICAL_ERROR' : 'GOOD',
-        plusPoints: [],
-        mistakesAndGaps: deterministicResult.issues.filter(i => i.section === 'Education').map(i => i.detail),
-        actionableAdvice: 'Add Education section with Degree (B.Tech ECE/CSE), College name, CGPA, and Passing Year.'
-      },
-      {
-        sectionName: 'Projects',
-        status: 'EXCELLENT',
-        plusPoints: ['Deep architecture details', 'Live deployed URLs included', 'Quantified metrics like 99.9% uptime and <2s latency.'],
-        mistakesAndGaps: [],
-        actionableAdvice: 'Ensure every bullet strictly follows: Accomplished [X] measured by [Y] by doing [Z].'
-      },
-      {
-        sectionName: 'Certifications',
-        status: deterministicResult.issues.some(i => i.section === 'Certifications') ? 'NEEDS_IMPROVEMENT' : 'GOOD',
-        plusPoints: ['Proof-of-work certificates included.'],
-        mistakesAndGaps: deterministicResult.issues.filter(i => i.section === 'Certifications').map(i => i.detail),
-        actionableAdvice: 'Use precise credential names (e.g. AWS Certified Developer) with verifiable URL.'
-      }
-    ],
-    bulletPointAudits: [
-      {
-        originalBullet: 'Optimized website for technical SEO, achieving high search engine rankings and driving increased organic traffic',
-        critique: 'Vague outcome ("high search engine rankings", "increased organic traffic"). Lacks concrete numbers.',
-        optimizedRewrite: 'Optimized website technical SEO and Core Web Vitals, achieving top-3 Google rankings for 15+ keywords and driving a 45% increase in organic traffic.'
-      },
-      {
-        originalBullet: 'aws certificate (Verified Academic/Cert Authority)',
-        critique: 'Generic placeholder name without issuing authority or credential ID.',
-        optimizedRewrite: 'AWS Certified Cloud Practitioner (Amazon Web Services, Credential ID: #ABC-123)'
-      }
-    ],
+    sectionsAudited: deterministicResult.issues.map(i => ({
+      sectionName: i.section,
+      status: i.severity === 'HIGH' ? 'CRITICAL_ERROR' : 'NEEDS_IMPROVEMENT',
+      plusPoints: [],
+      mistakesAndGaps: [i.detail],
+      actionableAdvice: `Fix: ${i.detail}`
+    })),
+    // ── ZERO fake bullet rewrites — AI must generate these ──
+    bulletPointAudits: [],
     missingKeywordsAnalysis: {
-      detectedDomain: 'Full-Stack & AI Systems Engineering',
-      presentKeywords: ['FastAPI', 'Next.js', 'InsightFace', 'FAISS', 'Firebase', 'OpenRouter', 'Tailwind CSS'],
-      recommendedKeywordsToInject: ['Microservices', 'Docker / Containerization', 'Redis Caching', 'PostgreSQL / Prisma', 'CI/CD Pipelines']
+      detectedDomain: 'Software Engineering (AI analysis unavailable — domain auto-detected from resume on retry)',
+      presentKeywords: [],
+      recommendedKeywordsToInject: []
     },
     executiveSummary: {
-      oneLineVerdict: deterministicResult.issues.length ? 'Strong technical depth and real-world projects, but hindered by missing Education section and vague certifications.' : 'Well-structured ATS-ready resume.',
-      top3PrioritiesToReach75Plus: [
-        'Add mandatory Education section (College, Degree, CGPA, Passing Year)',
-        'Specify exact certification titles instead of generic names',
-        'Quantify SEO and experience achievements with concrete % and traffic numbers'
-      ]
+      oneLineVerdict: deterministicResult.issues.length
+        ? `${deterministicResult.issues.filter(i => i.severity === 'HIGH').length} critical issue(s) found. AI deep audit unavailable — deterministic rules applied.`
+        : 'No critical structural violations detected. AI deep audit unavailable — retry for semantic analysis.',
+      top3PrioritiesToReach75Plus: deterministicResult.issues
+        .filter(i => i.severity === 'HIGH')
+        .slice(0, 3)
+        .map(i => i.detail)
     }
   };
 }
@@ -395,8 +424,8 @@ async function auditResume(buffer, originalFilename = 'resume.pdf') {
   // 2. Deterministic Rule Pass
   const deterministicResult = analyzeDeterministicRules(rawText, metadata);
 
-  // 3. AI Semantic Pass
-  const aiAudit = await auditWithGeminiSemantic(rawText, deterministicResult);
+  // 3. AI Semantic Pass (via Bob's OpenRouter LLM — role: 'resume')
+  const aiAudit = await auditWithAISemantic(rawText, deterministicResult);
 
   // 4. Merge & Balance Scores
   // 50% Weight on strict deterministic rules + 50% on semantic AI depth
