@@ -1,3 +1,11 @@
+async function getAuthTokenSafe() {
+  if (typeof idToken !== "undefined" && idToken) return idToken;
+  if (typeof currentUser !== "undefined" && currentUser) {
+    try { return await currentUser.getIdToken(); } catch (e) {}
+  }
+  return "";
+}
+
 /* ═══════════════════════════════════════════════════════
    BOB — Frontend App
    Firebase Auth (client) + Backend API calls
