@@ -7566,10 +7566,11 @@ function renderResumeAuditReport(report, historyMeta = null, pastHistory = null)
     const b = report.scoreBreakdown;
     const cats = [
       { key: 'atsFormatAndParseability', label: 'ATS Format & Geometry', max: 25 },
-      { key: 'headerAndOnlinePresence', label: 'Header & Contact Footprint', max: 15 },
-      { key: 'contentImpactAndActionVerbs', label: 'Action Verbs & Google X-Y-Z', max: 25 },
-      { key: 'technicalSkillsAndKeywords', label: 'Hard Skills & Category Groups', max: 15 },
-      { key: 'projectsAndExperienceQuality', label: 'Projects & Quantified Outcomes', max: 20 },
+      { key: 'headerAndOnlinePresence', label: 'Header & Contact Footprint', max: 10 },
+      { key: 'educationAndCredentials', label: 'Education & Credentials', max: 15 },
+      { key: 'hardSkillsAndCategoryGroups', label: 'Hard Skills & Category Groups', max: 15 },
+      { key: 'projectsAndExperienceQuality', label: 'Projects & Quantified Outcomes', max: 15 },
+      { key: 'contentImpactAndActionVerbs', label: 'Action Verbs & Google X-Y-Z', max: 20 },
     ];
 
     breakdownGrid.innerHTML = cats.map(c => {
