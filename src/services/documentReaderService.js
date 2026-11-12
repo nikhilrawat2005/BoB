@@ -68,29 +68,45 @@ function toStandaloneBytes(buffer) {
 
 async function extractFromPdf(buffer) {
   const pageTexts = [];
+  const links = [];
   const options = {
     pagerender: function (pageData) {
-      return pageData.getTextContent().then(function (textContent) {
-        let lastY, text = '';
+      return Promise.all([
+        pageData.getTextContent(),
+        pageData.getAnnotations ? pageData.getAnnotations() : Promise.resolve([])
+      ]).then(function ([textContent, annotations]) {
+        let lastY;
+        const lines = [];
+        let curLine = '';
         for (let item of textContent.items) {
-          if (lastY == item.transform[5] || !lastY) {
-            text += item.str;
+          if (lastY === undefined || Math.abs(lastY - item.transform[5]) < 3) {
+            curLine += (curLine && !curLine.endsWith(' ') && !item.str.startsWith(' ') ? ' ' : '') + item.str;
           } else {
-            text += '\n' + item.str;
+            if (curLine.trim()) lines.push(curLine.trim());
+            curLine = item.str;
           }
           lastY = item.transform[5];
         }
-        pageTexts.push(text);
-        return text;
+        if (curLine.trim()) lines.push(curLine.trim());
+        const pageText = lines.join('\n');
+        pageTexts.push(pageText);
+
+        (annotations || []).forEach(a => {
+          if (a && a.url) links.push(a.url);
+        });
+
+        return pageText;
       });
     }
   };
 
   const data = await pdfParse(toStandaloneBytes(buffer), options);
+  const fullText = pageTexts.length > 0 ? pageTexts.join('\n\n') : data.text;
   return {
-    text: truncate(data.text),
-    pageCount: data.numpages || null,
-    pageTexts: pageTexts.length > 0 ? pageTexts : [data.text]
+    text: truncate(fullText),
+    pageCount: data.numpages || (pageTexts.length || null),
+    pageTexts: pageTexts.length > 0 ? pageTexts : [data.text],
+    links: [...new Set(links)]
   };
 }
 
@@ -201,8 +217,8 @@ async function extractText(buffer, originalName = '') {
 
   try {
     if (ext === 'pdf') {
-      const { text, pageCount } = await extractFromPdf(buffer);
-      return { supported: true, text, pageCount, error: null };
+      const { text, pageCount, pageTexts, links } = await extractFromPdf(buffer);
+      return { supported: true, text, pageCount, pageTexts, links: links || [], error: null };
     }
     if (ext === 'docx') {
       const { text, pageCount } = await extractFromDocx(buffer);

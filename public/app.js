@@ -7573,8 +7573,21 @@ function renderResumeAuditReport(report, historyMeta = null, pastHistory = null)
     ];
 
     breakdownGrid.innerHTML = cats.map(c => {
-      const item = b[c.key] || { score: Math.round(score * (c.max / 100)), verdict: '' };
+      const item = b[c.key] || { score: Math.round(score * (c.max / 100)), verdict: '', deductions: [] };
       const pct = Math.min(100, Math.round((item.score / c.max) * 100));
+      const hasDeductions = Array.isArray(item.deductions) && item.deductions.length > 0;
+
+      const deductionsHtml = hasDeductions
+        ? `<div class="breakdown-deductions-list">
+            ${item.deductions.map(d => `
+              <div class="deduction-tag">
+                <span class="deduction-badge">${d.points} pts</span>
+                <span class="deduction-text">${escHtml(d.reason)}</span>
+              </div>
+            `).join('')}
+          </div>`
+        : '';
+
       return `
         <div class="breakdown-item">
           <div class="breakdown-header">
@@ -7584,7 +7597,8 @@ function renderResumeAuditReport(report, historyMeta = null, pastHistory = null)
           <div class="breakdown-track">
             <div class="breakdown-fill" style="width:${pct}%; background:${pct >= 75 ? '#10b981' : (pct >= 50 ? '#f59e0b' : '#ef4444')};"></div>
           </div>
-          <small class="breakdown-verdict">${escHtml(item.verdict || '')}</small>
+          ${deductionsHtml}
+          ${!hasDeductions && item.verdict ? `<small class="breakdown-verdict">${escHtml(item.verdict)}</small>` : ''}
         </div>
       `;
     }).join('');
@@ -7600,11 +7614,16 @@ function renderResumeAuditReport(report, historyMeta = null, pastHistory = null)
   const issuesList = document.getElementById('resume-issues-list');
   if (issuesList) {
     const issues = (report.deterministicIssues || []);
-    issuesList.innerHTML = issues.length ? issues.map(iss => `
-      <li class="issue-item issue-item--${(iss.severity || 'medium').toLowerCase()}">
-        <strong>[${escHtml(iss.section || 'General')}]</strong> ${escHtml(iss.detail || iss)}
-      </li>
-    `).join('') : '<li class="no-issues">✨ Zero structural violations detected. Single-column format verified.</li>';
+    issuesList.innerHTML = issues.length ? issues.map(iss => {
+      const isGarbled = iss.rule === 'GARBLED_TEXT_DETECTED';
+      const snippetTag = (isGarbled && iss.snippet) ? `<div class="garbled-snippet-callout">Corrupted glyphs detected: <code>${escHtml(iss.snippet)}</code></div>` : '';
+      return `
+        <li class="issue-item issue-item--${(iss.severity || 'medium').toLowerCase()}">
+          <strong>[${escHtml(iss.section || 'General')}]</strong> ${escHtml(iss.detail || iss)}
+          ${snippetTag}
+        </li>
+      `;
+    }).join('') : '<li class="no-issues">✨ Zero structural violations detected. Single-column format verified.</li>';
   }
 
   // 4. Section by Section Diagnostics
