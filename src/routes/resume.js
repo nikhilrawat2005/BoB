@@ -1,6 +1,8 @@
 const express = require('express');
 const multer = require('multer');
 const resumeAuditEngine = require('../services/resumeAuditEngine');
+const resumeMemoryService = require('../services/resumeMemoryService');
+const { auth } = require('../config/firebase');
 
 const router = express.Router();
 
@@ -11,8 +13,28 @@ const upload = multer({
 });
 
 /**
+ * Optional Auth helper: Extracts userId if Bearer token present
+ */
+async function getUserIdFromRequest(req) {
+  try {
+    const authHeader = req.headers.authorization;
+    if (authHeader && authHeader.startsWith('Bearer ') && auth) {
+      const token = authHeader.split('Bearer ')[1].trim();
+      if (token) {
+        const decoded = await auth.verifyIdToken(token);
+        return decoded.uid;
+      }
+    }
+  } catch (err) {
+    // Non-blocking if token missing or invalid
+  }
+  return null;
+}
+
+/**
  * POST /api/resume/audit
- * Upload a PDF or DOCX file to receive a full institutional & ATS audit report
+ * Upload a PDF or DOCX file to receive a full institutional & ATS audit report,
+ * and automatically persist the score history to user memory.
  */
 router.post('/audit', upload.single('resume'), async (req, res) => {
   try {
@@ -26,9 +48,29 @@ router.post('/audit', upload.single('resume'), async (req, res) => {
     const filename = req.file.originalname || 'resume.pdf';
     const auditReport = await resumeAuditEngine.auditResume(req.file.buffer, filename);
 
+    // Save to user audit memory history
+    const userId = await getUserIdFromRequest(req);
+    let historyMeta = null;
+    let pastAudits = [];
+
+    if (userId) {
+      const savedDoc = await resumeMemoryService.saveAuditRecord(userId, auditReport);
+      pastAudits = await resumeMemoryService.getAuditHistory(userId, 5);
+      if (savedDoc) {
+        historyMeta = {
+          scoreDelta: savedDoc.scoreDelta,
+          previousScore: savedDoc.previousScore,
+          previousDate: savedDoc.previousDate,
+          savedAt: savedDoc.createdAt
+        };
+      }
+    }
+
     return res.json({
       success: true,
-      report: auditReport
+      report: auditReport,
+      historyMeta,
+      history: pastAudits
     });
   } catch (error) {
     console.error('[ResumeAuditRoute] Error processing audit:', error);
@@ -40,8 +82,33 @@ router.post('/audit', upload.single('resume'), async (req, res) => {
 });
 
 /**
+ * GET /api/resume/history
+ * Fetch past audit attempts and score progress for authenticated user
+ */
+router.get('/history', async (req, res) => {
+  try {
+    const userId = await getUserIdFromRequest(req);
+    if (!userId) {
+      return res.json({ success: true, history: [] });
+    }
+
+    const history = await resumeMemoryService.getAuditHistory(userId, 10);
+    return res.json({
+      success: true,
+      history
+    });
+  } catch (err) {
+    console.error('[ResumeAuditRoute] Error fetching history:', err.message);
+    return res.status(500).json({
+      success: false,
+      error: err.message
+    });
+  }
+});
+
+/**
  * POST /api/resume/audit-text
- * Audit raw extracted resume text directly (useful for testing or direct text paste)
+ * Audit raw extracted resume text directly
  */
 router.post('/audit-text', async (req, res) => {
   try {

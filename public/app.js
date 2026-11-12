@@ -7362,6 +7362,7 @@ document.addEventListener('click', async (e) => {
 let resumeWorkspaceInitialized = false;
 
 function initResumeAuditWorkspace() {
+  loadResumeAuditHistory();
   if (resumeWorkspaceInitialized) return;
   resumeWorkspaceInitialized = true;
 
@@ -7435,7 +7436,7 @@ async function handleResumeUpload(file) {
       throw new Error(data.error || 'Failed to analyze resume');
     }
 
-    renderResumeAuditReport(data.report);
+    renderResumeAuditReport(data.report, data.historyMeta, data.history);
   } catch (err) {
     alert('Resume Audit Error: ' + err.message);
   } finally {
@@ -7444,7 +7445,68 @@ async function handleResumeUpload(file) {
   }
 }
 
-function renderResumeAuditReport(report) {
+async function loadResumeAuditHistory() {
+  try {
+    let token = idToken;
+    if (!token && currentUser) {
+      try { token = await currentUser.getIdToken(); } catch (e) {}
+    }
+    const headers = {};
+    if (token) headers['Authorization'] = 'Bearer ' + token;
+
+    const res = await fetch('/api/resume/history', { headers });
+    const data = await res.json();
+    if (data.success && data.history) {
+      renderAuditHistoryTimeline(data.history);
+    }
+  } catch (err) {
+    console.warn('Could not load audit history:', err.message);
+  }
+}
+
+function renderAuditHistoryTimeline(historyList, currentDelta = null) {
+  const container = document.getElementById('resume-history-timeline');
+  const summaryText = document.getElementById('resume-history-summary-text');
+  if (!container) return;
+
+  if (!historyList || historyList.length === 0) {
+    container.innerHTML = '<div class="empty-msg">No previous audits recorded yet. Upload a resume to start tracking your revision progress!</div>';
+    if (summaryText) summaryText.textContent = 'First audit scan ready';
+    return;
+  }
+
+  if (summaryText) {
+    const latest = historyList[0];
+    const first = historyList[historyList.length - 1];
+    const totalProg = latest.overallAtsScore - first.overallAtsScore;
+    summaryText.innerHTML = `Total Audits: <strong>${historyList.length}</strong> · Overall Progress: <strong style="color:${totalProg >= 0 ? '#10b981' : '#f59e0b'}">${totalProg >= 0 ? '+' + totalProg : totalProg} pts</strong>`;
+  }
+
+  container.innerHTML = historyList.map((item, idx) => {
+    const dateStr = item.createdAt ? new Date(item.createdAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'Earlier';
+    const delta = item.scoreDelta || 0;
+    const deltaBadge = idx === 0 && delta !== 0 ? `<span class="timeline-delta ${delta > 0 ? 'delta-up' : 'delta-down'}">${delta > 0 ? '▲ +' + delta : '▼ ' + delta} pts</span>` : '';
+    const isTargetMet = item.overallAtsScore >= (item.targetScore || 75);
+
+    return `
+      <div class="timeline-item ${idx === 0 ? 'timeline-item--latest' : ''}">
+        <div class="timeline-dot" style="background:${item.overallAtsScore >= 85 ? '#10b981' : (isTargetMet ? '#3b82f6' : '#f59e0b')}"></div>
+        <div class="timeline-content">
+          <div class="timeline-top">
+            <span class="timeline-score">${item.overallAtsScore} <small>/ 100</small></span>
+            ${deltaBadge}
+            <span class="timeline-tier ${item.overallAtsScore >= 85 ? 'tier-elite' : (isTargetMet ? 'tier-ready' : 'tier-warn')}">${escHtml(item.performanceTier || 'ATS Scan')}</span>
+            <span class="timeline-date">${escHtml(dateStr)}</span>
+          </div>
+          <div class="timeline-file">📄 ${escHtml(item.filename || 'resume.pdf')}</div>
+          ${(item.executiveSummary && item.executiveSummary.oneLineVerdict) ? `<p class="timeline-verdict">${escHtml(item.executiveSummary.oneLineVerdict)}</p>` : ''}
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+function renderResumeAuditReport(report, historyMeta = null, pastHistory = null) {
   const reportContainer = document.getElementById('resume-report-container');
   if (!reportContainer) return;
   reportContainer.classList.remove('hidden');
@@ -7455,6 +7517,23 @@ function renderResumeAuditReport(report) {
   const verdictEl = document.getElementById('resume-summary-verdict');
   const descEl = document.getElementById('resume-summary-desc');
   const circleEl = document.getElementById('resume-score-circle');
+  const deltaBadge = document.getElementById('resume-score-delta-badge');
+  if (deltaBadge) {
+    if (historyMeta && typeof historyMeta.scoreDelta === 'number' && historyMeta.scoreDelta !== 0) {
+      const isUp = historyMeta.scoreDelta > 0;
+      deltaBadge.textContent = (isUp ? '▲ +' : '▼ ') + historyMeta.scoreDelta + ' pts since last audit';
+      deltaBadge.className = 'score-delta-badge ' + (isUp ? 'delta-up' : 'delta-down');
+      deltaBadge.classList.remove('hidden');
+    } else {
+      deltaBadge.classList.add('hidden');
+    }
+  }
+
+  if (pastHistory && pastHistory.length) {
+    renderAuditHistoryTimeline(pastHistory);
+  } else {
+    loadResumeAuditHistory();
+  }
 
   const score = report.overallAtsScore || 0;
   if (scoreVal) scoreVal.textContent = score;

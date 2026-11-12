@@ -697,11 +697,23 @@
                     <small>/ 100</small>
                   </div>
                   <div class="score-tier-badge" id="resume-tier-badge">Checking...</div>
+                  <div id="resume-score-delta-badge" class="score-delta-badge hidden"></div>
                 </div>
                 <div class="score-details-wrap">
                   <div class="score-summary-title" id="resume-summary-verdict">Executive Verdict</div>
                   <p class="score-summary-desc" id="resume-summary-desc">Detailed institutional breakdown below.</p>
                   <div class="score-priorities" id="resume-top-priorities"></div>
+                </div>
+              </div>
+
+              <!-- Score Progression & History Timeline Card -->
+              <div class="resume-history-card" id="resume-history-container">
+                <div class="history-card-header">
+                  <h4 class="resume-card-title">📈 ATS Score Progress & History Memory</h4>
+                  <span id="resume-history-summary-text" class="history-meta-text">Tracking progress across revisions</span>
+                </div>
+                <div class="history-timeline" id="resume-history-timeline">
+                  <div class="empty-msg">No previous audits recorded yet.</div>
                 </div>
               </div>
 
@@ -836,6 +848,6 @@
   <!-- Mermaid for inline roadmaps/diagrams -->
   <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
 
-  <script src="app.js?v=2.0.1"></script>
+  <script src="app.js?v=2.0.2"></script>
 </body>
 </html>

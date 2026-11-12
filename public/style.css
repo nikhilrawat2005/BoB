@@ -4170,3 +4170,134 @@ body.collab-on .collab-state { color: #fff; background: var(--green); }
 }
 .kw-tag--present { background: rgba(16, 185, 129, 0.15); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.3); }
 .kw-tag--recommended { background: rgba(59, 130, 246, 0.15); color: #60a5fa; border: 1px dashed rgba(59, 130, 246, 0.4); }
+
+
+/* ═══════════════════════════════════════════════════════
+   RESUME SCORE PROGRESSION & TIMELINE MEMORY
+   ═══════════════════════════════════════════════════════ */
+.score-delta-badge {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 3px 8px;
+  border-radius: 10px;
+  letter-spacing: 0.3px;
+  margin-top: 4px;
+}
+.delta-up   { background: rgba(16, 185, 129, 0.2); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.4); }
+.delta-down { background: rgba(239, 68, 68, 0.2); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.4); }
+
+.resume-history-card {
+  background: var(--surface1, #18191c);
+  border: 1px solid var(--border1, #2b2d31);
+  border-radius: 16px;
+  padding: 20px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.history-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.history-meta-text {
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.history-timeline {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  position: relative;
+  padding-left: 8px;
+}
+.history-timeline::before {
+  content: '';
+  position: absolute;
+  top: 10px;
+  bottom: 10px;
+  left: 17px;
+  width: 2px;
+  background: var(--border1, #2b2d31);
+}
+
+.timeline-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  position: relative;
+  background: var(--surface2, #232428);
+  border: 1px solid var(--border1, #2b2d31);
+  border-radius: 12px;
+  padding: 12px 16px;
+  transition: all 0.2s ease;
+}
+.timeline-item--latest {
+  border-color: rgba(59, 130, 246, 0.5);
+  background: rgba(59, 130, 246, 0.05);
+}
+
+.timeline-dot {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  margin-top: 4px;
+  flex-shrink: 0;
+  z-index: 1;
+  box-shadow: 0 0 0 4px var(--surface1, #18191c);
+}
+
+.timeline-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.timeline-top {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.timeline-score {
+  font-size: 16px;
+  font-weight: 800;
+  color: var(--text);
+}
+.timeline-score small {
+  font-size: 11px;
+  color: var(--text-dim);
+}
+.timeline-delta {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 6px;
+}
+.timeline-tier {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  padding: 2px 6px;
+  border-radius: 6px;
+}
+.timeline-date {
+  font-size: 11px;
+  color: var(--text-dim);
+  margin-left: auto;
+}
+.timeline-file {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+}
+.timeline-verdict {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-dim);
+  line-height: 1.4;
+}
