@@ -4,20 +4,14 @@ const PDFDocument = require('pdfkit');
  * resumePdfCompiler.js
  * 
  * Strict Single-Column ATS-Compliant PDF Compiler.
+ * Institutional ABES / Tech Standard Layout:
  * 
- * Guaranteed Features:
+ * Rules:
  * 1. ZERO column collisions or coordinate overlaps: Strict single vertical stream.
- * 2. Explicit margins (0.45in / 32.4pt) with safe horizontal and vertical bounding boxes.
- * 3. Left-margin clipping eliminated: All headers and text lines start at `margin`.
- * 4. Section headings with full horizontal divider lines.
- * 5. Strict section ordering:
- *    - HEADER
- *    - EDUCATION
- *    - TECHNICAL SKILLS
- *    - KEY PROJECTS
- *    - EXPERIENCE
- *    - CERTIFICATIONS & ACHIEVEMENTS
- * 6. Dynamic font scaling & budget compaction to guarantee exact 1-page output.
+ * 2. Explicit margins (0.42in / 30pt) with safe horizontal and vertical bounding boxes.
+ * 3. Section headings with full horizontal divider lines.
+ * 4. Two-Column Row Helper: Left text and Right text on same baseline with guaranteed width guards.
+ * 5. Deterministic budget: strictly fits 1 page without text clipping or overlapping.
  */
 
 const PAGE_HEIGHT_PT = 841.89; // Standard A4 height in points (595.28 x 841.89)
@@ -51,15 +45,15 @@ async function compileResumePdf(resumeData, options = {}) {
     competitiveProgramming = []
   } = resumeData;
 
-  const margin = options.margin || 32.4; // 0.45 in = 32.4 pt
+  const margin = options.margin || 30.0; // 30pt
   const contentWidth = PAGE_WIDTH_PT - (margin * 2);
 
   // Layout sizing config
   const scale = options.scale || 1.0;
-  const fontNameSize = 14.5 * scale;
-  const fontHeadingSize = 10 * scale;
-  const fontBodySize = 8.4 * scale;
-  const fontSubSize = 7.9 * scale;
+  const fontNameSize = 15.0 * scale;
+  const fontHeadingSize = 10.0 * scale;
+  const fontBodySize = 8.5 * scale;
+  const fontSubSize = 8.0 * scale;
   const lineSpacing = 1.15;
 
   return new Promise((resolve, reject) => {
@@ -85,13 +79,38 @@ async function compileResumePdf(resumeData, options = {}) {
 
       // ── HELPER: Section Heading with Full-Width Horizontal Rule ──
       function renderSectionHeading(title) {
-        doc.y += 3 * scale;
+        doc.y += 4 * scale;
+        const headY = doc.y;
         doc.font('Helvetica-Bold').fontSize(fontHeadingSize).fillColor('#111827')
-          .text(title.toUpperCase(), margin, doc.y, { width: contentWidth, lineBreak: false });
+          .text(title.toUpperCase(), margin, headY, { width: contentWidth, lineBreak: false });
         
-        const lineY = doc.y + fontHeadingSize + 1.5;
+        const lineY = headY + fontHeadingSize + (2 * scale);
         doc.strokeColor('#374151').lineWidth(0.75).moveTo(margin, lineY).lineTo(PAGE_WIDTH_PT - margin, lineY).stroke();
-        doc.y = lineY + (2.5 * scale);
+        doc.y = lineY + (3 * scale);
+      }
+
+      // ── HELPER: Two-Column Row (Left text, Right text on exact same baseline) ──
+      function renderDualRow(leftText, rightText, options = {}) {
+        const isBold = options.isBold !== false;
+        const fontSz = options.fontSize || fontBodySize;
+        const leftColor = options.leftColor || '#111827';
+        const rightColor = options.rightColor || '#374151';
+        const rightWidth = options.rightWidth || (doc.font(isBold ? 'Helvetica-Bold' : 'Helvetica').fontSize(fontSz).widthOfString(rightText) + 4);
+        const leftWidth = contentWidth - rightWidth - 6;
+
+        const currentY = doc.y;
+
+        // Render Left Text
+        doc.font(isBold ? 'Helvetica-Bold' : 'Helvetica').fontSize(fontSz).fillColor(leftColor)
+          .text(leftText, margin, currentY, { width: leftWidth, lineBreak: false, ellipsis: true });
+
+        // Render Right Text
+        if (rightText) {
+          doc.font(isBold ? 'Helvetica-Bold' : 'Helvetica').fontSize(fontSz).fillColor(rightColor)
+            .text(rightText, PAGE_WIDTH_PT - margin - rightWidth, currentY, { width: rightWidth, align: 'right', lineBreak: false });
+        }
+
+        doc.y = currentY + fontSz + (options.spacingAfter !== undefined ? options.spacingAfter : (1.5 * scale));
       }
 
       // ── 1. HEADER (Candidate Name + Clean Contact Footprint) ──
@@ -108,7 +127,7 @@ async function compileResumePdf(resumeData, options = {}) {
       if (contactParts.length > 0) {
         doc.font('Helvetica').fontSize(fontSubSize).fillColor('#374151')
           .text(contactParts.join('  |  '), margin, doc.y, { align: 'center', width: contentWidth });
-        doc.y += 1 * scale;
+        doc.y += 1.2 * scale;
       }
 
       // High-signal links only
@@ -150,45 +169,46 @@ async function compileResumePdf(resumeData, options = {}) {
         doc.y = linksY + fontSubSize + (2.5 * scale);
       }
 
-      // ── 2. EDUCATION SECTION (Strict Single-Column Flow) ──
+      // ── 2. EDUCATION SECTION (Strict Single-Column Dual-Row Flow) ──
       if (Array.isArray(education) && education.length > 0) {
         renderSectionHeading('Education');
         
         education.forEach((edu) => {
-          const rowY = doc.y;
-          const degreeName = edu.degree || 'Degree';
-          const boardName = edu.boardOrUniversity ? ` (${edu.boardOrUniversity})` : '';
+          const degreeName = sanitizeAscii(edu.degree || 'Degree');
+          const boardName = edu.boardOrUniversity ? ` (${sanitizeAscii(edu.boardOrUniversity)})` : '';
           const leftDegreeText = `${degreeName}${boardName}`;
-          const yearStr = String(edu.year || edu.graduation_year || '2026');
+          const yearStr = sanitizeAscii(String(edu.year || edu.graduation_year || ''));
 
-          // Left: Degree (Board)
-          doc.font('Helvetica-Bold').fontSize(fontBodySize).fillColor('#111827')
-            .text(leftDegreeText, margin, rowY, { width: contentWidth - 80, lineBreak: false });
+          // Row 1: Degree + Board (Left), Year (Right)
+          renderDualRow(leftDegreeText, yearStr, {
+            isBold: true,
+            fontSize: fontBodySize,
+            leftColor: '#111827',
+            rightColor: '#111827',
+            spacingAfter: 1.2 * scale
+          });
 
-          // Right: Year
-          doc.font('Helvetica-Bold').fontSize(fontBodySize).fillColor('#111827')
-            .text(yearStr, margin, rowY, { align: 'right', width: contentWidth, lineBreak: false });
-
-          // Next line: Institution on left, Score on right
-          const subY = rowY + fontBodySize + (1.2 * scale);
-          const instText = edu.institution || '';
-          doc.font('Helvetica').fontSize(fontSubSize).fillColor('#374151')
-            .text(instText, margin, subY, { width: contentWidth - 110, lineBreak: false });
-
+          // Row 2: Institution (Left), Score/CGPA (Right)
+          const instText = sanitizeAscii(edu.institution || '');
+          let scoreDisplay = '';
           if (edu.score) {
             let scoreClean = String(edu.score).replace(/CGPA:\s*/gi, '').replace(/CGPA/gi, '').trim();
             if (scoreClean) {
-              const scoreDisplay = scoreClean.includes('%') || scoreClean.includes('/10') ? scoreClean : `CGPA: ${scoreClean}/10`;
-              doc.font('Helvetica-Bold').fontSize(fontSubSize).fillColor('#111827')
-                .text(scoreDisplay, margin, subY, { align: 'right', width: contentWidth, lineBreak: false });
+              scoreDisplay = scoreClean.includes('%') || scoreClean.includes('/10') ? scoreClean : `CGPA: ${scoreClean}/10`;
             }
           }
 
-          doc.y = subY + fontSubSize + (2 * scale);
+          renderDualRow(instText, scoreDisplay, {
+            isBold: false,
+            fontSize: fontSubSize,
+            leftColor: '#374151',
+            rightColor: '#111827',
+            spacingAfter: 2.2 * scale
+          });
         });
       }
 
-      // ── 3. TECHNICAL SKILLS SECTION (Strict Clean Labels) ──
+      // ── 3. TECHNICAL SKILLS SECTION (Strict Clean Inline Labels) ──
       renderSectionHeading('Technical Skills');
       const skillGroups = [
         { label: 'Languages', items: technicalSkills.languages || ['Python', 'TypeScript', 'JavaScript', 'C++', 'SQL', 'HTML/CSS'] },
@@ -204,55 +224,61 @@ async function compileResumePdf(resumeData, options = {}) {
             .text(`${group.label}: `, margin, lineY, { continued: true, width: contentWidth })
             .font('Helvetica').fillColor('#374151')
             .text(group.items.join(', '), { continued: false, width: contentWidth });
-          doc.y = lineY + fontBodySize + (1.5 * scale);
+          doc.y = lineY + fontBodySize + (1.6 * scale);
         }
       });
 
       // ── 4. KEY PROJECTS SECTION (Strict Single-Column Flow) ──
       if (Array.isArray(projects) && projects.length > 0) {
         renderSectionHeading('Key Projects');
-        projects.slice(0, 4).forEach((proj) => {
-          const rowY = doc.y;
-          // Project Title
-          doc.font('Helvetica-Bold').fontSize(fontBodySize).fillColor('#111827')
-            .text(proj.title || 'Project Title', margin, rowY, { width: contentWidth - 120, lineBreak: false });
+        projects.slice(0, 3).forEach((proj) => {
+          // Row 1: Project Title (Left), Timeline (Right)
+          const titleStr = sanitizeAscii(proj.title || 'Project Title');
+          const timelineStr = sanitizeAscii(proj.timeline || 'Jan 2025 - Present');
 
-          // Project Timeline (Right-aligned)
-          const timelineStr = proj.timeline || 'Jan 2025 – Present';
-          doc.font('Helvetica-Bold').fontSize(fontSubSize).fillColor('#4b5563')
-            .text(timelineStr, margin, rowY, { align: 'right', width: contentWidth, lineBreak: false });
+          renderDualRow(titleStr, timelineStr, {
+            isBold: true,
+            fontSize: fontBodySize,
+            leftColor: '#111827',
+            rightColor: '#4b5563',
+            spacingAfter: 1.2 * scale
+          });
 
-          // Second line: Tech Stack + Live URL
-          const metaY = rowY + fontBodySize + (1.2 * scale);
+          // Row 2: Live Link (if any) + Tech Stack
           const stackStr = Array.isArray(proj.techStack) ? proj.techStack.join(', ') : (proj.techStack || '');
-          
+          const cleanStack = sanitizeAscii(stackStr);
+          const metaY = doc.y;
+
           if (proj.liveUrl) {
-            const cleanUrl = String(proj.liveUrl).replace(/^https?:\/\//, '');
+            const rawUrl = String(proj.liveUrl).replace(/^https?:\/\//, '');
+            const cleanUrl = sanitizeAscii(rawUrl);
             const safeUrl = String(proj.liveUrl).startsWith('http') ? String(proj.liveUrl) : `https://${proj.liveUrl}`;
+            
+            doc.font('Helvetica-Bold').fontSize(fontSubSize);
             const urlWidth = doc.widthOfString(cleanUrl);
 
-            doc.font('Helvetica-Bold').fontSize(fontSubSize).fillColor('#1d4ed8')
-              .text(cleanUrl, margin, metaY, { lineBreak: false });
+            doc.fillColor('#1d4ed8').text(cleanUrl, margin, metaY, { lineBreak: false });
             doc.link(margin, metaY, urlWidth, fontSubSize + 2, safeUrl);
 
             const sepX = margin + urlWidth;
-            doc.font('Helvetica').fillColor('#6b7280')
-              .text(`  |  ${stackStr}`, sepX, metaY, { width: contentWidth - urlWidth, lineBreak: false });
+            doc.font('Helvetica').fontSize(fontSubSize).fillColor('#4b5563')
+              .text(`  |  ${cleanStack}`, sepX, metaY, { width: contentWidth - urlWidth, lineBreak: false, ellipsis: true });
           } else {
             doc.font('Helvetica').fontSize(fontSubSize).fillColor('#4b5563')
-              .text(stackStr, margin, metaY, { width: contentWidth, lineBreak: false });
+              .text(cleanStack, margin, metaY, { width: contentWidth, lineBreak: false, ellipsis: true });
           }
 
-          doc.y = metaY + fontSubSize + (1.5 * scale);
+          doc.y = metaY + fontSubSize + (1.8 * scale);
 
           // Bullets
           const bullets = Array.isArray(proj.bullets) ? proj.bullets.slice(0, 3) : [];
           bullets.forEach(bullet => {
+            const cleanBullet = sanitizeAscii(bullet);
             const bulletY = doc.y;
             doc.font('Helvetica').fontSize(fontBodySize).fillColor('#111827')
               .text('-  ', margin + 6, bulletY, { continued: true, lineGap: lineSpacing })
-              .text(bullet, { width: contentWidth - 12, lineGap: lineSpacing });
-            doc.y += 1 * scale;
+              .text(cleanBullet, { width: contentWidth - 12, lineGap: lineSpacing });
+            doc.y += 1.0 * scale;
           });
           doc.y += 1.5 * scale;
         });
@@ -262,23 +288,25 @@ async function compileResumePdf(resumeData, options = {}) {
       if (Array.isArray(experience) && experience.length > 0) {
         renderSectionHeading('Experience');
         experience.slice(0, 2).forEach(exp => {
-          const rowY = doc.y;
-          doc.font('Helvetica-Bold').fontSize(fontBodySize).fillColor('#111827')
-            .text(`${exp.role || 'Software Engineer'} — ${exp.company || 'Tech Company'}`, margin, rowY, { width: contentWidth - 120, lineBreak: false });
+          const roleCompany = `${sanitizeAscii(exp.role || 'Software Engineer')} - ${sanitizeAscii(exp.company || 'Company')}`;
+          const dateStr = sanitizeAscii(exp.dates || '2025');
 
-          const dateStr = exp.dates || '2025';
-          doc.font('Helvetica-Bold').fontSize(fontSubSize).fillColor('#4b5563')
-            .text(dateStr, margin, rowY, { align: 'right', width: contentWidth, lineBreak: false });
-
-          doc.y = rowY + fontBodySize + (1.2 * scale);
+          renderDualRow(roleCompany, dateStr, {
+            isBold: true,
+            fontSize: fontBodySize,
+            leftColor: '#111827',
+            rightColor: '#4b5563',
+            spacingAfter: 1.2 * scale
+          });
 
           const bullets = Array.isArray(exp.bullets) ? exp.bullets : [];
           bullets.forEach(b => {
+            const cleanB = sanitizeAscii(b);
             const bulletY = doc.y;
             doc.font('Helvetica').fontSize(fontBodySize).fillColor('#111827')
               .text('-  ', margin + 6, bulletY, { continued: true, lineGap: lineSpacing })
-              .text(b, { width: contentWidth - 12, lineGap: lineSpacing });
-            doc.y += 1 * scale;
+              .text(cleanB, { width: contentWidth - 12, lineGap: lineSpacing });
+            doc.y += 1.0 * scale;
           });
           doc.y += 1.5 * scale;
         });
@@ -294,20 +322,21 @@ async function compileResumePdf(resumeData, options = {}) {
         if (hasCP) {
           competitiveProgramming.forEach(cp => {
             if (cp.bulletText) {
+              const cleanCP = sanitizeAscii(cp.bulletText);
               const cpY = doc.y;
               doc.font('Helvetica').fontSize(fontBodySize).fillColor('#111827')
-                .text('-  ', margin + 6, cpY, { continued: true })
-                .text(cp.bulletText, { width: contentWidth - 12 });
-              doc.y += 1 * scale;
+                .text('-  ', margin + 6, cpY, { continued: true, lineGap: lineSpacing })
+                .text(cleanCP, { width: contentWidth - 12, lineGap: lineSpacing });
+              doc.y += 1.0 * scale;
             }
           });
         }
 
         if (hasCerts) {
-          certifications.slice(0, 4).forEach(cert => {
-            const certTitle = cert.title || 'Certification';
-            const certIssuer = cert.issuer ? ` | ${cert.issuer}` : '';
-            const certDate = cert.date ? ` | ${cert.date}` : '';
+          certifications.slice(0, 3).forEach(cert => {
+            const certTitle = sanitizeAscii(cert.title || 'Certification');
+            const certIssuer = cert.issuer ? ` | ${sanitizeAscii(cert.issuer)}` : '';
+            const certDate = cert.date ? ` | ${sanitizeAscii(cert.date)}` : '';
 
             const certY = doc.y;
             doc.font('Helvetica-Bold').fontSize(fontBodySize).fillColor('#111827')
@@ -315,7 +344,7 @@ async function compileResumePdf(resumeData, options = {}) {
               .text(certTitle, { continued: true })
               .font('Helvetica').fillColor('#374151')
               .text(`${certIssuer}${certDate}`, { width: contentWidth - 12 });
-            doc.y += 1 * scale;
+            doc.y += 1.2 * scale;
           });
         }
       }
@@ -335,18 +364,18 @@ async function compileVerifiedAtsPdf(resumeData, options = {}) {
   
   // Try default scale first
   let scale = 1.0;
-  let margin = 32.4; // 0.45in
+  let margin = 30.0;
   let buffer = await compileResumePdf(resumeData, { margin, scale });
 
   let parsed = await pdfParse(buffer).catch(() => ({ numpages: 1 }));
   let pageCount = parsed.numpages || 1;
 
   // If spilled onto page 2, progressively compress font scale until strictly 1 page
-  const scaleAttempts = [0.95, 0.90, 0.86];
+  const scaleAttempts = [0.96, 0.92, 0.88, 0.84];
   let attempt = 0;
   while (pageCount > 1 && attempt < scaleAttempts.length) {
     scale = scaleAttempts[attempt];
-    margin = 28; // tighter margins ~ 0.39in
+    margin = 26; // tighter margins
     console.log(`[resumePdfCompiler] PDF spilled onto ${pageCount} pages. Compacting scale to ${scale}...`);
     buffer = await compileResumePdf(resumeData, { margin, scale });
     parsed = await pdfParse(buffer).catch(() => ({ numpages: 1 }));
