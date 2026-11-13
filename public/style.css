@@ -4514,3 +4514,240 @@ body.collab-on .collab-state { color: #fff; background: var(--green); }
   cursor: pointer;
   font-size: 13px;
 }
+
+/* ── Curation & Persistent Store UI Elements ── */
+.builder-github-sync-header, .builder-links-manager-header, .builder-vault-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+}
+.btn-micro-sync {
+  background: rgba(56, 189, 248, 0.12);
+  color: #38bdf8;
+  border: 1px solid rgba(56, 189, 248, 0.3);
+  font-size: 11px;
+  font-weight: 700;
+  padding: 4px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.btn-micro-sync:hover {
+  background: rgba(56, 189, 248, 0.22);
+  border-color: #38bdf8;
+}
+.btn-text-action {
+  background: none;
+  border: none;
+  color: #38bdf8;
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0;
+  text-decoration: underline;
+}
+.curation-box-sub {
+  font-size: 11.5px;
+  color: var(--text-dim);
+  margin: 2px 0 6px 0;
+  line-height: 1.35;
+}
+.builder-curation-box {
+  background: rgba(0, 0, 0, 0.25);
+  border: 1px solid var(--border1, #2b2d31);
+  border-radius: 10px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 4px;
+}
+.curation-box-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.curation-box-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text);
+}
+.curation-empty-text {
+  font-size: 11.5px;
+  color: var(--text-dim);
+  font-style: italic;
+  padding: 6px 2px;
+}
+.builder-repos-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  max-height: 180px;
+  overflow-y: auto;
+  padding: 2px;
+}
+.repo-toggle-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 9px;
+  border-radius: 7px;
+  font-size: 11.5px;
+  font-weight: 600;
+  background: rgba(56, 189, 248, 0.1);
+  border: 1px solid rgba(56, 189, 248, 0.3);
+  color: #e2e8f0;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  user-select: none;
+}
+.repo-toggle-chip:hover {
+  transform: translateY(-1px);
+}
+.repo-toggle-chip.excluded {
+  background: rgba(239, 68, 68, 0.08);
+  border: 1px dashed rgba(239, 68, 68, 0.4);
+  color: #94a3b8;
+  text-decoration: line-through;
+  opacity: 0.65;
+}
+.repo-toggle-chip .chip-stars {
+  font-size: 10px;
+  color: #fbbf24;
+}
+.repo-toggle-chip .chip-remove {
+  font-size: 12px;
+  font-weight: 700;
+  color: #f87171;
+  margin-left: 2px;
+}
+.repo-toggle-chip.excluded .chip-remove {
+  color: #34d399;
+}
+
+/* Links Chips */
+.builder-links-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 4px;
+}
+.link-badge-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--surface2, #232428);
+  border: 1px solid var(--border1, #2b2d31);
+  padding: 4px 8px;
+  border-radius: 6px;
+  font-size: 11px;
+}
+.link-badge-chip a {
+  color: #38bdf8;
+  text-decoration: none;
+  font-weight: 600;
+}
+.link-badge-chip a:hover {
+  text-decoration: underline;
+}
+.link-chip-del {
+  background: none;
+  border: none;
+  color: #ef4444;
+  cursor: pointer;
+  font-weight: 800;
+  padding: 0 2px;
+  font-size: 11px;
+}
+
+/* Documents Vault List */
+.builder-docs-vault-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 200px;
+  overflow-y: auto;
+  margin-top: 6px;
+  background: rgba(0, 0, 0, 0.2);
+  border: 1px solid var(--border1, #2b2d31);
+  border-radius: 10px;
+  padding: 8px;
+}
+.vault-doc-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 6px 10px;
+  background: var(--surface2, #232428);
+  border: 1px solid var(--border1, #2b2d31);
+  border-radius: 7px;
+  gap: 8px;
+}
+.vault-doc-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex: 1;
+}
+.vault-doc-icon {
+  font-size: 16px;
+  flex-shrink: 0;
+}
+.vault-doc-info {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.vault-doc-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.vault-doc-meta {
+  font-size: 10.5px;
+  color: var(--text-dim);
+}
+.vault-doc-badge {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 4px;
+  text-transform: uppercase;
+}
+.vault-doc-badge.education {
+  background: rgba(16, 185, 129, 0.15);
+  color: #34d399;
+  border: 1px solid rgba(16, 185, 129, 0.3);
+}
+.vault-doc-badge.certification {
+  background: rgba(56, 189, 248, 0.15);
+  color: #38bdf8;
+  border: 1px solid rgba(56, 189, 248, 0.3);
+}
+.vault-doc-badge.other {
+  background: rgba(148, 163, 184, 0.15);
+  color: #94a3b8;
+  border: 1px solid rgba(148, 163, 184, 0.3);
+}
+.vault-doc-delete-btn {
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  color: #f87171;
+  padding: 3px 8px;
+  border-radius: 5px;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  flex-shrink: 0;
+}
+.vault-doc-delete-btn:hover {
+  background: rgba(239, 68, 68, 0.25);
+  border-color: #ef4444;
+}

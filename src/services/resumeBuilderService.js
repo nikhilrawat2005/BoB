@@ -21,16 +21,20 @@ async function buildAutonomousResume(input = {}) {
     location = 'Ghaziabad, India',
     githubUsername = 'nikhilrawat2005',
     uploadedFiles = [], // array of { buffer, filename }
+    storedDocuments = [], // array of pre-extracted docs from Firestore
+    excludedRepos = [],  // array of repo names to exclude
     urls = []           // array of strings
   } = input;
 
   console.log(`[resumeBuilderService] Starting autonomous build for ${name} (${githubUsername})...`);
 
-  // ── STEP 1: INGEST GITHUB REPOSITORIES ──
+  // ── STEP 1: INGEST GITHUB REPOSITORIES (Filtering user-excluded repos) ──
   let rawRepos = [];
   try {
-    rawRepos = await fetchUserRepositories(githubUsername);
-    console.log(`[resumeBuilderService] Fetched ${rawRepos.length} repositories from GitHub.`);
+    const fetched = await fetchUserRepositories(githubUsername);
+    const excludedSet = new Set((excludedRepos || []).map(r => String(r).toLowerCase()));
+    rawRepos = fetched.filter(r => !excludedSet.has(r.name.toLowerCase()));
+    console.log(`[resumeBuilderService] Fetched ${fetched.length} repos, ${rawRepos.length} eligible after exclusions.`);
   } catch (e) {
     console.warn('[resumeBuilderService] GitHub fetch warning:', e.message);
   }
@@ -39,6 +43,17 @@ async function buildAutonomousResume(input = {}) {
   const marksheets = [];
   const tier1Certs = [];
 
+  // Ingest from stored documents from Firestore
+  for (const sDoc of storedDocuments) {
+    const info = sDoc.extractedInfo || sDoc;
+    if (info.docType === 'EDUCATION') {
+      marksheets.push(info);
+    } else if (info.docType === 'CERTIFICATION' && (info.tier === 1 || !info.tier)) {
+      tier1Certs.push(info);
+    }
+  }
+
+  // Ingest any freshly uploaded files in this request
   for (const doc of uploadedFiles) {
     try {
       const classified = await classifyAndExtractDocument(doc.buffer, doc.filename);

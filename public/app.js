@@ -7359,9 +7359,227 @@ document.addEventListener('click', async (e) => {
 // ═══════════════════════════════════════════════════════
 
 let resumeWorkspaceInitialized = false;
+let currentResumeProfileData = null;
+
+async function loadResumeProfileStore() {
+  try {
+    let token = idToken;
+    if (!token && currentUser) {
+      try { token = await currentUser.getIdToken(); } catch (e) {}
+    }
+    const headers = {};
+    if (token) headers['Authorization'] = 'Bearer ' + token;
+
+    const res = await fetch('/api/resume/profile', { headers });
+    const data = await res.json();
+    if (data && data.success && data.profile) {
+      currentResumeProfileData = data.profile;
+      renderResumeProfileUI(data.profile);
+    }
+  } catch (err) {
+    console.warn('[ResumeStore] Failed to load profile:', err.message);
+  }
+}
+
+function renderResumeProfileUI(profile) {
+  if (!profile) return;
+
+  // 1. Populate Candidate inputs if available
+  const nameInput = document.getElementById('builder-name-input');
+  const emailInput = document.getElementById('builder-email-input');
+  const phoneInput = document.getElementById('builder-phone-input');
+  const githubInput = document.getElementById('builder-github-input');
+  const urlsInput = document.getElementById('builder-urls-input');
+
+  if (nameInput && profile.candidateName) nameInput.value = profile.candidateName;
+  if (emailInput && profile.email) emailInput.value = profile.email;
+  if (phoneInput && profile.phone) phoneInput.value = profile.phone;
+  if (githubInput && profile.githubUsername) githubInput.value = profile.githubUsername;
+
+  // 2. Render Smart Links Chips & textarea
+  const links = Array.isArray(profile.smartLinks) ? profile.smartLinks : [];
+  if (urlsInput && links.length > 0) {
+    urlsInput.value = links.map(l => l.url).join('\n');
+  }
+
+  const linksChipsContainer = document.getElementById('builder-links-chips');
+  if (linksChipsContainer) {
+    if (links.length === 0) {
+      linksChipsContainer.innerHTML = '';
+    } else {
+      linksChipsContainer.innerHTML = links.map(l => `
+        <span class="link-badge-chip">
+          <a href="${escHtml(l.url)}" target="_blank" rel="noopener noreferrer">${escHtml(l.label || 'Link')}</a>
+          <button type="button" class="link-chip-del" data-url="${escHtml(l.url)}" title="Remove link">✕</button>
+        </span>
+      `).join('');
+
+      linksChipsContainer.querySelectorAll('.link-chip-del').forEach(btn => {
+        btn.addEventListener('click', async (e) => {
+          e.stopPropagation();
+          const urlToRemove = btn.getAttribute('data-url');
+          await deleteResumeLink(urlToRemove);
+        });
+      });
+    }
+  }
+
+  // 3. Render Synced Repositories with Toggle Chips
+  const repos = Array.isArray(profile.githubProjects) ? profile.githubProjects : [];
+  const reposCountEl = document.getElementById('builder-repos-count');
+  const reposListEl = document.getElementById('builder-repos-list');
+
+  if (reposCountEl) {
+    const activeCount = repos.filter(r => !r.isExcluded).length;
+    reposCountEl.textContent = `${activeCount} / ${repos.length} included`;
+  }
+
+  if (reposListEl) {
+    if (repos.length === 0) {
+      reposListEl.innerHTML = '<div class="curation-empty-text">No repos synced yet. Click "Fetch Repos".</div>';
+    } else {
+      reposListEl.innerHTML = repos.map(r => {
+        const isEx = Boolean(r.isExcluded);
+        const name = r.name || r.title || 'repo';
+        const stars = r.stars ? ` ⭐${r.stars}` : '';
+        const icon = isEx ? '➕' : '✕';
+        return `
+          <div class="repo-toggle-chip ${isEx ? 'excluded' : ''}" data-repo="${escHtml(name)}" data-excluded="${isEx}" title="${isEx ? 'Click to INCLUDE in resume' : 'Click to EXCLUDE from resume'}">
+            <span>${escHtml(name)}</span>
+            <span class="chip-stars">${stars}</span>
+            <span class="chip-remove">${icon}</span>
+          </div>
+        `;
+      }).join('');
+
+      reposListEl.querySelectorAll('.repo-toggle-chip').forEach(chip => {
+        chip.addEventListener('click', async () => {
+          const repoName = chip.getAttribute('data-repo');
+          const isCurrentlyExcluded = chip.getAttribute('data-excluded') === 'true';
+          await toggleRepoStatus(repoName, !isCurrentlyExcluded);
+        });
+      });
+    }
+  }
+
+  // 4. Render Persistent Documents Vault
+  const docs = Array.isArray(profile.documents) ? profile.documents : [];
+  const vaultListEl = document.getElementById('builder-docs-vault-list');
+
+  if (vaultListEl) {
+    if (docs.length === 0) {
+      vaultListEl.innerHTML = '<div class="curation-empty-text">No documents in vault yet. Click "+ Upload Doc(s)" to add turn-by-turn.</div>';
+    } else {
+      vaultListEl.innerHTML = docs.map(d => {
+        const docId = d.id || d.originalName;
+        const title = d.title || d.originalName || 'Document';
+        const type = (d.docType || 'OTHER').toLowerCase();
+        const dateStr = d.createdAt ? new Date(d.createdAt).toLocaleDateString() : '';
+        const sizeStr = d.sizeBytes ? `${Math.round(d.sizeBytes / 1024)} KB` : '';
+        return `
+          <div class="vault-doc-row" data-id="${escHtml(docId)}">
+            <div class="vault-doc-left">
+              <span class="vault-doc-icon">📄</span>
+              <div class="vault-doc-info">
+                <span class="vault-doc-title">${escHtml(title)}</span>
+                <span class="vault-doc-meta">${escHtml(d.originalName)} · ${dateStr} ${sizeStr ? '· ' + sizeStr : ''}</span>
+              </div>
+            </div>
+            <div style="display:flex; align-items:center; gap:8px;">
+              <span class="vault-doc-badge ${type}">${escHtml(d.docType || 'OTHER')}</span>
+              ${d.url ? `<a href="${escHtml(d.url)}" target="_blank" rel="noopener noreferrer" class="btn-micro-sync" style="text-decoration:none;">View</a>` : ''}
+              <button type="button" class="vault-doc-delete-btn" data-doc-id="${escHtml(docId)}" title="Delete document">Delete</button>
+            </div>
+          </div>
+        `;
+      }).join('');
+
+      vaultListEl.querySelectorAll('.vault-doc-delete-btn').forEach(btn => {
+        btn.addEventListener('click', async (e) => {
+          e.stopPropagation();
+          const docId = btn.getAttribute('data-doc-id');
+          await deleteVaultDocument(docId);
+        });
+      });
+    }
+  }
+}
+
+// ── Actions for Resume Store ──
+
+async function deleteResumeLink(url) {
+  if (!confirm(`Remove link "${url}"?`)) return;
+  try {
+    let token = idToken;
+    if (!token && currentUser) {
+      try { token = await currentUser.getIdToken(); } catch (e) {}
+    }
+    const headers = { 'Content-Type': 'application/json' };
+    if (token) headers['Authorization'] = 'Bearer ' + token;
+
+    const res = await fetch('/api/resume/links', {
+      method: 'DELETE',
+      headers,
+      body: JSON.stringify({ url })
+    });
+    const data = await res.json();
+    if (data && data.success) {
+      await loadResumeProfileStore();
+    }
+  } catch (err) {
+    alert('Failed to remove link: ' + err.message);
+  }
+}
+
+async function deleteVaultDocument(docId) {
+  if (!confirm('Permanently remove this document from Firestore?')) return;
+  try {
+    let token = idToken;
+    if (!token && currentUser) {
+      try { token = await currentUser.getIdToken(); } catch (e) {}
+    }
+    const headers = {};
+    if (token) headers['Authorization'] = 'Bearer ' + token;
+
+    const res = await fetch(`/api/resume/document/${encodeURIComponent(docId)}`, {
+      method: 'DELETE',
+      headers
+    });
+    const data = await res.json();
+    if (data && data.success) {
+      await loadResumeProfileStore();
+    }
+  } catch (err) {
+    alert('Failed to remove document: ' + err.message);
+  }
+}
+
+async function toggleRepoStatus(repoName, exclude) {
+  try {
+    let token = idToken;
+    if (!token && currentUser) {
+      try { token = await currentUser.getIdToken(); } catch (e) {}
+    }
+    const headers = { 'Content-Type': 'application/json' };
+    if (token) headers['Authorization'] = 'Bearer ' + token;
+
+    const res = await fetch('/api/resume/github/repo-toggle', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ repoName, exclude })
+    });
+    const data = await res.json();
+    if (data && data.success) {
+      await loadResumeProfileStore();
+    }
+  } catch (err) {
+    alert('Failed to update repo: ' + err.message);
+  }
+}
 
 function initResumeAuditWorkspace() {
   loadResumeAuditHistory();
+  loadResumeProfileStore();
   if (resumeWorkspaceInitialized) return;
   resumeWorkspaceInitialized = true;
 
@@ -7377,6 +7595,146 @@ function initResumeAuditWorkspace() {
   const runBuildBtn = document.getElementById('resume-run-build-btn');
   const downloadPdfBtn = document.getElementById('builder-download-pdf-btn');
   const viewAuditBtn = document.getElementById('builder-view-audit-btn');
+
+  // Custom curation triggers
+  const syncGhBtn = document.getElementById('builder-sync-github-btn');
+  const resetReposBtn = document.getElementById('builder-reset-repos-btn');
+  const saveLinksBtn = document.getElementById('builder-save-links-btn');
+  const docsUploadTrigger = document.getElementById('builder-docs-upload-trigger');
+  const docsInput = document.getElementById('builder-docs-input');
+
+  // Sync GitHub Repos button
+  if (syncGhBtn) {
+    syncGhBtn.addEventListener('click', async () => {
+      const username = (document.getElementById('builder-github-input')?.value || '').trim();
+      if (!username) {
+        alert('Please enter a GitHub username first.');
+        return;
+      }
+      syncGhBtn.disabled = true;
+      syncGhBtn.textContent = '⏳ Fetching…';
+      try {
+        let token = idToken;
+        if (!token && currentUser) {
+          try { token = await currentUser.getIdToken(); } catch (e) {}
+        }
+        const headers = { 'Content-Type': 'application/json' };
+        if (token) headers['Authorization'] = 'Bearer ' + token;
+
+        const res = await fetch('/api/resume/github/sync', {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({ username })
+        });
+        const data = await res.json();
+        if (!res.ok || !data.success) throw new Error(data.error || 'Failed to sync GitHub');
+        await loadResumeProfileStore();
+      } catch (err) {
+        alert('GitHub Fetch Error: ' + err.message);
+      } finally {
+        syncGhBtn.disabled = false;
+        syncGhBtn.textContent = '🔄 Fetch Repos';
+      }
+    });
+  }
+
+  // Restore All Repos button
+  if (resetReposBtn) {
+    resetReposBtn.addEventListener('click', async () => {
+      try {
+        let token = idToken;
+        if (!token && currentUser) {
+          try { token = await currentUser.getIdToken(); } catch (e) {}
+        }
+        const headers = {};
+        if (token) headers['Authorization'] = 'Bearer ' + token;
+
+        const res = await fetch('/api/resume/github/reset', { method: 'POST', headers });
+        const data = await res.json();
+        if (data && data.success) await loadResumeProfileStore();
+      } catch (err) {
+        alert('Error restoring repos: ' + err.message);
+      }
+    });
+  }
+
+  // Save Links button
+  if (saveLinksBtn) {
+    saveLinksBtn.addEventListener('click', async () => {
+      const rawUrls = (document.getElementById('builder-urls-input')?.value || '').trim();
+      const urlsArray = rawUrls.split(/[\n,]+/).map(u => u.trim()).filter(Boolean);
+      const links = urlsArray.map(u => ({ url: u }));
+
+      saveLinksBtn.disabled = true;
+      saveLinksBtn.textContent = 'Saving…';
+      try {
+        let token = idToken;
+        if (!token && currentUser) {
+          try { token = await currentUser.getIdToken(); } catch (e) {}
+        }
+        const headers = { 'Content-Type': 'application/json' };
+        if (token) headers['Authorization'] = 'Bearer ' + token;
+
+        const res = await fetch('/api/resume/links', {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({ links })
+        });
+        const data = await res.json();
+        if (!res.ok || !data.success) throw new Error(data.error || 'Failed to save links');
+        await loadResumeProfileStore();
+        alert('✅ Links saved permanently to Firestore!');
+      } catch (err) {
+        alert('Error saving links: ' + err.message);
+      } finally {
+        saveLinksBtn.disabled = false;
+        saveLinksBtn.textContent = '💾 Save Links';
+      }
+    });
+  }
+
+  // Turn-by-Turn Docs Upload Trigger
+  if (docsUploadTrigger && docsInput) {
+    docsUploadTrigger.addEventListener('click', () => docsInput.click());
+    docsInput.addEventListener('change', async (e) => {
+      const files = e.target.files;
+      if (!files || files.length === 0) return;
+
+      docsUploadTrigger.disabled = true;
+      docsUploadTrigger.textContent = '⏳ Uploading…';
+
+      try {
+        const formData = new FormData();
+        for (let i = 0; i < files.length; i++) {
+          formData.append('files', files[i]);
+        }
+
+        let token = idToken;
+        if (!token && currentUser) {
+          try { token = await currentUser.getIdToken(); } catch (e) {}
+        }
+        const headers = {};
+        if (token) headers['Authorization'] = 'Bearer ' + token;
+
+        const res = await fetch('/api/resume/document/upload', {
+          method: 'POST',
+          headers,
+          body: formData
+        });
+
+        const data = await res.json();
+        if (!res.ok || !data.success) throw new Error(data.error || 'Failed to upload document');
+
+        docsInput.value = '';
+        await loadResumeProfileStore();
+      } catch (err) {
+        alert('Upload Error: ' + err.message);
+      } finally {
+        docsUploadTrigger.disabled = false;
+        docsUploadTrigger.textContent = '📤 + Upload Doc(s)';
+      }
+    });
+  }
 
   if (tabAuditBtn && tabBuildBtn && dropzone && builderPanel) {
     tabAuditBtn.addEventListener('click', () => {

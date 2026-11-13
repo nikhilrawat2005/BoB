@@ -715,16 +715,49 @@
                       <input type="text" id="builder-phone-input" class="builder-text-input" value="+91-8700113731" placeholder="Phone" />
                     </div>
 
-                    <label class="builder-field-label">GitHub Username / Profile URL</label>
+                    <div class="builder-github-sync-header">
+                      <label class="builder-field-label" style="margin-bottom:0;">GitHub Username / Profile</label>
+                      <button type="button" id="builder-sync-github-btn" class="btn-micro-sync">🔄 Fetch Repos</button>
+                    </div>
                     <input type="text" id="builder-github-input" class="builder-text-input" value="nikhilrawat2005" placeholder="e.g. nikhilrawat2005" />
+
+                    <!-- Live GitHub Repos Selection & Curation Area -->
+                    <div id="builder-repos-curation-box" class="builder-curation-box">
+                      <div class="curation-box-header">
+                        <span class="curation-box-title">📦 Synced GitHub Repositories (<span id="builder-repos-count">0</span>)</span>
+                        <button type="button" id="builder-reset-repos-btn" class="btn-text-action" title="Restore all repos into resume">Restore All</button>
+                      </div>
+                      <p class="curation-box-sub">Click on any repo badge to exclude or include it in your ATS resume.</p>
+                      <div id="builder-repos-list" class="builder-repos-list">
+                        <div class="curation-empty-text">No repos synced yet. Click "Fetch Repos".</div>
+                      </div>
+                    </div>
                   </div>
 
                   <div class="builder-form-col">
-                    <label class="builder-field-label">Coding & Project URLs (one per line: LeetCode, Portfolio, Deployed Apps)</label>
+                    <!-- Links Manager -->
+                    <div class="builder-links-manager-header">
+                      <label class="builder-field-label" style="margin-bottom:0;">Coding & Portfolio Links</label>
+                      <button type="button" id="builder-save-links-btn" class="btn-micro-sync">💾 Save Links</button>
+                    </div>
+                    <p class="curation-box-sub" style="margin-bottom:6px;">Add one URL per line (LeetCode, Codeforces, Portfolio, Deployed Apps). Stored permanently in Firestore.</p>
                     <textarea id="builder-urls-input" class="builder-textarea" rows="3" placeholder="https://leetcode.com/u/username&#10;https://bob-jade-tau.vercel.app&#10;https://thefalcontour.com">https://linkedin.com/in/nikhilrawat-dev&#10;https://leetcode.com/u/nikhilrawat_dev&#10;https://bob-jade-tau.vercel.app&#10;https://thefalcontour.com</textarea>
+                    <div id="builder-links-chips" class="builder-links-chips"></div>
 
-                    <label class="builder-field-label">Upload Marksheets & Certificates (Optional PDF/Images)</label>
-                    <input type="file" id="builder-docs-input" class="builder-file-input" multiple accept=".pdf,.png,.jpg,.jpeg" />
+                    <!-- Turn-by-Turn Documents Vault -->
+                    <div class="builder-vault-header">
+                      <div>
+                        <label class="builder-field-label" style="margin-bottom:2px;">📁 Persistent Documents Vault (Firestore)</label>
+                        <p class="curation-box-sub" style="margin-bottom:0;">Upload certificates & marksheets turn-by-turn. Stored permanently — remove or add anytime.</p>
+                      </div>
+                      <div class="vault-upload-actions">
+                        <input type="file" id="builder-docs-input" style="display:none;" multiple accept=".pdf,.png,.jpg,.jpeg" />
+                        <button type="button" id="builder-docs-upload-trigger" class="btn-micro-sync">📤 + Upload Doc(s)</button>
+                      </div>
+                    </div>
+                    <div id="builder-docs-vault-list" class="builder-docs-vault-list">
+                      <div class="curation-empty-text">No documents in vault yet. Click "+ Upload Doc(s)" to add turn-by-turn.</div>
+                    </div>
                   </div>
                 </div>
               </div>
