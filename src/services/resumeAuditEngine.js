@@ -273,16 +273,24 @@ function analyzeDeterministicRules(rawText, metadata = {}) {
     });
   }
 
-  // ── CHECK 4: Summary / Career Objective for UG ──
-  if (/\b(career objective|objective:|summary)\b/i.test(lower)) {
-    addDeduction('atsFormatAndParseability', 5, 'Summary/Objective present (prohibited for UG engineering resumes)');
+  // ── CHECK 4: Summary & Career Objective Analysis ──
+  // Do NOT penalize summary or professional summary (Hiration requirement).
+  // Only penalize obsolete "Career Objective" / "Objective:" sections.
+  if (/\b(career objective|objective:)\b/i.test(lower)) {
+    addDeduction('atsFormatAndParseability', 5, 'Obsolete Career Objective present — replace with a professional summary');
     issues.push({
       section: 'ATS Format & Geometry',
       severity: 'MEDIUM',
-      rule: 'NO_SUMMARY_FOR_UG',
+      rule: 'NO_OBJECTIVE_SECTION',
       deduction: 5,
-      gap_message: 'Summary/Objective section is discouraged for UG engineering resumes (ABES PPT Guideline: only for 5yr+ experience).',
-      action_fix: 'Delete the Summary section to free up 4 lines of vertical space and reallocate it to Education and Project timelines.'
+      gap_message: 'Obsolete Career Objective detected. Modern ATS standards prefer a concise 2-3 line Professional Summary.',
+      action_fix: 'Replace "Career Objective" with a 2-line "Summary" highlighting key technical skills and verified project outcomes.'
+    });
+  } else if (/\b(summary|professional summary)\b/i.test(lower)) {
+    positivePoints.push({
+      section: 'ATS Format & Geometry',
+      badge: 'SUMMARY_PRESENT',
+      detail: 'Concise 2-line Professional Summary detected — satisfies modern ATS and Hiration structure guidelines.'
     });
   }
 
@@ -575,28 +583,69 @@ function analyzeDeterministicRules(rawText, metadata = {}) {
   }
 
   // ── CHECK 11: Quantified Impact & Action Verbs (20 pts bucket) ──
+  const bulletLines = lines.filter(l => /^[•\-\*]\s+/i.test(l) || l.startsWith('•') || l.startsWith('-'));
   const numbersMatched = rawText.match(/\b\d+(\.\d+)?%|\b\d{1,4}\+?\s*(users|clients|students|ms|seconds|hours|queries|stars|downloads|requests|api|pages|lines|services)\b/gi) || [];
-  if (numbersMatched.length >= 3) {
+
+  // Check per-bullet metrics coverage (at least 80% of bullets contain a number or % metric)
+  let bulletsWithMetrics = 0;
+  bulletLines.forEach(bl => {
+    if (/\b\d+(\.\d+)?%|\b\d{1,4}\+?\s*(users|clients|students|ms|seconds|hours|queries|stars|downloads|requests|api|pages|lines|services)\b|\b\d+\b/i.test(bl)) {
+      bulletsWithMetrics++;
+    }
+  });
+
+  const bulletMetricRatio = bulletLines.length > 0 ? (bulletsWithMetrics / bulletLines.length) : 1;
+
+  if (numbersMatched.length >= 3 && bulletMetricRatio >= 0.8) {
     positivePoints.push({
       section: 'Action Verbs & Google X-Y-Z',
       badge: 'METRICS_DRIVEN',
-      detail: `Found ${numbersMatched.length} quantifiable metrics (${numbersMatched.slice(0, 4).join(', ')}). ATS systems prioritize measurable impact.`
+      detail: `Found ${numbersMatched.length} quantifiable metrics (${Math.round(bulletMetricRatio * 100)}% bullet coverage). ATS systems prioritize measurable impact.`
     });
   } else {
-    addDeduction('contentImpactAndActionVerbs', 8, 'Too few quantified metrics (X-Y-Z formula: Accomplished [X] as measured by [Y] by doing [Z])');
+    addDeduction('contentImpactAndActionVerbs', 8, 'Too few quantified metrics across bullets (at least 80% of bullets must contain % or scale numbers)');
     issues.push({
       section: 'Action Verbs & Google X-Y-Z',
       severity: 'HIGH',
       rule: 'LACK_OF_METRICS',
       deduction: 8,
-      gap_message: 'Fewer than 3 quantifiable numbers/metrics found across experience and project bullets.',
+      gap_message: `Only ${bulletsWithMetrics}/${bulletLines.length} (${Math.round(bulletMetricRatio * 100)}%) bullets contain quantified metrics. Hiration and ATS engines require >= 80% coverage.`,
       action_fix: 'Rewrite bullets using Google X-Y-Z formula: "Accomplished [X] as measured by [Y]% latency reduction by doing [Z]" with concrete data.'
+    });
+  }
+
+  // ── CHECK 11B: Action Verb Repetition Across Bullets ──
+  const startingVerbsCount = {};
+  bulletLines.forEach(bl => {
+    const cleanB = bl.replace(/^[•\-\*]\s*/, '').trim();
+    const firstWord = (cleanB.split(/\s+/)[0] || '').toLowerCase().replace(/[^a-z]/g, '');
+    if (firstWord.length > 2) {
+      startingVerbsCount[firstWord] = (startingVerbsCount[firstWord] || 0) + 1;
+    }
+  });
+
+  const repeatedVerbs = Object.entries(startingVerbsCount).filter(([v, count]) => count >= 3);
+  if (repeatedVerbs.length > 0) {
+    const verbList = repeatedVerbs.map(([v, c]) => `"${v}" (${c}x)`).join(', ');
+    addDeduction('contentImpactAndActionVerbs', 3, `Repeated action verbs across bullets (${verbList}) — use distinct verbs`);
+    issues.push({
+      section: 'Action Verbs & Google X-Y-Z',
+      severity: 'MEDIUM',
+      rule: 'REPEATED_ACTION_VERBS',
+      deduction: 3,
+      gap_message: `Action verbs are repeated excessively across bullets: ${verbList}. Hiration penalizes any verb used multiple times.`,
+      action_fix: 'Vary action verbs across bullets using unique terms: Engineered, Architected, Developed, Built, Optimized, Automated, Designed, Implemented, Accelerated, Spearheaded, Delivered.'
+    });
+  } else {
+    positivePoints.push({
+      section: 'Action Verbs & Google X-Y-Z',
+      badge: 'DIVERSE_ACTION_VERBS',
+      detail: 'Excellent action verb diversity — zero repeated verbs across experience and project bullets.'
     });
   }
 
   // ── CHECK 12: Upgrade Duplicate Bullet Detector (Semantic & Technical Bigram Overlap) ──
   // Deduct under Projects & Quantified Outcomes (-3 pts)
-  const bulletLines = lines.filter(l => /^[•\-\*]\s+/i.test(l) || l.startsWith('•') || l.startsWith('-'));
   const duplicatePairs = [];
   const tokenizedBullets = bulletLines.map(b => ({
     raw: b,

@@ -58,6 +58,7 @@ function sanitizeAscii(str) {
 async function compileResumePdf(resumeData, options = {}) {
   const {
     name = 'Nikhil Rawat',
+    summary = '',
     contact = {},
     education = [],
     technicalSkills = {},
@@ -172,6 +173,7 @@ async function compileResumePdf(resumeData, options = {}) {
       if (contact.github) links.push({ label: 'GitHub', url: contact.github });
       if (contact.linkedin) links.push({ label: 'LinkedIn', url: contact.linkedin });
       if (contact.portfolio) links.push({ label: 'Portfolio', url: contact.portfolio });
+      if (contact.codechef) links.push({ label: 'CodeChef', url: contact.codechef });
       if (contact.leetcode) links.push({ label: 'LeetCode', url: contact.leetcode });
 
       if (links.length > 0) {
@@ -206,6 +208,15 @@ async function compileResumePdf(resumeData, options = {}) {
         doc.y = linksY + fontSubSize + (2.5 * scale);
       }
 
+      // ── 1.5. SUMMARY SECTION (Hiration-Compliant Overview) ──
+      if (summary && summary.trim()) {
+        renderSectionHeading('Summary');
+        const summaryY = doc.y;
+        doc.font('Helvetica').fontSize(fontBodySize).fillColor('#1f2937')
+          .text(sanitizeAscii(summary), margin, summaryY, { width: contentWidth, lineGap: lineSpacing });
+        doc.y += 1.5 * scale;
+      }
+
       // ── 2. EDUCATION SECTION (Strict Single-Column Dual-Row Flow) ──
       if (Array.isArray(education) && education.length > 0) {
         renderSectionHeading('Education');
@@ -231,7 +242,7 @@ async function compileResumePdf(resumeData, options = {}) {
           if (edu.score) {
             let scoreClean = String(edu.score).replace(/CGPA:\s*/gi, '').replace(/CGPA/gi, '').trim();
             if (scoreClean) {
-              scoreDisplay = scoreClean.includes('%') || scoreClean.includes('/10') ? scoreClean : `CGPA: ${scoreClean}/10`;
+              scoreDisplay = scoreClean.includes('%') ? scoreClean : `CGPA: ${scoreClean.includes('/10') ? scoreClean : `${scoreClean}/10`}`;
             }
           }
 
@@ -286,10 +297,12 @@ async function compileResumePdf(resumeData, options = {}) {
           const cleanStack = sanitizeAscii(stackStr);
           const metaY = doc.y;
 
-          if (proj.liveUrl) {
-            const rawUrl = String(proj.liveUrl).replace(/^https?:\/\//, '');
+          const projectLink = proj.liveUrl || proj.repoUrl;
+
+          if (projectLink) {
+            const rawUrl = String(projectLink).replace(/^https?:\/\//, '');
             const cleanUrl = sanitizeAscii(rawUrl);
-            const safeUrl = String(proj.liveUrl).startsWith('http') ? String(proj.liveUrl) : `https://${proj.liveUrl}`;
+            const safeUrl = String(projectLink).startsWith('http') ? String(projectLink) : `https://${projectLink}`;
             
             doc.font('Helvetica-Bold').fontSize(fontSubSize);
             const urlWidth = doc.widthOfString(cleanUrl);
@@ -375,21 +388,15 @@ async function compileResumePdf(resumeData, options = {}) {
             const certIssuer = cert.issuer ? sanitizeSingleLine(cert.issuer) : '';
             const certDate = cert.date ? sanitizeSingleLine(cert.date) : '';
 
-            const certY = doc.y;
-            const fullCertText = `${certTitle}${certIssuer ? ` | ${certIssuer}` : ''}${certDate ? ` | ${certDate}` : ''}`;
-            
-            doc.font('Helvetica').fontSize(fontBodySize).fillColor('#111827')
-              .text('-  ', margin + 6, certY, { continued: true, lineGap: lineSpacing })
-              .font('Helvetica-Bold')
-              .text(certTitle, { continued: Boolean(certIssuer || certDate) });
+            const leftText = certIssuer ? `${certTitle} | ${certIssuer}` : certTitle;
 
-            if (certIssuer || certDate) {
-              const suffix = `${certIssuer ? ` | ${certIssuer}` : ''}${certDate ? ` | ${certDate}` : ''}`;
-              doc.font('Helvetica').fillColor('#374151')
-                .text(suffix, { width: contentWidth - 12, lineGap: lineSpacing });
-            }
-
-            doc.y = Math.max(doc.y, certY + fontBodySize) + (1.5 * scale);
+            renderDualRow(leftText, certDate, {
+              isBold: false,
+              fontSize: fontBodySize,
+              leftColor: '#111827',
+              rightColor: '#374151',
+              spacingAfter: 1.5 * scale
+            });
           });
         }
       }

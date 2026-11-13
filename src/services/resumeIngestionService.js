@@ -207,6 +207,10 @@ function extractKnownCertificatePatterns(text = '', filename = '') {
 
   // 1. ViCoDathon 2026 - Hackathon
   if (lower.includes('vicodathon') || lower.includes('abtalks') || lower.includes('abt-hk')) {
+    // Check if it's strictly participation
+    if (lower.includes('participation') && !lower.includes('winner') && !lower.includes('finalist')) {
+      return null;
+    }
     return {
       docType: 'CERTIFICATION',
       subType: 'HACKATHON',
@@ -260,7 +264,7 @@ function extractKnownCertificatePatterns(text = '', filename = '') {
     if (isAssessment) {
       return {
         docType: 'CERTIFICATION',
-        title: 'Exploratory Data Analysis (Silver Category — 61%)',
+        title: 'Exploratory Data Analysis (Silver Category)',
         issuer: 'NASSCOM FutureSkills Prime (MeitY)',
         date: 'Oct 2026',
         credentialId: 'FSP/2026/10/10498167',
@@ -268,15 +272,8 @@ function extractKnownCertificatePatterns(text = '', filename = '') {
         courseKey: 'nasscom_eda'
       };
     } else {
-      return {
-        docType: 'CERTIFICATION',
-        title: 'Exploratory Data Analysis (Course Participation)',
-        issuer: 'NASSCOM FutureSkills Prime (MeitY)',
-        date: 'Oct 2026',
-        credentialId: '1428186',
-        tier: 2,
-        courseKey: 'nasscom_eda'
-      };
+      // Strictly exclude participation-only
+      return null;
     }
   }
 
@@ -343,6 +340,28 @@ function sanitizeAndRepairStoredDoc(docRecord) {
     .replace(/[^\x20-\x7E]/g, ' ')
     .replace(/\s{2,}/g, ' ')
     .trim();
+
+  // Clean NASSCOM title of "- 61%"
+  if (cleanTitle.includes('Exploratory Data Analysis') && cleanTitle.includes('61%')) {
+    cleanTitle = 'Exploratory Data Analysis (Silver Category)';
+  }
+
+  // Filter out participation-only certificates
+  const isParticipation = docRecord.is_participation_only === true ||
+    currentInfo.is_participation_only === true ||
+    /certificate of participation|course participation|for participating in/i.test(`${cleanTitle} ${originalName}`);
+
+  if (isParticipation) {
+    return {
+      ...docRecord,
+      docType: 'OTHER',
+      tier: 3,
+      extractedInfo: {
+        ...(docRecord.extractedInfo || {}),
+        is_participation_only: true
+      }
+    };
+  }
 
   // Strict Reject Gate for Raw Filenames & Garbage Titles
   if (/^[0-9\s_+-]+$/.test(cleanTitle) || /^nikhil[\s_+.-]*rawat/i.test(cleanTitle) || /certificate.*completion/i.test(cleanTitle) || cleanTitle.toLowerCase() === 'certificate') {
@@ -670,10 +689,11 @@ If unparseable, return {"docType": "OTHER"}`;
           return null;
         }
 
-        const isHackathon = /hackathon|vicodathon|codevita|acpc|unstop|ideathon/i.test(`${filename} ${text} ${title}`);
+        const isParticipationOnly = parsed.is_participation_only === true ||
+          /certificate of participation|course participation|for participating in/i.test(`${filename} ${text} ${title}`);
 
-        // Filter out participation-only unless hackathon or high-tier award
-        if (parsed.is_participation_only === true && !isHackathon) {
+        // Filter out participation-only certificates
+        if (isParticipationOnly) {
           console.warn(`[resumeIngestionService] Filtered out participation-only certificate: "${title}"`);
           return null;
         }
