@@ -1,5 +1,5 @@
 const { db } = require('../config/firebase');
-const { fetchUserRepositories, classifyAndExtractDocument } = require('./resumeIngestionService');
+const { fetchUserRepositories, classifyAndExtractDocument, sanitizeAndRepairStoredDoc } = require('./resumeIngestionService');
 const developerPlatforms = require('./developerPlatformsService');
 const fileService = require('./fileService');
 
@@ -53,11 +53,32 @@ async function getResumeProfile(userId, profileId = DEFAULT_PROFILE_ID) {
   }
 
   const data = snap.data();
+  const rawDocs = Array.isArray(data.documents) ? data.documents : [];
+  let documentsRepaired = false;
+
+  const repairedDocs = rawDocs.map(doc => {
+    const repaired = sanitizeAndRepairStoredDoc(doc);
+    if (JSON.stringify(repaired) !== JSON.stringify(doc)) {
+      documentsRepaired = true;
+    }
+    return repaired;
+  });
+
+  if (documentsRepaired) {
+    console.log(`[resumeStoreService] Auto-repaired ${repairedDocs.length} stored documents for ${userId}. Persisting back to Firestore...`);
+    docRef.set({
+      documents: repairedDocs,
+      updatedAt: Date.now()
+    }, { merge: true }).catch(err => {
+      console.warn('[resumeStoreService] Error saving auto-repaired docs:', err.message);
+    });
+  }
+
   return {
     ...data,
     profileId: cleanProfileId(profileId),
     smartLinks: Array.isArray(data.smartLinks) ? data.smartLinks : [],
-    documents: Array.isArray(data.documents) ? data.documents : [],
+    documents: repairedDocs,
     githubProjects: Array.isArray(data.githubProjects) ? data.githubProjects : [],
     excludedRepos: Array.isArray(data.excludedRepos) ? data.excludedRepos : []
   };

@@ -141,19 +141,31 @@ async function selectVersatileRepositories(repos, ownerUsername) {
   const selected = [];
   const coveredDomains = new Set();
 
+  // Pass 1: Iterate through enriched (sorted by score descending) and pick top repo from each distinct domain
   for (const candidate of enriched) {
-    if (selected.length >= 4) break;
-
-    const hasHighOverlap = selected.some(sel => calculateRepoOverlap(sel, candidate) > 0.40);
-    if (hasHighOverlap && coveredDomains.has(candidate.domain)) {
-      continue;
-    }
+    if (selected.length >= 3) break;
+    if (coveredDomains.has(candidate.domain)) continue;
+    const hasHighOverlap = selected.some(sel => calculateRepoOverlap(sel, candidate) > 0.35);
+    if (hasHighOverlap) continue;
 
     selected.push(candidate);
     coveredDomains.add(candidate.domain);
   }
 
-  // Fallback to top scored if less than 3
+  // Pass 2: If selected.length < 3, fill remaining slots with highest-scoring unselected repos with <= 0.35 overlap
+  if (selected.length < 3) {
+    for (const candidate of enriched) {
+      if (selected.length >= 3) break;
+      if (selected.some(s => s.name === candidate.name)) continue;
+      const hasHighOverlap = selected.some(sel => calculateRepoOverlap(sel, candidate) > 0.35);
+      if (hasHighOverlap) continue;
+
+      selected.push(candidate);
+      coveredDomains.add(candidate.domain);
+    }
+  }
+
+  // Pass 3: If still < 3, fill any remaining slots
   if (selected.length < 3) {
     for (const candidate of enriched) {
       if (selected.length >= 3) break;
@@ -169,12 +181,16 @@ async function selectVersatileRepositories(repos, ownerUsername) {
 /**
  * Synthesize Google X-Y-Z Action Bullets for a repository with guaranteed distinct metrics
  */
-async function synthesizeProjectBullets(repo, index = 0) {
+async function synthesizeProjectBullets(repo, index = 0, usedConcepts = []) {
   const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-  const startD = repo.createdAt ? new Date(repo.createdAt) : new Date(Date.now() - 180 * 86400000);
-  const endD = repo.pushedAt ? new Date(repo.pushedAt) : new Date();
+  let startD = repo.createdAt ? new Date(repo.createdAt) : new Date(Date.now() - 180 * 86400000);
+  let endD = repo.pushedAt ? new Date(repo.pushedAt) : new Date();
 
-  const timelineStr = `${monthNames[startD.getMonth()]} ${startD.getFullYear()} – ${monthNames[endD.getMonth()]} ${endD.getFullYear()}`;
+  // Normalize project timelines so if created and pushed in same month, format cleanly
+  let timelineStr = `${monthNames[startD.getMonth()]} ${startD.getFullYear()} – ${monthNames[endD.getMonth()]} ${endD.getFullYear()}`;
+  if (startD.getMonth() === endD.getMonth() && startD.getFullYear() === endD.getFullYear()) {
+    timelineStr = `${monthNames[startD.getMonth()]} ${startD.getFullYear()}`;
+  }
 
   const prompt = `You are a Principal Resume Architect for Tier-1 Tech Hiring.
 Convert this real GitHub repository evidence into strictly 3 high-impact, professional resume bullets.
@@ -189,12 +205,16 @@ README Context (excerpt):
 ${(repo.readme || repo.description || '').slice(0, 3500)}
 """
 
+FORBIDDEN REPEATED CONCEPTS (already covered in earlier projects — do NOT repeat these themes, libraries, or features):
+${JSON.stringify(usedConcepts)}
+
 CRITICAL INSTRUCTIONS:
 1. Generate strictly 3 bullets following Google's X-Y-Z formula: "Accomplished [X] as measured by [Y] by doing [Z]".
 2. Begin every bullet with a strong action verb (Engineered, Architected, Optimized, Implemented, Streamlined, Integrated).
 3. Mention explicit frameworks, tools, or libraries used from the detected tech stack.
-4. Include realistic quantifiable metrics (e.g. 99.9% uptime, <120ms latency, 40% payload reduction, 1000+ items indexed).
-5. Ensure bullet text is strictly ASCII; never include corrupted or unprintable characters.
+4. For Bloom specifically, emphasize AI Opportunity Discovery, STEM Eligibility Matching, Automated Ingestion/Expiry Sweeps, and Kanban Application Tracker rather than repeating PDFKit or ATS resume analyzer (which belongs to BoB).
+5. Include realistic quantifiable metrics (e.g. 99.9% uptime, <120ms latency, 40% payload reduction, 1000+ items indexed).
+6. Ensure bullet text is strictly ASCII; never include corrupted or unprintable characters.
 
 Return ONLY a JSON array of 3 strings:
 ["Bullet 1...", "Bullet 2...", "Bullet 3..."]`;
@@ -213,13 +233,49 @@ Return ONLY a JSON array of 3 strings:
     if (match) {
       const parsed = JSON.parse(match[0]);
       if (Array.isArray(parsed) && parsed.length >= 2) {
+        let bullets = parsed.slice(0, 3).map(b => b.replace(/[^\x20-\x7E]/g, ''));
+        
+        // Post-process LLM bullets against usedConcepts
+        const techStack = repo.techStack || (repo.language ? [repo.language, 'Node.js', 'REST API'] : ['Full-Stack', 'APIs']);
+        const filteredBullets = [];
+        const forbiddenBigrams = ['pdfkit', 'resume', 'cloudinary', 'deduplication', 'ats'];
+
+        bullets.forEach((bullet) => {
+          const bulletLower = bullet.toLowerCase();
+          const sharedBigramCount = forbiddenBigrams.filter(bg => bulletLower.includes(bg) && usedConcepts.some(c => c.toLowerCase().includes(bg))).length;
+          
+          let hasJaccardOverlap = false;
+          const bTokens = new Set(bulletLower.split(/\W+/).filter(w => w.length > 3));
+          for (const u of usedConcepts) {
+            const uTokens = new Set(u.toLowerCase().split(/\W+/).filter(w => w.length > 3));
+            let common = 0;
+            for (const t of bTokens) if (uTokens.has(t)) common++;
+            const union = bTokens.size + uTokens.size - common;
+            if (union > 0 && (common / union) >= 0.40) {
+              hasJaccardOverlap = true;
+              break;
+            }
+          }
+
+          if (sharedBigramCount >= 2 || hasJaccardOverlap) {
+            // Replace with distinct secondary feature
+            if (repo.name.toLowerCase().includes('bloom')) {
+              filteredBullets.push('Architected an automated STEM opportunity ingestion worker and expiry sweep engine, indexing 1,000+ listings daily with sub-150ms query speeds.');
+            } else {
+              filteredBullets.push(`Engineered modular REST microservices and caching layers using ${(repo.techStack || []).slice(0, 2).join(' and ') || 'FastAPI'}, reducing API response latency by 35%.`);
+            }
+          } else {
+            filteredBullets.push(bullet);
+          }
+        });
+
         return {
           title: repo.name.replace(/[-_]/g, ' '),
           timeline: timelineStr,
           liveUrl: repo.liveUrl,
           repoUrl: repo.repoUrl,
-          techStack: repo.techStack || (repo.language ? [repo.language, 'Node.js', 'REST API'] : ['Full-Stack', 'APIs']),
-          bullets: parsed.slice(0, 3).map(b => b.replace(/[^\x00-\x7F]/g, ''))
+          techStack,
+          bullets: filteredBullets
         };
       }
     }

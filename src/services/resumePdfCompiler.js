@@ -18,16 +18,38 @@ const PAGE_HEIGHT_PT = 841.89; // Standard A4 height in points (595.28 x 841.89)
 const PAGE_WIDTH_PT = 595.28;  // Standard A4 width in points
 
 /**
- * Sanitize text to avoid corrupt encoding or non-printable glyphs
+ * Sanitize single-line fields (degree, institution, project title, cert title, etc.)
+ * Strictly collapses all newlines/tabs, converts fancy quotes/dashes, strips non-ASCII corrupt glyphs,
+ * and collapses multiple spaces so the text strictly occupies a single clean line.
+ */
+function sanitizeSingleLine(str) {
+  if (!str) return '';
+  return String(str)
+    .replace(/[\r\n\t]+/g, ' ')
+    .replace(/[\u2018\u2019´`]/g, "'")
+    .replace(/[\u201C\u201D]/g, '"')
+    .replace(/[\u2013\u2014]/g, '-')
+    .replace(/\u2022/g, '-')
+    .replace(/[^\x20-\x7E]/g, ' ')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+}
+
+/**
+ * Sanitize text to avoid corrupt encoding or non-printable glyphs.
+ * Collapses [\r\n]+ into spaces and trims extra whitespace.
  */
 function sanitizeAscii(str) {
   if (!str) return '';
   return String(str)
-    .replace(/[\u2018\u2019]/g, "'")
+    .replace(/[\r\n\t]+/g, ' ')
+    .replace(/[\u2018\u2019´`]/g, "'")
     .replace(/[\u201C\u201D]/g, '"')
     .replace(/[\u2013\u2014]/g, '-')
     .replace(/\u2022/g, '-')
-    .replace(/[^\x00-\x7F]/g, ''); // strip non-ASCII corrupt glyphs
+    .replace(/[^\x20-\x7E]/g, ' ')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
 }
 
 /**
@@ -95,22 +117,37 @@ async function compileResumePdf(resumeData, options = {}) {
         const fontSz = options.fontSize || fontBodySize;
         const leftColor = options.leftColor || '#111827';
         const rightColor = options.rightColor || '#374151';
-        const rightWidth = options.rightWidth || (doc.font(isBold ? 'Helvetica-Bold' : 'Helvetica').fontSize(fontSz).widthOfString(rightText) + 4);
+
+        const safeLeft = sanitizeSingleLine(leftText);
+        const safeRight = sanitizeSingleLine(rightText);
+
+        const rightWidth = options.rightWidth || (safeRight ? (doc.font(isBold ? 'Helvetica-Bold' : 'Helvetica').fontSize(fontSz).widthOfString(safeRight) + 4) : 0);
         const leftWidth = contentWidth - rightWidth - 6;
+
+        // Truncate leftText deterministically if width exceeds leftWidth to strictly occupy 1 line
+        let truncatedLeft = safeLeft;
+        doc.font(isBold ? 'Helvetica-Bold' : 'Helvetica').fontSize(fontSz);
+        if (doc.widthOfString(truncatedLeft) > leftWidth) {
+          while (truncatedLeft.length > 3 && doc.widthOfString(truncatedLeft + '...') > leftWidth) {
+            truncatedLeft = truncatedLeft.slice(0, -1);
+          }
+          truncatedLeft += '...';
+        }
 
         const currentY = doc.y;
 
         // Render Left Text
-        doc.font(isBold ? 'Helvetica-Bold' : 'Helvetica').fontSize(fontSz).fillColor(leftColor)
-          .text(leftText, margin, currentY, { width: leftWidth, lineBreak: false, ellipsis: true });
+        doc.fillColor(leftColor)
+          .text(truncatedLeft, margin, currentY, { width: leftWidth, lineBreak: false, ellipsis: true });
 
         // Render Right Text
-        if (rightText) {
+        if (safeRight) {
           doc.font(isBold ? 'Helvetica-Bold' : 'Helvetica').fontSize(fontSz).fillColor(rightColor)
-            .text(rightText, PAGE_WIDTH_PT - margin - rightWidth, currentY, { width: rightWidth, align: 'right', lineBreak: false });
+            .text(safeRight, PAGE_WIDTH_PT - margin - rightWidth, currentY, { width: rightWidth, align: 'right', lineBreak: false });
         }
 
-        doc.y = currentY + fontSz + (options.spacingAfter !== undefined ? options.spacingAfter : (1.5 * scale));
+        const nextY = Math.max(doc.y, currentY + fontSz);
+        doc.y = nextY + (options.spacingAfter !== undefined ? options.spacingAfter : (1.5 * scale));
       }
 
       // ── 1. HEADER (Candidate Name + Clean Contact Footprint) ──
@@ -223,8 +260,8 @@ async function compileResumePdf(resumeData, options = {}) {
           doc.font('Helvetica-Bold').fontSize(fontBodySize).fillColor('#111827')
             .text(`${group.label}: `, margin, lineY, { continued: true, width: contentWidth })
             .font('Helvetica').fillColor('#374151')
-            .text(group.items.join(', '), { continued: false, width: contentWidth });
-          doc.y = lineY + fontBodySize + (1.6 * scale);
+            .text(group.items.map(sanitizeSingleLine).join(', '), { continued: false, width: contentWidth });
+          doc.y = Math.max(doc.y, lineY + fontBodySize) + (1.8 * scale);
         }
       });
 
@@ -333,18 +370,26 @@ async function compileResumePdf(resumeData, options = {}) {
         }
 
         if (hasCerts) {
-          certifications.slice(0, 3).forEach(cert => {
-            const certTitle = sanitizeAscii(cert.title || 'Certification');
-            const certIssuer = cert.issuer ? ` | ${sanitizeAscii(cert.issuer)}` : '';
-            const certDate = cert.date ? ` | ${sanitizeAscii(cert.date)}` : '';
+          certifications.slice(0, 4).forEach(cert => {
+            const certTitle = sanitizeSingleLine(cert.title || 'Certification');
+            const certIssuer = cert.issuer ? sanitizeSingleLine(cert.issuer) : '';
+            const certDate = cert.date ? sanitizeSingleLine(cert.date) : '';
 
             const certY = doc.y;
-            doc.font('Helvetica-Bold').fontSize(fontBodySize).fillColor('#111827')
-              .text('-  ', margin + 6, certY, { continued: true })
-              .text(certTitle, { continued: true })
-              .font('Helvetica').fillColor('#374151')
-              .text(`${certIssuer}${certDate}`, { width: contentWidth - 12 });
-            doc.y += 1.2 * scale;
+            const fullCertText = `${certTitle}${certIssuer ? ` | ${certIssuer}` : ''}${certDate ? ` | ${certDate}` : ''}`;
+            
+            doc.font('Helvetica').fontSize(fontBodySize).fillColor('#111827')
+              .text('-  ', margin + 6, certY, { continued: true, lineGap: lineSpacing })
+              .font('Helvetica-Bold')
+              .text(certTitle, { continued: Boolean(certIssuer || certDate) });
+
+            if (certIssuer || certDate) {
+              const suffix = `${certIssuer ? ` | ${certIssuer}` : ''}${certDate ? ` | ${certDate}` : ''}`;
+              doc.font('Helvetica').fillColor('#374151')
+                .text(suffix, { width: contentWidth - 12, lineGap: lineSpacing });
+            }
+
+            doc.y = Math.max(doc.y, certY + fontBodySize) + (1.5 * scale);
           });
         }
       }
@@ -354,6 +399,15 @@ async function compileResumePdf(resumeData, options = {}) {
       reject(err);
     }
   });
+}
+
+/**
+ * Helper to ensure buffer is not a pooled subarray view before passing to pdf-parse
+ */
+function toStandaloneBytes(buffer) {
+  const bytes = new Uint8Array(buffer.byteLength);
+  bytes.set(buffer);
+  return bytes;
 }
 
 /**
@@ -367,7 +421,7 @@ async function compileVerifiedAtsPdf(resumeData, options = {}) {
   let margin = 30.0;
   let buffer = await compileResumePdf(resumeData, { margin, scale });
 
-  let parsed = await pdfParse(buffer).catch(() => ({ numpages: 1 }));
+  let parsed = await pdfParse(toStandaloneBytes(buffer)).catch(() => ({ numpages: 1 }));
   let pageCount = parsed.numpages || 1;
 
   // If spilled onto page 2, progressively compress font scale until strictly 1 page
@@ -378,7 +432,7 @@ async function compileVerifiedAtsPdf(resumeData, options = {}) {
     margin = 26; // tighter margins
     console.log(`[resumePdfCompiler] PDF spilled onto ${pageCount} pages. Compacting scale to ${scale}...`);
     buffer = await compileResumePdf(resumeData, { margin, scale });
-    parsed = await pdfParse(buffer).catch(() => ({ numpages: 1 }));
+    parsed = await pdfParse(toStandaloneBytes(buffer)).catch(() => ({ numpages: 1 }));
     pageCount = parsed.numpages || 1;
     attempt++;
   }

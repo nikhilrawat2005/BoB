@@ -39,6 +39,11 @@ function detectGarbledText(rawText, lines) {
   const symbolGluedPattern = /(?:[\u25A0-\u25FF\u2600-\u26FF\u2700-\u27BF\u00A4\u00A6\u00A7\u00A9\u00AE\u2122]+[A-Za-z0-9]+|[A-Za-z0-9]+[\u25A0-\u25FF\u2600-\u26FF\u2700-\u27BF\u00A4\u00A6\u00A7\u00A9\u00AE\u2122]+)/gu;
   const mojibakePattern = /[\uFFFD]|[\x00-\x08\x0E-\x1F\x7F-\x9F]|[\u00C0-\u00FF]{4,}/g;
 
+  // Bug 5.2 patterns: 2-char mojibake, mid-word non-ASCII, corrupt symbol clusters, broken PDF font tokens
+  const midWordCorruptionPattern = /[A-Za-z]+[–—―‘’“”•\u0080-\u00FF]+[A-Za-z]+/g;
+  const corruptSymbolClustersPattern = /[“”"'][#€~^<>]{2,}|[–—]\s*[F€]{1,3}/g;
+  const knownBrokenFontTokenPattern = /certificate[-–\s]*[öi]{1,2}completion/gi;
+
   const foundSnippets = new Set();
   lines.forEach(l => {
     const trimmed = l.trim();
@@ -46,7 +51,10 @@ function detectGarbledText(rawText, lines) {
     const bq = trimmed.match(brokenQuotesPattern) || [];
     const sg = trimmed.match(symbolGluedPattern) || [];
     const mb = trimmed.match(mojibakePattern) || [];
-    [...bq, ...sg, ...mb].forEach(s => foundSnippets.add(s.trim()));
+    const mw = trimmed.match(midWordCorruptionPattern) || [];
+    const cs = trimmed.match(corruptSymbolClustersPattern) || [];
+    const kb = trimmed.match(knownBrokenFontTokenPattern) || [];
+    [...bq, ...sg, ...mb, ...mw, ...cs, ...kb].forEach(s => foundSnippets.add(s.trim()));
   });
 
   return [...foundSnippets].filter(Boolean);
@@ -283,7 +291,7 @@ function analyzeDeterministicRules(rawText, metadata = {}) {
   const educationSection = sections['EDUCATION'];
   const certAcademicsSection = sections['CERTIFICATIONS_AND_ACADEMICS'];
 
-  const ACADEMIC_ENTITY_REGEX = /\b(b\.?tech|bachelor|b\.?e\.?|m\.?tech|diploma|cbse|aktu|university|college|cgpa|gpa|percentage|%|xii|x\b|12th|10th)\b/i;
+  const ACADEMIC_ENTITY_REGEX = /\b(b\.?tech|bachelor|b\.e\.|bachelor of engineering|m\.?tech|diploma|cbse|aktu|university|college|cgpa|gpa|percentage|%|xii|x\b|12th|10th)\b/i;
 
   const hasEducationHeading = Boolean(educationSection);
   const educationText = educationSection ? educationSection.lines.join(' ') : '';
@@ -293,10 +301,26 @@ function analyzeDeterministicRules(rawText, metadata = {}) {
   const certAcademicsHasAcademicEntities = ACADEMIC_ENTITY_REGEX.test(certAcademicsText);
 
   const fullAcademicPool = `${educationText} ${certAcademicsText}`;
-  const hasDegreeName = /\b(b\.?tech|bachelor|b\.?e\.?|diploma|m\.?tech)\b/i.test(fullAcademicPool);
+  const hasDegreeName = /\b(b\.?tech|bachelor|b\.e\.|bachelor of engineering|m\.?tech|bca|mca|b\.?sc|m\.?sc|diploma)\b/i.test(fullAcademicPool);
   const hasInstitution = /\b(college|university|institute|aktu|school)\b/i.test(fullAcademicPool);
-  const hasCGPA = /\b(cgpa|gpa|percentage|%)\b/i.test(fullAcademicPool);
+  const hasCGPA = /\b(cgpa|gpa|percentage)\b|%|\b\d+(\.\d+)?\/10\b/i.test(fullAcademicPool);
   const hasGradYear = /\b(20(2[0-9]|[3-9]\d)|passing year|graduated|batch)\b/i.test(fullAcademicPool);
+
+  // Check for leaked marksheet table noise inside EDUCATION section
+  const hasMarksheetNoise = /\b(sub\.\s*code|mother'?s?\s*name|father'?s?\s*name|roll\s*no|positional\s*grade)\b/i.test(fullAcademicPool) ||
+    (educationSection && educationSection.lines.some(l => /^(mother|father|sub\.|code|301|041|042)$/i.test(l.trim())));
+
+  if (hasMarksheetNoise) {
+    addDeduction('educationAndCredentials', 10, 'Corrupted marksheet OCR table noise detected inside Education section');
+    issues.push({
+      section: 'Education & Credentials',
+      severity: 'HIGH',
+      rule: 'CORRUPTED_EDUCATION_OCR',
+      deduction: 10,
+      gap_message: 'Raw marksheet OCR artifacts (Mother/Father name, Subject codes, Roll No) detected inside Education section.',
+      action_fix: 'Clean Education section to strictly show Degree, Institution, Score, and Year without table headers or parent details.'
+    });
+  }
 
   if (certAcademicsSection && !educationSection && !certAcademicsHasAcademicEntities) {
     addDeduction('educationAndCredentials', 10, 'Dedicated Education section missing (found "Certifications & Academics" without degree/institution/CGPA)');
@@ -343,17 +367,33 @@ function analyzeDeterministicRules(rawText, metadata = {}) {
   }
 
   // Certification Quality (under Education & Credentials)
-  const certIncomplete = lower.includes('aws certificate') || lower.includes('prompting_certificate') || /certificate\s*\(verified/i.test(lower);
-  const certMissingOrg = /\bcertif(icate|ication)\b/i.test(lower) && !/\b(amazon|google|microsoft|meta|coursera|udemy|nptel|aws|azure|ibm|oracle|cisco)\b/i.test(lower);
+  const certSection = sections['CERTIFICATIONS'] || sections['CERTIFICATIONS_AND_ACADEMICS'] || sections['ACHIEVEMENTS'];
+  const certLines = certSection ? certSection.lines : lines.filter(l => /certif|aws|nasscom|simplilearn|deloitte|hackathon/i.test(l));
+
+  const hasNumericFilenameCert = certLines.some(l => {
+    // 7+ consecutive digits unless preceded by ID: or Code: or Credential
+    const matchDigits = l.match(/\b\d{7,}\b/);
+    if (!matchDigits) return false;
+    return !/(id|code|credential|ref)[\s:#-]*\d{7,}/i.test(l);
+  });
+
+  const hasCandidateNameCert = certLines.some(l => /\bnikhil\s*\+?\s*rawat\s+\d+\b/i.test(l));
+  const hasGenericPlaceholderIssuer = certLines.some(l => /\bindustry certified\b/i.test(l));
+
+  const certIncomplete = lower.includes('aws certificate') || lower.includes('prompting_certificate') || /certificate\s*\(verified/i.test(lower) ||
+    hasNumericFilenameCert || hasCandidateNameCert || hasGenericPlaceholderIssuer;
+
+  const certMissingOrg = /\bcertif(icate|ication)\b/i.test(lower) && !/\b(amazon|google|microsoft|meta|coursera|udemy|nptel|aws|azure|ibm|oracle|cisco|nasscom|deloitte|simplilearn|ab talks)\b/i.test(lower);
+
   if (certIncomplete) {
-    addDeduction('educationAndCredentials', 5, 'Incomplete/placeholder certification titles found (e.g. "aws certificate")');
+    addDeduction('educationAndCredentials', 5, 'Incomplete, numeric filename, or placeholder certification titles found');
     issues.push({
       section: 'Education & Credentials',
       severity: 'MEDIUM',
       rule: 'GENERIC_CERT_NAME',
       deduction: 5,
-      gap_message: 'One or more certifications use placeholder names (e.g., "aws certificate", "prompting_certificate").',
-      action_fix: 'Replace generic labels like \'aws certificate\' with: [Official Certificate Name] | [Issuing Organization] | [Month Year] | [Credential ID/Link].'
+      gap_message: 'One or more certifications use placeholder, numeric filename, or candidate name labels (e.g., "aws certificate", raw ID filenames, or "Industry Certified").',
+      action_fix: 'Replace generic labels like \'aws certificate\' or numeric filenames with: [Official Certificate Name] | [Issuing Organization] | [Month Year] | [Credential ID].'
     });
   } else if (certMissingOrg) {
     issues.push({
@@ -620,6 +660,31 @@ function analyzeDeterministicRules(rawText, metadata = {}) {
         badge: 'PROJECT_TIMELINES_PRESENT',
         detail: 'Project timelines (Month/Year) detected — establishes recency for recruiters.'
       });
+    }
+  }
+
+  // ── CHECK 14: Cross-Section Project vs Experience Duplication Check ──
+  const experienceSection = sections['EXPERIENCE'];
+  if (projectSection && experienceSection) {
+    const projText = projectSection.lines.join(' ').toLowerCase();
+    const expText = experienceSection.lines.join(' ').toLowerCase();
+
+    // Check for known overlapping company/project titles (e.g., The Falcon Tour, Falcon Tour, BoB, Bloom)
+    const titlesToCheck = ['the falcon tour', 'falcon tour', 'bob', 'bloom', 'find me'];
+    for (const title of titlesToCheck) {
+      if (projText.includes(title) && expText.includes(title)) {
+        addDeduction('projectsAndExperienceQuality', 3, `Duplicate title "${title}" appears in both Projects and Experience sections`);
+        issues.push({
+          section: 'Projects & Quantified Outcomes',
+          severity: 'MEDIUM',
+          rule: 'DUPLICATE_PROJECT_EXPERIENCE',
+          deduction: 3,
+          snippet: title,
+          gap_message: `Duplicate title "${title}" appears in both Key Projects and Experience sections, wasting precious resume space.`,
+          action_fix: `Feature "${title}" solely in Experience (or Key Projects), and replace the other slot with a distinct project.`
+        });
+        break;
+      }
     }
   }
 

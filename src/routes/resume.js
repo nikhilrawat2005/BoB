@@ -9,6 +9,9 @@ const { auth } = require('../config/firebase');
 
 const router = express.Router();
 
+// In-memory cache for downloaded PDFs
+const lastGeneratedPdfs = new Map();
+
 // Memory storage for immediate processing
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -440,6 +443,9 @@ router.post('/build', upload.array('documents', 10), async (req, res) => {
       }
     }
 
+    // Cache compiled PDF for GET /download-generated
+    lastGeneratedPdfs.set(buildResult.filename, buildResult.pdfBuffer);
+
     // Convert PDF buffer to Base64 so frontend can download directly or preview in iframe
     const pdfBase64 = buildResult.pdfBuffer.toString('base64');
 
@@ -459,6 +465,27 @@ router.post('/build', upload.array('documents', 10), async (req, res) => {
       success: false,
       error: error.message || 'Failed to autonomously build ATS resume'
     });
+  }
+});
+
+/**
+ * GET /api/resume/download-generated
+ * Download the most recently generated PDF by filename
+ */
+router.get('/download-generated', (req, res) => {
+  try {
+    const filename = req.query.fn || 'Nikhil_Rawat_ATS_Resume.pdf';
+    const pdfBuffer = lastGeneratedPdfs.get(filename);
+
+    if (!pdfBuffer) {
+      return res.status(404).send('Generated PDF not found or expired. Please rebuild.');
+    }
+
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    return res.send(pdfBuffer);
+  } catch (err) {
+    return res.status(500).send('Failed to stream generated PDF');
   }
 });
 
