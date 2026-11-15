@@ -4183,11 +4183,44 @@ async function loadHQSummary() {
   // render hote hain (proper working setup, ek-ek karke banenge).
   if (currentPersona === 'builder') {
     if (titleEl) titleEl.textContent = '🏗️ Builder HQ';
-    if (subEl) subEl.textContent = 'Builder workspace — development tools aur audiences ke cards.';
+    if (subEl) subEl.textContent = 'Builder workspace — development tools, code generation & testing suites.';
+
+    let webTests = {};
+    try {
+      const data = await apiFetch('/api/hq/summary');
+      webTests = data?.cards?.websiteTests || {};
+    } catch {}
+
+    const webTestsMeta = `completed ${webTests.completed || 0} · running ${webTests.running || 0}`;
 
     const builderCards = [
-      hqCard({ id: 'seo', icon: '🔍', title: 'SEO Working', color: 'amber', badge: 'V1', meta: 'website audit · score · fix recommendations', items: [], action: '' }),
-      hqCard({ id: 'website-tester', icon: '🧪', title: 'AI Website Tester', color: 'green', badge: 'Real Browser', meta: 'Playwright · Desktop & Mobile · Claim vs Reality', items: [{ text: 'Autonomous Playwright Agent', sub: 'Stateless Render worker', dot: 'green' }, { text: '6-Phase Verification', sub: 'DOM, WebP screenshots & PDF', dot: 'green' }], action: 'Open Website Tester' }),
+      hqCard({
+        id: 'website-tester',
+        icon: '🧪',
+        title: 'Autonomous AI Website Tester',
+        color: (webTests.running || 0) > 0 ? 'amber' : 'green',
+        badge: 'Real Browser',
+        meta: webTestsMeta,
+        items: (webTests.items || []).slice(0, 3).map(t => ({
+          text: t.url,
+          sub: `${t.status} · ${t.findingsCount || 0} bugs`,
+          dot: t.status === 'done' ? 'green' : (t.status === 'running' || t.status === 'waking_worker' ? 'amber' : 'grey')
+        })).concat(webTests.items?.length ? [] : [
+          { text: 'Autonomous Playwright Agent', sub: 'Stateless Render worker', dot: 'green' },
+          { text: 'Desktop & Mobile Walk', sub: 'WebP evidence + Claim verification', dot: 'green' }
+        ]),
+        action: 'Open Website Tester'
+      }),
+      hqCard({
+        id: 'seo',
+        icon: '🔍',
+        title: 'SEO Working',
+        color: 'amber',
+        badge: 'V1',
+        meta: 'website audit · score · fix recommendations',
+        items: [],
+        action: 'Open SEO Workspace'
+      }),
     ];
 
     grid.innerHTML = `<div class="hq-grid-inner">${builderCards.join('')}</div>`;
@@ -4223,12 +4256,8 @@ function renderHQ(data) {
   const nextScanText = disc.nextRunAt ? (disc.nextRunAt > Date.now() ? `in ${Math.ceil((disc.nextRunAt - Date.now()) / (3600000 * 24))}d` : 'ready') : '4-day cycle';
   const discMeta = disc.enabled === false ? 'auto-scan: paused' : `auto-scan: ${nextScanText} · 4-day cycle`;
 
-  const webTests = c.websiteTests || {};
-  const webTestsMeta = `completed ${webTests.completed || 0} · running ${webTests.running || 0}`;
-
   const cards = [
     hqCard({ id: 'resume', icon: '📄', title: 'Resume Audit & Builder', color: 'green', badge: 'ATS 75%+', meta: 'institutional standard · 1-page · X-Y-Z rewrites · gap analysis', items: [{ text: 'Deep ATS Audit Engine', sub: 'Instant PDF/DOCX scan', dot: 'green' }, { text: 'ABES & Industry Standard', sub: 'Zero-tolerance rule checking', dot: 'green' }], action: 'Open Resume Audit' }),
-    hqCard({ id: 'website-tester', icon: '🧪', title: 'AI Website Tester', color: (webTests.running || 0) > 0 ? 'amber' : 'green', badge: `${webTests.count || 0}`, meta: webTestsMeta, items: (webTests.items || []).slice(0, 3).map(t => ({ text: t.url, sub: `${t.status} · ${t.findingsCount || 0} bugs`, dot: t.status === 'done' ? 'green' : (t.status === 'running' || t.status === 'waking_worker' ? 'amber' : 'grey') })), action: 'Open Website Tester' }),
     hqCard({ id: 'keys', icon: '🔑', title: 'Keys Limit', color: 'amber', badge: 'OpenRouter', meta: 'key health · auto-refresh', items: [], action: 'Open Keys Management' }),
     hqCard({ id: 'hackathons', icon: '🏆', title: 'Hackathons', color: (hacks.active || 0) > 0 ? 'green' : 'amber', badge: `${hacks.count || 0}`, meta: `active ${hacks.active || 0} · tracking ${hacks.tracking || 0} · 🟢 ${hacks.participating || 0}`, items: (hacks.items || []).slice(0, 3).map(h => ({ text: h.title, sub: `${h.status} · ${fmtDate(h.endDate)}`, dot: h.statusColor })), action: 'Open Hackathon Workspace' }),
     hqCard({ id: 'stalking', icon: '🕵️', title: 'Developer Radar', color: (stalks.researching || 0) > 0 ? 'amber' : 'green', badge: `${stalks.count || 0}`, meta: `ready ${stalks.ready || 0} · researching ${stalks.researching || 0}`, items: (stalks.items || []).slice(0, 3).map(s => ({ text: s.name, sub: s.status, dot: s.status === 'ready' ? 'green' : (s.status === 'researching' ? 'amber' : 'grey') })), action: 'Open Developer Radar' }),
