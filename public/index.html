@@ -854,6 +854,116 @@
           </div>
         </section>
 
+        <!-- Autonomous AI Website Tester workspace -->
+        <section class="view" id="view-website-tester">
+          <div class="view-header">
+            <div>
+              <h2 class="view-title">🧪 Autonomous AI Website Tester</h2>
+              <p class="view-sub">Real-browser exploration (Playwright) · Desktop & Mobile audits · Claim vs Reality verification · WebP evidence</p>
+            </div>
+            <div class="view-header-actions">
+              <button class="view-close icon-btn" title="Close (back to chat)">✕</button>
+            </div>
+          </div>
+
+          <div class="view-body tester-view-body">
+            <!-- URL Input & Launch Bar -->
+            <div class="tester-input-bar">
+              <input type="url" id="tester-url-input" class="tester-input" placeholder="https://example.com" />
+              <button id="tester-run-btn" class="btn-accent tester-run-btn">
+                <span>🚀 Run Real-Browser Audit</span>
+              </button>
+            </div>
+
+            <!-- Cold Start Notice Banner -->
+            <div id="tester-cold-notice" class="tester-cold-notice hidden">
+              <div class="tester-cold-spinner"></div>
+              <div>
+                <strong>Waking up Render browser microservice...</strong>
+                <p>Render Free Web Service takes ~30–45s on cold start. Once awake, Playwright Chromium will autonomously audit Desktop (1280x720) & Mobile (390x844).</p>
+              </div>
+            </div>
+
+            <!-- Live Progress Bar -->
+            <div id="tester-progress-container" class="tester-progress-container hidden">
+              <div class="tester-progress-header">
+                <span id="tester-progress-phase-label">Phase 1: Discovery Crawl...</span>
+                <span id="tester-progress-percentage">0%</span>
+              </div>
+              <div class="tester-progress-track">
+                <div id="tester-progress-fill" class="tester-progress-fill" style="width: 0%"></div>
+              </div>
+            </div>
+
+            <!-- Main Layout: Left = History / Past Runs, Right = Active / Selected Audit Detail -->
+            <div class="tester-content-grid">
+              <!-- Left Sidebar: Test History -->
+              <div class="tester-history-col">
+                <div class="tester-col-header">
+                  <h3>📜 Recent Audits</h3>
+                  <button id="tester-refresh-btn" class="btn-small" title="Refresh history">🔄</button>
+                </div>
+                <div id="tester-history-list" class="tester-history-list">
+                  <div class="empty-msg">No audits yet. Run your first real-browser test above.</div>
+                </div>
+              </div>
+
+              <!-- Right Panel: Test Findings & Verification Matrix -->
+              <div class="tester-detail-col">
+                <div id="tester-detail-empty" class="empty-msg">Select an audit from the list or start a new real-browser test.</div>
+                <div id="tester-detail-content" class="tester-detail-content hidden">
+                  <!-- Header info & PDF Action -->
+                  <div class="tester-detail-banner">
+                    <div>
+                      <h3 id="tester-detail-title">Site Title</h3>
+                      <p id="tester-detail-meta" class="tester-meta-text">URL · Started at · Status</p>
+                    </div>
+                    <div class="tester-detail-actions">
+                      <a id="tester-download-pdf-btn" class="btn-small btn-accent" target="_blank" rel="noopener">📄 Download PDF Report</a>
+                      <button id="tester-rerun-btn" class="btn-small">🔁 Re-run</button>
+                      <button id="tester-delete-btn" class="btn-small btn-danger">🗑️ Delete</button>
+                    </div>
+                  </div>
+
+                  <!-- Executive Summary -->
+                  <div class="tester-card">
+                    <h4>📋 Executive Summary & Purpose</h4>
+                    <p id="tester-summary-text" class="tester-summary-text"></p>
+                    <div id="tester-journeys-box" class="tester-tags-box"></div>
+                  </div>
+
+                  <!-- Claim vs Reality Matrix -->
+                  <div class="tester-card">
+                    <h4>⚖️ Marketing Claims vs. Browser Reality Matrix</h4>
+                    <div id="tester-claim-matrix" class="tester-matrix-grid"></div>
+                  </div>
+
+                  <!-- Findings List with Category Filter -->
+                  <div class="tester-card">
+                    <div class="tester-card-header">
+                      <h4>🐛 Discovered Defects & Anomalies</h4>
+                      <div class="tester-filter-pills" id="tester-findings-filters">
+                        <button class="pill active" data-filter="all">All</button>
+                        <button class="pill" data-filter="confirmed">Confirmed</button>
+                        <button class="pill" data-filter="likely">Likely</button>
+                        <button class="pill" data-filter="ux">UX</button>
+                        <button class="pill" data-filter="capability-verification">Capability</button>
+                      </div>
+                    </div>
+                    <div id="tester-findings-list" class="tester-findings-list"></div>
+                  </div>
+
+                  <!-- Evidence Drawer (Screenshots & Logs) -->
+                  <div class="tester-card">
+                    <h4>📸 Captured WebP Screenshots & Evidence</h4>
+                    <div id="tester-evidence-gallery" class="tester-evidence-gallery"></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
       </div><!-- /views -->
     </div><!-- /main-area -->
     <div id="panel-backdrop" class="panel-backdrop hidden"></div>

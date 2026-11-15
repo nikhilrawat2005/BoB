@@ -1,0 +1,14 @@
+{
+  "name": "bob-playwright-worker",
+  "version": "1.0.0",
+  "description": "Stateless Playwright Browser Worker for Bob AI Website Tester",
+  "main": "testerWorkerServer.js",
+  "scripts": {
+    "start": "node --expose-gc testerWorkerServer.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "playwright": "1.48.2",
+    "sharp": "^0.33.5"
+  }
+}

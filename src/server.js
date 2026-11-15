@@ -20,6 +20,7 @@ const keysRoute          = require('./routes/keys');
 const seoRoute           = require('./routes/seo');
 const keywordsRoute      = require('./routes/keywords');
 const resumeRoute        = require('./routes/resume');
+const websiteTesterRoute = require('./routes/websiteTester');
 
 const app = express();
 
@@ -118,6 +119,7 @@ app.use('/api/keys',          keysRoute);
 app.use('/api/seo',           seoRoute);
 app.use('/api/keywords',      keywordsRoute);
 app.use('/api/resume',        resumeRoute);
+app.use('/api/website-tester', websiteTesterRoute);
 
 // 404 handler for unknown API routes
 app.use('/api', (req, res) => {

@@ -1,0 +1,17 @@
+FROM mcr.microsoft.com/playwright:v1.48.2-jammy
+
+WORKDIR /app/src/worker
+
+# Copy worker package files and install only worker dependencies
+COPY src/worker/package.json ./
+RUN npm install --omit=dev
+
+# Copy worker server code
+COPY src/worker/testerWorkerServer.js ./
+
+ENV PORT=10000
+ENV NODE_ENV=production
+
+EXPOSE 10000
+
+CMD ["npm", "start"]

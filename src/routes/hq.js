@@ -8,6 +8,7 @@ const memory = require('../services/memoryService');
 const memoryManager = require('../services/memoryManager');
 const selfEdit = require('../services/selfEditService');
 const discovery = require('../services/hackathonDiscoveryService');
+const websiteTester = require('../services/websiteTesterService');
 
 // Server-side in-memory cache for HQ summary (per user) to preserve Firestore read quotas.
 const hqSummaryCache = new Map(); // userId -> { data, ts }
@@ -22,7 +23,7 @@ router.get('/summary', requireAuth, async (req, res) => {
       return res.json(cached.data);
     }
 
-    const [hackathons, profiles, routineList, facts, months, files, edits, discoveryItems, discoveryMeta] = await Promise.all([
+    const [hackathons, profiles, routineList, facts, months, files, edits, discoveryItems, discoveryMeta, websiteTests] = await Promise.all([
       hacks.listHackathons(req.userId),
       stalk.listProfiles(req.userId),
       routines.listRoutines(req.userId),
@@ -32,6 +33,7 @@ router.get('/summary', requireAuth, async (req, res) => {
       selfEdit.listEdits(req.userId, 10),
       discovery.listDiscovery(req.userId).catch(() => []),
       discovery.getDiscoveryMeta(req.userId).catch(() => ({})),
+      websiteTester.listWebsiteTests(req.userId, 5).catch(() => []),
     ]);
 
     const cards = {
@@ -86,6 +88,20 @@ router.get('/summary', requireAuth, async (req, res) => {
           platform: d.platform,
           prize: d.prize,
           deadline: d.registrationDeadline,
+        })),
+      },
+      websiteTests: {
+        count: websiteTests.length,
+        completed: websiteTests.filter(t => t.status === 'done').length,
+        running: websiteTests.filter(t => t.status === 'running' || t.status === 'waking_worker').length,
+        items: websiteTests.map(t => ({
+          id: t.testId,
+          url: t.url,
+          status: t.status,
+          startedAt: t.startedAt,
+          findingsCount: Array.isArray(t.findings) ? t.findings.length : 0,
+          criticalCount: Array.isArray(t.findings) ? t.findings.filter(f => f.severity === 'critical' || f.severity === 'high').length : 0,
+          reportPdfUrl: t.reportPdf ? t.reportPdf.url : null
         })),
       },
     };

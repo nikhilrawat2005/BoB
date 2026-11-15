@@ -4187,6 +4187,7 @@ async function loadHQSummary() {
 
     const builderCards = [
       hqCard({ id: 'seo', icon: '🔍', title: 'SEO Working', color: 'amber', badge: 'V1', meta: 'website audit · score · fix recommendations', items: [], action: '' }),
+      hqCard({ id: 'website-tester', icon: '🧪', title: 'AI Website Tester', color: 'green', badge: 'Real Browser', meta: 'Playwright · Desktop & Mobile · Claim vs Reality', items: [{ text: 'Autonomous Playwright Agent', sub: 'Stateless Render worker', dot: 'green' }, { text: '6-Phase Verification', sub: 'DOM, WebP screenshots & PDF', dot: 'green' }], action: 'Open Website Tester' }),
     ];
 
     grid.innerHTML = `<div class="hq-grid-inner">${builderCards.join('')}</div>`;
@@ -4222,8 +4223,12 @@ function renderHQ(data) {
   const nextScanText = disc.nextRunAt ? (disc.nextRunAt > Date.now() ? `in ${Math.ceil((disc.nextRunAt - Date.now()) / (3600000 * 24))}d` : 'ready') : '4-day cycle';
   const discMeta = disc.enabled === false ? 'auto-scan: paused' : `auto-scan: ${nextScanText} · 4-day cycle`;
 
+  const webTests = c.websiteTests || {};
+  const webTestsMeta = `completed ${webTests.completed || 0} · running ${webTests.running || 0}`;
+
   const cards = [
     hqCard({ id: 'resume', icon: '📄', title: 'Resume Audit & Builder', color: 'green', badge: 'ATS 75%+', meta: 'institutional standard · 1-page · X-Y-Z rewrites · gap analysis', items: [{ text: 'Deep ATS Audit Engine', sub: 'Instant PDF/DOCX scan', dot: 'green' }, { text: 'ABES & Industry Standard', sub: 'Zero-tolerance rule checking', dot: 'green' }], action: 'Open Resume Audit' }),
+    hqCard({ id: 'website-tester', icon: '🧪', title: 'AI Website Tester', color: (webTests.running || 0) > 0 ? 'amber' : 'green', badge: `${webTests.count || 0}`, meta: webTestsMeta, items: (webTests.items || []).slice(0, 3).map(t => ({ text: t.url, sub: `${t.status} · ${t.findingsCount || 0} bugs`, dot: t.status === 'done' ? 'green' : (t.status === 'running' || t.status === 'waking_worker' ? 'amber' : 'grey') })), action: 'Open Website Tester' }),
     hqCard({ id: 'keys', icon: '🔑', title: 'Keys Limit', color: 'amber', badge: 'OpenRouter', meta: 'key health · auto-refresh', items: [], action: 'Open Keys Management' }),
     hqCard({ id: 'hackathons', icon: '🏆', title: 'Hackathons', color: (hacks.active || 0) > 0 ? 'green' : 'amber', badge: `${hacks.count || 0}`, meta: `active ${hacks.active || 0} · tracking ${hacks.tracking || 0} · 🟢 ${hacks.participating || 0}`, items: (hacks.items || []).slice(0, 3).map(h => ({ text: h.title, sub: `${h.status} · ${fmtDate(h.endDate)}`, dot: h.statusColor })), action: 'Open Hackathon Workspace' }),
     hqCard({ id: 'stalking', icon: '🕵️', title: 'Developer Radar', color: (stalks.researching || 0) > 0 ? 'amber' : 'green', badge: `${stalks.count || 0}`, meta: `ready ${stalks.ready || 0} · researching ${stalks.researching || 0}`, items: (stalks.items || []).slice(0, 3).map(s => ({ text: s.name, sub: s.status, dot: s.status === 'ready' ? 'green' : (s.status === 'researching' ? 'amber' : 'grey') })), action: 'Open Developer Radar' }),
@@ -4253,6 +4258,7 @@ function openHqCard(id) {
   if (id === 'hackathons') { showView('hackathons'); loadHackathons(); return; }
   if (id === 'stalking') { showView('stalking'); loadStalking(); return; }
   if (id === 'resume') { showView('resume'); initResumeAuditWorkspace(); return; }
+  if (id === 'website-tester') { showView('website-tester'); initWebsiteTesterWorkspace(); return; }
   if (id === 'seo') { showView('seo'); loadSeoSites(); return; }
   if (id === 'routines') { showView('routines'); loadRoutines(); return; }
   if (id === 'live') { showView('live'); loadLive(); return; }
@@ -8171,3 +8177,393 @@ function renderResumeAuditReport(report, historyMeta = null, pastHistory = null)
   // Smooth scroll down to results
   reportContainer.scrollIntoView({ behavior: 'smooth' });
 }
+
+// ═════════════════════════════════════════════════════════════════════════════
+// AUTONOMOUS AI WEBSITE TESTER WORKSPACE
+// ═════════════════════════════════════════════════════════════════════════════
+
+let testerPollTimer = null;
+let currentTesterTestId = null;
+let testerFindingsCache = [];
+let testerActiveFilter = 'all';
+
+function initWebsiteTesterWorkspace() {
+  const runBtn = document.getElementById('tester-run-btn');
+  const urlInput = document.getElementById('tester-url-input');
+  const refreshBtn = document.getElementById('tester-refresh-btn');
+  const rerunBtn = document.getElementById('tester-rerun-btn');
+  const deleteBtn = document.getElementById('tester-delete-btn');
+  const filterPills = document.querySelectorAll('#tester-findings-filters .pill');
+
+  if (runBtn && !runBtn.dataset.bound) {
+    runBtn.dataset.bound = 'true';
+    runBtn.addEventListener('click', handleStartWebsiteTest);
+  }
+
+  if (urlInput && !urlInput.dataset.bound) {
+    urlInput.dataset.bound = 'true';
+    urlInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') handleStartWebsiteTest();
+    });
+  }
+
+  if (refreshBtn && !refreshBtn.dataset.bound) {
+    refreshBtn.dataset.bound = 'true';
+    refreshBtn.addEventListener('click', loadWebsiteTestsList);
+  }
+
+  if (rerunBtn && !rerunBtn.dataset.bound) {
+    rerunBtn.dataset.bound = 'true';
+    rerunBtn.addEventListener('click', () => {
+      if (currentTesterTestId) rerunWebsiteTest(currentTesterTestId);
+    });
+  }
+
+  if (deleteBtn && !deleteBtn.dataset.bound) {
+    deleteBtn.dataset.bound = 'true';
+    deleteBtn.addEventListener('click', () => {
+      if (currentTesterTestId) deleteWebsiteTest(currentTesterTestId);
+    });
+  }
+
+  filterPills.forEach((pill) => {
+    if (!pill.dataset.bound) {
+      pill.dataset.bound = 'true';
+      pill.addEventListener('click', () => {
+        filterPills.forEach(p => p.classList.remove('active'));
+        pill.classList.add('active');
+        testerActiveFilter = pill.dataset.filter || 'all';
+        renderTesterFindings();
+      });
+    }
+  });
+
+  loadWebsiteTestsList();
+}
+
+async function handleStartWebsiteTest() {
+  const urlInput = document.getElementById('tester-url-input');
+  const runBtn = document.getElementById('tester-run-btn');
+  const rawUrl = (urlInput ? urlInput.value : '').trim();
+
+  if (!rawUrl) {
+    alert('Please enter a target website URL to test.');
+    return;
+  }
+
+  try {
+    if (runBtn) {
+      runBtn.disabled = true;
+      runBtn.innerHTML = '<span>⏳ Dispatching...</span>';
+    }
+
+    const res = await apiFetch('/api/website-tester', {
+      method: 'POST',
+      body: JSON.stringify({ url: rawUrl })
+    });
+
+    if (res && res.testId) {
+      currentTesterTestId = res.testId;
+      if (urlInput) urlInput.value = '';
+      loadWebsiteTestsList();
+      selectWebsiteTest(res.testId);
+    }
+  } catch (err) {
+    alert('Failed to start website test: ' + err.message);
+  } finally {
+    if (runBtn) {
+      runBtn.disabled = false;
+      runBtn.innerHTML = '<span>🚀 Run Real-Browser Audit</span>';
+    }
+  }
+}
+
+async function loadWebsiteTestsList() {
+  const listEl = document.getElementById('tester-history-list');
+  if (!listEl) return;
+
+  try {
+    const res = await apiFetch('/api/website-tester');
+    const tests = res?.tests || [];
+
+    if (!tests.length) {
+      listEl.innerHTML = '<div class="empty-msg">No audits yet. Run your first real-browser test above.</div>';
+      return;
+    }
+
+    listEl.innerHTML = tests.map(t => {
+      const isSelected = t.testId === currentTesterTestId;
+      const statusBadge = t.status === 'done'
+        ? '<span class="tester-badge-pill green">Done</span>'
+        : (t.status === 'failed' ? '<span class="tester-badge-pill red">Failed</span>' : '<span class="tester-badge-pill amber animate-pulse">Running</span>');
+      
+      const findingsCount = Array.isArray(t.findings) ? t.findings.length : 0;
+
+      return `
+        <div class="tester-history-item ${isSelected ? 'active' : ''}" data-testid="${escHtml(t.testId)}">
+          <div class="tester-item-top">
+            <span class="tester-item-url" title="${escHtml(t.url)}">${escHtml(t.url)}</span>
+            ${statusBadge}
+          </div>
+          <div class="tester-item-sub">
+            <span>${fmtDate(t.startedAt)}</span>
+            <span>• ${findingsCount} findings</span>
+          </div>
+        </div>
+      `;
+    }).join('');
+
+    listEl.querySelectorAll('.tester-history-item').forEach(item => {
+      item.addEventListener('click', () => {
+        selectWebsiteTest(item.dataset.testid);
+      });
+    });
+
+    if (!currentTesterTestId && tests.length > 0) {
+      selectWebsiteTest(tests[0].testId);
+    }
+  } catch (err) {
+    listEl.innerHTML = `<div class="empty-msg">Error loading history: ${escHtml(err.message)}</div>`;
+  }
+}
+
+async function selectWebsiteTest(testId) {
+  currentTesterTestId = testId;
+
+  // Highlight in list
+  document.querySelectorAll('.tester-history-item').forEach(el => {
+    el.classList.toggle('active', el.dataset.testid === testId);
+  });
+
+  if (testerPollTimer) {
+    clearInterval(testerPollTimer);
+    testerPollTimer = null;
+  }
+
+  await pollWebsiteTestStatus(testId);
+}
+
+async function pollWebsiteTestStatus(testId) {
+  try {
+    const data = await apiFetch(`/api/website-tester/${encodeURIComponent(testId)}`);
+    renderWebsiteTestDetail(data);
+
+    // If still in progress, continue polling every 3s
+    if (data.status === 'waking_worker' || data.status === 'running') {
+      if (!testerPollTimer) {
+        testerPollTimer = setInterval(() => {
+          if (currentTesterTestId === testId) {
+            pollWebsiteTestStatus(testId);
+          } else {
+            clearInterval(testerPollTimer);
+            testerPollTimer = null;
+          }
+        }, 3000);
+      }
+    } else {
+      if (testerPollTimer) {
+        clearInterval(testerPollTimer);
+        testerPollTimer = null;
+      }
+      loadWebsiteTestsList(); // Refresh badge state
+    }
+  } catch (err) {
+    console.warn('[websiteTester] Polling error:', err.message);
+  }
+}
+
+function renderWebsiteTestDetail(test) {
+  const emptyEl = document.getElementById('tester-detail-empty');
+  const contentEl = document.getElementById('tester-detail-content');
+  const coldNoticeEl = document.getElementById('tester-cold-notice');
+  const progressContainerEl = document.getElementById('tester-progress-container');
+  const progressLabelEl = document.getElementById('tester-progress-phase-label');
+  const progressPctEl = document.getElementById('tester-progress-percentage');
+  const progressFillEl = document.getElementById('tester-progress-fill');
+
+  if (!test) {
+    if (emptyEl) emptyEl.classList.remove('hidden');
+    if (contentEl) contentEl.classList.add('hidden');
+    return;
+  }
+
+  if (emptyEl) emptyEl.classList.add('hidden');
+  if (contentEl) contentEl.classList.remove('hidden');
+
+  // Cold Start Banner
+  if (test.status === 'waking_worker') {
+    if (coldNoticeEl) coldNoticeEl.classList.remove('hidden');
+  } else {
+    if (coldNoticeEl) coldNoticeEl.classList.add('hidden');
+  }
+
+  // Progress Bar
+  const isRunning = test.status === 'waking_worker' || test.status === 'running';
+  if (isRunning && test.progress) {
+    if (progressContainerEl) progressContainerEl.classList.remove('hidden');
+    const done = Number(test.progress.done) || 0;
+    const total = Number(test.progress.total) || 6;
+    const pct = Math.min(100, Math.max(5, Math.round((done / total) * 100)));
+
+    if (progressLabelEl) progressLabelEl.textContent = test.progress.label || 'Auditing website...';
+    if (progressPctEl) progressPctEl.textContent = `${pct}%`;
+    if (progressFillEl) progressFillEl.style.width = `${pct}%`;
+  } else {
+    if (progressContainerEl) progressContainerEl.classList.add('hidden');
+  }
+
+  // Header Details
+  const titleEl = document.getElementById('tester-detail-title');
+  const metaEl = document.getElementById('tester-detail-meta');
+  const pdfBtn = document.getElementById('tester-download-pdf-btn');
+
+  if (titleEl) titleEl.textContent = test.site?.title || test.url;
+  if (metaEl) {
+    metaEl.innerHTML = `<span>🌐 <a href="${escHtml(test.url)}" target="_blank">${escHtml(test.url)}</a></span> • <span>Started: ${fmtDate(test.startedAt)}</span> • <span>Status: <strong>${escHtml(test.status)}</strong></span>`;
+  }
+
+  if (pdfBtn) {
+    if (test.reportPdf?.url) {
+      pdfBtn.classList.remove('hidden');
+      pdfBtn.href = `/api/website-tester/${encodeURIComponent(test.testId)}/pdf`;
+    } else {
+      pdfBtn.classList.add('hidden');
+    }
+  }
+
+  // Executive Summary & Purpose
+  const summaryEl = document.getElementById('tester-summary-text');
+  const journeysBox = document.getElementById('tester-journeys-box');
+
+  if (summaryEl) {
+    summaryEl.textContent = test.summary || (isRunning ? 'Real-browser audit is actively in progress...' : (test.error ? `Failed: ${test.error}` : 'No summary generated.'));
+  }
+
+  if (journeysBox) {
+    const journeys = test.purpose?.primaryUserJourneys || [];
+    journeysBox.innerHTML = journeys.map(j => `<span class="tester-tag-pill">🎯 ${escHtml(j)}</span>`).join('');
+  }
+
+  // Claim vs Reality Matrix
+  const matrixBox = document.getElementById('tester-claim-matrix');
+  if (matrixBox) {
+    const matrix = test.claimMatrix || [];
+    if (matrix.length) {
+      matrixBox.innerHTML = matrix.map(m => {
+        const vClass = m.verdict === 'VERIFIED' ? 'green' : (m.verdict === 'DISPROVEN' ? 'red' : 'amber');
+        return `
+          <div class="tester-matrix-card">
+            <div class="tester-matrix-head">
+              <span class="tester-matrix-claim">"${escHtml(m.claim)}"</span>
+              <span class="tester-badge-pill ${vClass}">${escHtml(m.verdict)}</span>
+            </div>
+            <p class="tester-matrix-reason">${escHtml(m.reasoning)}</p>
+          </div>
+        `;
+      }).join('');
+    } else {
+      matrixBox.innerHTML = `<div class="empty-msg">${isRunning ? 'Analyzing marketing claims vs network evidence...' : 'No explicit marketing claims verified.'}</div>`;
+    }
+  }
+
+  // Findings
+  testerFindingsCache = Array.isArray(test.findings) ? test.findings : [];
+  renderTesterFindings();
+
+  // Evidence Gallery (Cloudinary Screenshots)
+  const galleryEl = document.getElementById('tester-evidence-gallery');
+  if (galleryEl) {
+    const shots = test.evidence?.screenshots || [];
+    if (shots.length) {
+      galleryEl.innerHTML = shots.map(s => `
+        <div class="tester-gallery-item">
+          <a href="${escHtml(s.url)}" target="_blank" rel="noopener">
+            <img src="${escHtml(s.url)}" alt="${escHtml(s.label || 'Screenshot')}" loading="lazy" />
+          </a>
+          <div class="tester-gallery-caption">
+            <strong>${escHtml(s.label || 'Screenshot')}</strong>
+            <span>${escHtml(s.viewport || '')}</span>
+          </div>
+        </div>
+      `).join('');
+    } else {
+      galleryEl.innerHTML = `<div class="empty-msg">${isRunning ? 'Capturing WebP screenshots in Playwright...' : 'No screenshots captured.'}</div>`;
+    }
+  }
+}
+
+function renderTesterFindings() {
+  const listEl = document.getElementById('tester-findings-list');
+  if (!listEl) return;
+
+  let items = testerFindingsCache || [];
+  if (testerActiveFilter !== 'all') {
+    items = items.filter(f => (f.category || '').toLowerCase() === testerActiveFilter.toLowerCase());
+  }
+
+  if (!items.length) {
+    listEl.innerHTML = '<div class="empty-msg">No findings in this category.</div>';
+    return;
+  }
+
+  listEl.innerHTML = items.map((f, i) => {
+    const sevColor = f.severity === 'critical' || f.severity === 'high' ? 'red' : (f.severity === 'medium' ? 'amber' : 'green');
+    return `
+      <div class="tester-finding-card">
+        <div class="tester-finding-head">
+          <div>
+            <span class="tester-badge-pill ${sevColor}">${escHtml(f.severity ? f.severity.toUpperCase() : 'MEDIUM')}</span>
+            <span class="tester-badge-pill grey">${escHtml(f.category ? f.category.toUpperCase() : 'DEFECT')}</span>
+            <strong class="tester-finding-title">${escHtml(f.title)}</strong>
+          </div>
+          <span class="tester-finding-url">${escHtml(f.url || '')}</span>
+        </div>
+        <div class="tester-finding-body">
+          <div class="tester-finding-row">
+            <span class="tester-lbl">Expected:</span>
+            <span>${escHtml(f.expected || 'N/A')}</span>
+          </div>
+          <div class="tester-finding-row">
+            <span class="tester-lbl">Actual:</span>
+            <span>${escHtml(f.actual || 'N/A')}</span>
+          </div>
+          ${f.evidence ? `<div class="tester-finding-row"><span class="tester-lbl">Evidence:</span><code class="tester-code">${escHtml(f.evidence)}</code></div>` : ''}
+          ${f.rootCause ? `<div class="tester-finding-row"><span class="tester-lbl">Root Cause:</span><span>${escHtml(f.rootCause)}</span></div>` : ''}
+        </div>
+        ${f.screenshotUrl ? `
+          <div class="tester-finding-shot">
+            <a href="${escHtml(f.screenshotUrl)}" target="_blank" rel="noopener">
+              <img src="${escHtml(f.screenshotUrl)}" alt="Bug evidence" />
+            </a>
+          </div>
+        ` : ''}
+      </div>
+    `;
+  }).join('');
+}
+
+async function rerunWebsiteTest(testId) {
+  if (!confirm('Re-run this website test from scratch?')) return;
+  try {
+    const res = await apiFetch(`/api/website-tester/${encodeURIComponent(testId)}/rerun`, { method: 'POST' });
+    if (res && res.testId) {
+      loadWebsiteTestsList();
+      selectWebsiteTest(res.testId);
+    }
+  } catch (err) {
+    alert('Failed to re-run test: ' + err.message);
+  }
+}
+
+async function deleteWebsiteTest(testId) {
+  if (!confirm('Are you sure you want to delete this test audit?')) return;
+  try {
+    await apiFetch(`/api/website-tester/${encodeURIComponent(testId)}`, { method: 'DELETE' });
+    currentTesterTestId = null;
+    loadWebsiteTestsList();
+    renderWebsiteTestDetail(null);
+  } catch (err) {
+    alert('Failed to delete test: ' + err.message);
+  }
+}
+

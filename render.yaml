@@ -1,0 +1,12 @@
+services:
+  - type: web
+    name: bob-playwright-tester
+    runtime: docker
+    dockerfilePath: ./Dockerfile.render
+    plan: free
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: TESTER_WORKER_SECRET
+        sync: false
