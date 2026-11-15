@@ -583,33 +583,67 @@ function analyzeDeterministicRules(rawText, metadata = {}) {
   }
 
   // ── CHECK 11: Quantified Impact & Action Verbs (20 pts bucket) ──
-  const bulletLines = lines.filter(l => /^[•\-\*]\s+/i.test(l) || l.startsWith('•') || l.startsWith('-'));
+  // Reconstruct multi-line wrapped bullet items from PDF text extraction
+  const aggregatedBullets = [];
+  let currBullet = null;
+  for (const line of lines) {
+    if (line.startsWith('-') || line.startsWith('•') || /^[•\-\*]\s+/i.test(line)) {
+      if (currBullet) aggregatedBullets.push(currBullet);
+      currBullet = line;
+    } else if (currBullet) {
+      // If we encounter a section header, project title, or metadata row (e.g. contains URL/techstack separator), stop aggregating
+      if (/^(education|technical skills|key projects|experience|certifications)/i.test(line) ||
+          /(\.app|\.com|\.io|github\.com)\s*\|\s*/i.test(line) ||
+          /(present|\d{4})\s*$/i.test(line)) {
+        aggregatedBullets.push(currBullet);
+        currBullet = null;
+      } else {
+        currBullet += ' ' + line;
+      }
+    }
+  }
+  if (currBullet) aggregatedBullets.push(currBullet);
+
+  const bulletLines = aggregatedBullets.length > 0 ? aggregatedBullets : lines.filter(l => /^[•\-\*]\s+/i.test(l) || l.startsWith('•') || l.startsWith('-'));
   const numbersMatched = rawText.match(/\b\d+(\.\d+)?%|\b\d{1,4}\+?\s*(users|clients|students|ms|seconds|hours|queries|stars|downloads|requests|api|pages|lines|services)\b/gi) || [];
 
-  // Check per-bullet metrics coverage (at least 80% of bullets contain a number or % metric)
+  // Check per-bullet metrics coverage (at least 80% of bullets contain an explicit percentage metric or concrete X+ scale metric)
   let bulletsWithMetrics = 0;
+  let nominalizationCount = 0;
+  let spelledOutPercentCount = 0;
+
   bulletLines.forEach(bl => {
-    if (/\b\d+(\.\d+)?%|\b\d{1,4}\+?\s*(users|clients|students|ms|seconds|hours|queries|stars|downloads|requests|api|pages|lines|services)\b|\b\d+\b/i.test(bl)) {
+    if (/\b\d+(\.\d+)?%|\b\d{1,4}\+?\s*(users|clients|students|ms|seconds|hours|queries|stars|downloads|requests|api|pages|lines|services)\b/i.test(bl)) {
       bulletsWithMetrics++;
+    }
+    if (/\b(spearheaded|engineered|architected|developed)\s+the\s+(development|implementation|creation)\s+of\b/i.test(bl)) {
+      nominalizationCount++;
+    }
+    if (/\bpercent\b|\bper\s+cent\b/i.test(bl)) {
+      spelledOutPercentCount++;
     }
   });
 
   const bulletMetricRatio = bulletLines.length > 0 ? (bulletsWithMetrics / bulletLines.length) : 1;
 
-  if (numbersMatched.length >= 3 && bulletMetricRatio >= 0.8) {
+  if (numbersMatched.length >= 3 && bulletMetricRatio >= 0.8 && nominalizationCount === 0 && spelledOutPercentCount === 0) {
     positivePoints.push({
       section: 'Action Verbs & Google X-Y-Z',
       badge: 'METRICS_DRIVEN',
       detail: `Found ${numbersMatched.length} quantifiable metrics (${Math.round(bulletMetricRatio * 100)}% bullet coverage). ATS systems prioritize measurable impact.`
     });
   } else {
-    addDeduction('contentImpactAndActionVerbs', 8, 'Too few quantified metrics across bullets (at least 80% of bullets must contain % or scale numbers)');
+    let penaltyReason = 'Too few quantified metrics across bullets (at least 80% of bullets must contain % or scale numbers)';
+    if (nominalizationCount > 0) penaltyReason = `Found ${nominalizationCount} weak nominalization(s) (e.g. "spearheaded the development of") penalizing Hiration score`;
+    if (spelledOutPercentCount > 0) penaltyReason = `Found ${spelledOutPercentCount} spelled-out "percent" words instead of standard % metric symbols`;
+
+    addDeduction('contentImpactAndActionVerbs', 8, penaltyReason);
     issues.push({
       section: 'Action Verbs & Google X-Y-Z',
       severity: 'HIGH',
       rule: 'LACK_OF_METRICS',
       deduction: 8,
-      gap_message: `Only ${bulletsWithMetrics}/${bulletLines.length} (${Math.round(bulletMetricRatio * 100)}%) bullets contain quantified metrics. Hiration and ATS engines require >= 80% coverage.`,
+      gap_message: `${penaltyReason}. Only ${bulletsWithMetrics}/${bulletLines.length} (${Math.round(bulletMetricRatio * 100)}%) bullets contain quantified % metrics.`,
       action_fix: 'Rewrite bullets using Google X-Y-Z formula: "Accomplished [X] as measured by [Y]% latency reduction by doing [Z]" with concrete data.'
     });
   }
@@ -624,7 +658,7 @@ function analyzeDeterministicRules(rawText, metadata = {}) {
     }
   });
 
-  const repeatedVerbs = Object.entries(startingVerbsCount).filter(([v, count]) => count >= 3);
+  const repeatedVerbs = Object.entries(startingVerbsCount).filter(([v, count]) => count >= 2);
   if (repeatedVerbs.length > 0) {
     const verbList = repeatedVerbs.map(([v, c]) => `"${v}" (${c}x)`).join(', ');
     addDeduction('contentImpactAndActionVerbs', 3, `Repeated action verbs across bullets (${verbList}) — use distinct verbs`);

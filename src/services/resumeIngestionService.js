@@ -698,6 +698,8 @@ If unparseable, return {"docType": "OTHER"}`;
           return null;
         }
 
+        const isHackathon = /hackathon|vicodathon|ideathon|codevita/i.test(`${filename} ${text} ${title}`);
+
         let issuer = parsed.issuing_organization;
         if (!issuer || /industry certified/i.test(issuer)) {
           issuer = '';

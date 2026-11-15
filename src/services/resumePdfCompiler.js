@@ -151,6 +151,27 @@ async function compileResumePdf(resumeData, options = {}) {
         doc.y = nextY + (options.spacingAfter !== undefined ? options.spacingAfter : (1.5 * scale));
       }
 
+      function renderBulletItem(bulletText) {
+        const cleanBullet = sanitizeAscii(bulletText);
+        if (!cleanBullet) return;
+        const bulletY = doc.y;
+        const bulletIndent = margin + 4;
+        const textIndent = margin + 14;
+        const textWidth = contentWidth - 14;
+
+        doc.font('Helvetica').fontSize(fontBodySize).fillColor('#111827')
+          .text('-', bulletIndent, bulletY, { lineBreak: false });
+
+        doc.font('Helvetica').fontSize(fontBodySize).fillColor('#111827')
+          .text(cleanBullet, textIndent, bulletY, {
+            width: textWidth,
+            align: 'left',
+            lineGap: lineSpacing
+          });
+
+        doc.y = Math.max(doc.y, bulletY + fontBodySize) + (1.2 * scale);
+      }
+
       // ── 1. HEADER (Candidate Name + Clean Contact Footprint) ──
       doc.y = margin;
       doc.font('Helvetica-Bold').fontSize(fontNameSize).fillColor('#111827')
@@ -323,12 +344,7 @@ async function compileResumePdf(resumeData, options = {}) {
           // Bullets
           const bullets = Array.isArray(proj.bullets) ? proj.bullets.slice(0, 3) : [];
           bullets.forEach(bullet => {
-            const cleanBullet = sanitizeAscii(bullet);
-            const bulletY = doc.y;
-            doc.font('Helvetica').fontSize(fontBodySize).fillColor('#111827')
-              .text('-  ', margin + 6, bulletY, { continued: true, lineGap: lineSpacing })
-              .text(cleanBullet, { width: contentWidth - 12, lineGap: lineSpacing });
-            doc.y += 1.0 * scale;
+            renderBulletItem(bullet);
           });
           doc.y += 1.5 * scale;
         });
@@ -351,12 +367,7 @@ async function compileResumePdf(resumeData, options = {}) {
 
           const bullets = Array.isArray(exp.bullets) ? exp.bullets : [];
           bullets.forEach(b => {
-            const cleanB = sanitizeAscii(b);
-            const bulletY = doc.y;
-            doc.font('Helvetica').fontSize(fontBodySize).fillColor('#111827')
-              .text('-  ', margin + 6, bulletY, { continued: true, lineGap: lineSpacing })
-              .text(cleanB, { width: contentWidth - 12, lineGap: lineSpacing });
-            doc.y += 1.0 * scale;
+            renderBulletItem(b);
           });
           doc.y += 1.5 * scale;
         });
@@ -372,12 +383,7 @@ async function compileResumePdf(resumeData, options = {}) {
         if (hasCP) {
           competitiveProgramming.forEach(cp => {
             if (cp.bulletText) {
-              const cleanCP = sanitizeAscii(cp.bulletText);
-              const cpY = doc.y;
-              doc.font('Helvetica').fontSize(fontBodySize).fillColor('#111827')
-                .text('-  ', margin + 6, cpY, { continued: true, lineGap: lineSpacing })
-                .text(cleanCP, { width: contentWidth - 12, lineGap: lineSpacing });
-              doc.y += 1.0 * scale;
+              renderBulletItem(cp.bulletText);
             }
           });
         }
