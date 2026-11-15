@@ -32,7 +32,7 @@ LLM orchestration • Structured memory • File vault • AI Resume/ATS engine 
 | 7 | ⏰ **Autonomous Routines & Scheduler** | Cron-driven hourly tick (GitHub Actions); reminders, daily routines, proactive notifications from vault/fact changes |
 | 8 | 🔧 **Self-Edit Engine** | Bob proposes and logs diffs to its own codebase (`selfEditService`), capped by `SELF_EDIT_MAX_DIFF_CHARS` |
 | 9 | 📈 **SEO Beast Engine** | Cap-free parallel crawl of every discoverable page (sitemap-seeded BFS, broken-link + PageSpeed checks, 4-pillar 100-scale scoring, keyword tracking, honest blocked-site detection, self-healing re-audit pump); multi-key AI analysis → Hinglish summary, action plan, deployable fix plan, HTML report |
-| 10 | 📄 **AI Resume Builder & ATS Engine** | Flagship module — full pipeline from raw data to a one-page ATS-optimized PDF (see below) |
+| 10 | 📄 **Autonomous Resume Builder & ATS 100/100 Engine** | Flagship module — full autonomous pipeline: multi-source evidence ingestion (GitHub repos, credentials vault, marksheets, coding platforms), Google X-Y-Z action bullets, strict 1-page single-column PDFKit layout with hanging indents, and deterministic 100/100 ATS self-healing audit |
 | 11 | ⚡ **Enhanced Clipboard & Multi-File** | SHA-256 dedup, multi-file clipboard paste, multi-chip preview UI, multi-modal vision/doc ingestion in `/api/chat` |
 
 ## Architecture (Condensed)
@@ -62,30 +62,33 @@ bob-backend/
 
 **Request lifecycle** — every call: `HTTPS + Bearer idToken → CORS/security headers → Firebase token verify → route → service (LLM/storage as needed) → Firestore/Cloudinary → JSON`.
 
-## 🌟 Flagship: Resume Builder & ATS Engine
+## 🌟 Flagship: Autonomous Resume Builder & ATS 100/100 Engine
 
-Complete AI resume production pipeline: scattered raw data in → one-page, ATS-optimized, clickable-link PDF out.
+Complete autonomous ATS resume production pipeline: scattered multi-source evidence in → guaranteed one-page, ATS 100/100, Hiration 95%+ compliant PDF out.
 
 ```
-Feed (GitHub handle, smart links, base PDF,
-      certs vault, resume notes)
-   → LLM structuring (strict JSON schema, project preservation,
-      personal-vs-client classification, max ATS keywords)
-   → Delivery (PDFKit ATS-standard PDF, auto compact single-page,
-      clickable hyperlinks, PDF metadata)
-   → ATS audit (resumeAnalyzerService: bullet quality, keyword
-      coverage, structure; downloadable audit PDF)
+Evidence Ingestion (GitHub deep repo crawl, OCR documents vault,
+                   marksheets, certificates, smart links, coding stats)
+   → Domain & Versatility Selection (cross-domain selection, flagship ranking,
+       dedup guards, 100% unique Google X-Y-Z action verbs)
+   → Strict PDFKit Single-Column Layout (hanging-indent bullets, 
+       no right-margin overflow, clickable URI annotations, guaranteed 1 page)
+   → Deterministic 100/100 ATS Audit & Auto-Heal (Check 1-12 deterministic rules,
+       anti-nominalization, % metric coverage, zero repeated verbs, auto-repair loop)
 ```
 
 **Highlights**
-- **One sync button** — crawls GitHub repos *and* does deep code inspection: reads `package.json` for real dependencies and full README descriptions (up to 70K chars) without truncation; also crawls pasted links for coding stats/badges
-- **Resume Notes ("teach Bob")** — free-text notes as highest-priority instruction, enforced by a deterministic directive engine (`applyResumeNotesDirectives`, 12/12 tested scenarios): move projects to freelance/Experience, replace projects, add certifications, tweak summaries, filter skills
-- **Prompt rules Bob lives by** — Hiration/Google-XYZ bullets (active verb → task → outcome), ATS keyword coverage, no invented contacts, clean bullet style, no ending periods, no invented metrics (`X%`/`Y users` placeholders strictly forbidden)
-- **Self-audit refinement loop** — audits its own output and runs targeted refinement passes (temp 0.05) before you ever see it
-- **Multi-candidate profiles** — profile CRUD for "Build for Friend" with dedup-aware deletion
-- **Smart PDF engine** — standard layout, auto-compacts if overflow; clickable clean-label links never overlap the left column; PDF metadata set
+- **Multi-Source Evidence Ingestion (`resumeIngestionService`)**: Deep GitHub profile inspection (original owned repos, star count, deep README/package.json stack extraction), OCR document processing for educational marksheets and official credentials (with automatic participation-only filtering and hackathon classification), plus LeetCode/Codeforces rating value gates.
+- **Versatile Selection & Google X-Y-Z Action Bullets (`resumeSelectionEngine`)**: Selects top non-overlapping flagship repositories spanning distinct technical domains. Enforces Google's X-Y-Z formula ("Accomplished [X] as measured by [Y]% by doing [Z]") with **100% unique starting action verbs** across the entire resume (`Engineered`, `Architected`, `Developed`, `Built`, `Optimized`, `Automated`, `Designed`, `Implemented`, `Accelerated`, `Spearheaded`, `Delivered`) and eliminates filler adverbs and weak nominalizations.
+- **Pixel-Perfect Single-Column ATS Layout (`resumePdfCompiler`)**: PDFKit compiler that guarantees a single-page output. Uses dedicated hanging-indent bullet rendering (`renderBulletItem`) to prevent mid-word line overflows, with embedded clickable URI annotations for all live demo links and profile footprints.
+- **Deterministic 100/100 ATS Self-Healing Loop (`resumeAuditEngine` & `resumeBuilderService`)**: Evaluates 12 rigorous deterministic checks (contact footprint, education chronology, hard technical skill clusters, quantified metric coverage $\ge 80\%$, verb uniqueness, and link accessibility). If score drops below threshold, the spec automatically heals and re-compiles until perfect.
+- **Resume Notes & Directives ("Teach Bob")**: Free-text master instructions with deterministic directives to promote projects to experience, substitute repositories, or tune skill taxonomies.
 
-**API surface** — `POST /api/resume/generate`, `/download-direct-pdf`, `/analyze`, `/analyze-generated`, `/download-audit-pdf`; `GET` `/profiles` `/profile` `/smart-links`; `POST` `/profile` `/sync/github` `/sync/coding` `/upload/base` `/upload/certificate` `/upload/documents`; `DELETE /api/resume/project/:title`.
+**API Surface**:
+- `POST /api/resume/autonomous/generate` — End-to-end autonomous build from ingested evidence
+- `GET /api/resume/autonomous/download` — Direct 1-page ATS PDF download
+- `POST /api/resume/autonomous/audit` — Standalone ATS audit report & score breakdown
+- Legacy & Profile endpoints: `POST /api/resume/generate`, `/download-direct-pdf`, `/analyze`, `/analyze-generated`, `/download-audit-pdf`; `GET` `/profiles`, `/profile`, `/smart-links`; `POST` `/profile/sync/github`, `/upload/documents`.
 
 ## Deep Dives (short versions)
 
@@ -125,7 +128,9 @@ Bob uses a strict dual-brain architecture designed to keep personal life context
 | Service | Responsibility |
 |---|---|
 | `llmService.js` / `geminiPoolService.js` | OpenRouter orchestration + multi-key Gemini pool with parallel dispatch & failover |
-| `resumeProfileService.js` / `directPdfResumeService.js` / `resumeAnalyzerService.js` | Profile CRUD + deep GitHub crawler; resume structuring + PDFKit ATS engine; ATS audit |
+| `resumeBuilderService.js` / `resumePdfCompiler.js` | Flagship autonomous resume pipeline: multi-source orchestration, 1-page PDFKit compiler with hanging indents |
+| `resumeSelectionEngine.js` / `resumeAuditEngine.js` | Flagship domain selection, unique Google X-Y-Z action bullets & deterministic 100/100 ATS self-healing audit |
+| `resumeIngestionService.js` / `resumeStoreService.js` | OCR document parsing, GitHub profile crawler, credentials filtering & profile persistence |
 | `fileService.js` / `documentReaderService.js` / `documentGenerator.js` | Cloudinary + SHA-256 dedup; text extraction; real office-file generation |
 | `developerPlatformsService.js` | LeetCode / Codeforces / HackerRank / DEV.to extraction |
 | `memoryService.js` / `behaviorEngine.js` / `proactiveAdvisor.js` | Memory pillars; trait detection; proactive notifications |
