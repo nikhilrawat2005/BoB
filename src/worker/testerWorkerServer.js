@@ -98,6 +98,18 @@ async function postWebhook(callbackUrl, payload, retries = 1) {
   }
 }
 
+// Helper: Check if candidate URL belongs to same site as base URL (handling www. and canonical redirects)
+function isSameSiteUrl(candidateUrl, baseHost) {
+  try {
+    const candidateHost = new URL(candidateUrl).hostname.toLowerCase();
+    const cleanCandidate = candidateHost.replace(/^www\./i, '');
+    const cleanBase = (baseHost || '').toLowerCase().replace(/^www\./i, '');
+    return cleanCandidate === cleanBase;
+  } catch {
+    return false;
+  }
+}
+
 // Memory-optimized screenshot compressor using Sharp (WebP, quality: 65, max width: 1280)
 async function compressScreenshotWebp(pngBuffer) {
   if (!pngBuffer || pngBuffer.length === 0) return null;
@@ -647,13 +659,25 @@ async function executePlaywrightPipeline({ testId, userId, url, callbackUrl, aut
     });
 
     const page = await context.newPage();
-    const parsedOrigin = new URL(url).origin;
+    const initialOrigin = new URL(url).origin;
+    const initialHost = new URL(url).hostname;
 
     // ─────────────────────────────────────────────────────────────
     // PHASE 0: AUTHENTICATION HANDSHAKE & SESSION PERSISTENCE
     // ─────────────────────────────────────────────────────────────
     const authResult = await performAuthentication(context, page, url, authConfig);
     const postLoginUrl = authResult.authenticated && authResult.postLoginUrl ? authResult.postLoginUrl : url;
+
+    // Canonical Origin Resolution: compute both initial and post-redirect origin & hostname
+    let canonicalOrigin = initialOrigin;
+    let canonicalHost = initialHost;
+    try {
+      const currentLoc = page.url();
+      if (currentLoc && currentLoc.startsWith('http')) {
+        canonicalOrigin = new URL(currentLoc).origin;
+        canonicalHost = new URL(currentLoc).hostname;
+      }
+    } catch {}
 
     // Helper: restore session persistence snapshot if page drops or redirects to login
     const ensureSessionActive = async (targetDestUrl) => {
@@ -744,35 +768,73 @@ async function executePlaywrightPipeline({ testId, userId, url, callbackUrl, aut
     formsOverview = homepageData.forms;
     homepageVisibleText = homepageData.bodyText;
 
-    // Fast DOM Link Extraction with Destructive/Logout Guardrails
+    // Extract Homepage Claims & Quantitative Stats (e.g. package stats, offer counts, accreditations, ranking numbers)
+    const homepageClaims = await page.evaluate(() => {
+      const claims = [];
+      const text = document.body ? document.body.innerText : '';
+      const lines = text.split('\n').map(l => l.trim()).filter(l => l.length > 5 && l.length < 200);
+
+      // Match numbers, percentages, packages (LPA/Cr/k/M), rankings (NIRF, NAAC, NBA), prices, dates
+      const statPattern = /(\b\d+(\.\d+)?\s*(%|lpa|ctc|offers|placements|rank|ranking|students|alumni|crore|cr|lakh|lakhs|star|stars|accredited|grade)\b|highest\s*package|average\s*package|naac\s*[a-z\+]+|nirf\b|aicte|aktu)/i;
+      for (const line of lines) {
+        if (statPattern.test(line) && !claims.includes(line)) {
+          claims.push(line);
+          if (claims.length >= 25) break;
+        }
+      }
+      return claims;
+    }).catch(() => []);
+
+    // Fast DOM Link Extraction with Destructive/Logout Guardrails & Mega-Menu/Hidden Dropdowns
     const extractPageLinks = async () => {
-      return await page.evaluate(({ origin }) => {
+      return await page.evaluate(({ baseHost }) => {
         const DESTRUCTIVE_REGEX = /\b(log\s*out|sign\s*out|signout|logout|delete\s*(account|profile|workspace|project|organization|team|data|all)|remove\s*account|close\s*account|deactivate|cancel\s*subscription|unsubscribe|revoke\s*token|reset\s*password|change\s*password|pay\s*now|complete\s*purchase|place\s*order|confirm\s*payment|transfer\s*funds|wipe|destroy)\b/i;
+        const BINARY_EXTENSIONS_REGEX = /\.(pdf|zip|tar|gz|rar|7z|jpg|jpeg|png|gif|webp|svg|ico|mp4|mov|avi|mkv|mp3|wav|docx?|xlsx?|pptx?|exe|dmg|apk)$/i;
+
+        const cleanBase = (baseHost || '').toLowerCase().replace(/^www\./i, '');
+        const isInternalHost = (h) => (h || '').toLowerCase().replace(/^www\./i, '') === cleanBase;
+
         const links = [];
-        const anchors = document.querySelectorAll('a[href]');
+        // Scan ALL links in DOM: nav, header, aside, footer, mega-menus, collapsed dropdowns
+        const anchors = document.querySelectorAll('a[href], nav a, header a, footer a, [role="menu"] a, .dropdown-menu a, .mega-menu a');
         anchors.forEach((a) => {
           try {
             const rawHref = a.getAttribute('href');
-            if (!rawHref || rawHref.startsWith('#') || rawHref.startsWith('javascript:') || rawHref.startsWith('mailto:') || rawHref.startsWith('tel:')) return;
+            if (!rawHref) return;
+            const trimmedHref = rawHref.trim();
+            if (trimmedHref.startsWith('#') || trimmedHref.startsWith('javascript:') || trimmedHref.startsWith('mailto:') || trimmedHref.startsWith('tel:')) return;
+
             const text = (a.innerText || a.textContent || '').trim().slice(0, 100);
             const ariaLabel = a.getAttribute('aria-label') || '';
             const title = a.getAttribute('title') || '';
-            const checkStr = `${text} ${ariaLabel} ${title} ${rawHref}`;
+            const checkStr = `${text} ${ariaLabel} ${title} ${trimmedHref}`;
 
             // Destructive Guardrail Check
-            if (DESTRUCTIVE_REGEX.test(checkStr) || /\/(log\s*out|sign\s*out|signout|logout|delete-account)/i.test(rawHref)) {
+            if (DESTRUCTIVE_REGEX.test(checkStr) || /\/(log\s*out|sign\s*out|signout|logout|delete-account)/i.test(trimmedHref)) {
               return;
             }
 
-            const fullUrl = new URL(rawHref, window.location.href).href;
-            if (fullUrl.startsWith(origin)) {
-              const isVisible = (a.offsetParent !== null) && (window.getComputedStyle(a).display !== 'none');
-              links.push({ url: fullUrl.split('#')[0], linkText: text, isVisible });
+            const parsed = new URL(trimmedHref, window.location.href);
+            if (!isInternalHost(parsed.hostname)) return;
+
+            // Strip binary extensions
+            if (BINARY_EXTENSIONS_REGEX.test(parsed.pathname)) return;
+
+            // Normalize URL: strip hash and trailing slash (except root)
+            let cleanUrl = `${parsed.origin}${parsed.pathname}`;
+            if (cleanUrl.length > parsed.origin.length + 1 && cleanUrl.endsWith('/')) {
+              cleanUrl = cleanUrl.slice(0, -1);
             }
+            if (parsed.search) {
+              cleanUrl += parsed.search;
+            }
+
+            const isVisible = (a.offsetParent !== null) && (window.getComputedStyle(a).display !== 'none');
+            links.push({ url: cleanUrl, linkText: text, isVisible });
           } catch {}
         });
         return links;
-      }, { origin: parsedOrigin }).catch(() => []);
+      }, { baseHost: canonicalHost }).catch(() => []);
     };
 
     const initialLinks = await extractPageLinks();
@@ -782,6 +844,40 @@ async function executePlaywrightPipeline({ testId, userId, url, callbackUrl, aut
         discoveredLinks.push(l);
         if (linkQueue.length < 50) linkQueue.push(l.url);
       }
+    }
+
+    // Try fetching /sitemap.xml (with 4s timeout) to harvest sitemap links matching the same site domain
+    try {
+      const sitemapUrl = `${canonicalOrigin}/sitemap.xml`;
+      const sitemapLinks = await page.evaluate(async (sUrl) => {
+        try {
+          const controller = new AbortController();
+          const timer = setTimeout(() => controller.abort(), 4000);
+          const res = await fetch(sUrl, { signal: controller.signal });
+          clearTimeout(timer);
+          if (!res.ok) return [];
+          const xmlText = await res.text();
+          const locMatches = xmlText.match(/<loc>(.*?)<\/loc>/gi) || [];
+          return locMatches.map(m => m.replace(/<\/?loc>/gi, '').trim());
+        } catch {
+          return [];
+        }
+      }, sitemapUrl);
+
+      for (const rawLoc of sitemapLinks) {
+        if (isSameSiteUrl(rawLoc, canonicalHost)) {
+          const BINARY_REGEX = /\.(pdf|zip|tar|gz|rar|7z|jpg|jpeg|png|gif|webp|svg|ico|mp4|mov|avi|mkv|mp3|wav|docx?|xlsx?|pptx?)$/i;
+          if (!BINARY_REGEX.test(rawLoc)) {
+            const clean = rawLoc.split('#')[0].replace(/\/$/, '');
+            if (!visitedUrls.has(clean) && discoveredLinks.length < SAFETY_CAP) {
+              visitedUrls.add(clean);
+              discoveredLinks.push({ url: clean, linkText: 'Sitemap Link', isVisible: true });
+            }
+          }
+        }
+      }
+    } catch (sitemapErr) {
+      console.warn('[testerWorker] Sitemap harvest skipped:', sitemapErr.message);
     }
 
     // SPA Sidebar & Tab Discovery on authenticated dashboard
@@ -829,7 +925,7 @@ async function executePlaywrightPipeline({ testId, userId, url, callbackUrl, aut
         title: pageTitle,
         startUrl: url,
         postLoginUrl,
-        origin: parsedOrigin,
+        origin: canonicalOrigin,
         pageCount: discoveredLinks.length + discoveredSpaTabs.length + 1,
         truncated: discoveredLinks.length >= SAFETY_CAP,
         tookMs: Date.now() - discoveryStartTime
@@ -841,8 +937,9 @@ async function executePlaywrightPipeline({ testId, userId, url, callbackUrl, aut
           headings,
           ctas,
           forms: formsOverview,
+          extractedClaims: homepageClaims
         },
-        linksSample: discoveredLinks.slice(0, 50),
+        linksSample: discoveredLinks.slice(0, 100),
         spaTabs: discoveredSpaTabs
       }
     };
@@ -851,24 +948,27 @@ async function executePlaywrightPipeline({ testId, userId, url, callbackUrl, aut
     const phase2Response = await postWebhook(callbackUrl, discoveryPayload);
     console.log(`[testerWorker] Phase 2 plan received from Vercel:`, phase2Response);
 
-    // Prioritized target selection: blend discovered dashboard views, SPA tabs, and public routes
-    let targetPages = [];
+    // ─────────────────────────────────────────────────────────────
+    // TWO-TIER FULL-SITE EXPLORATION PIPELINE (Phase 3)
+    // ─────────────────────────────────────────────────────────────
+    // Tier 1 Targets (Up to 15 Priority Pages + Dashboard/SPA Views)
+    let tier1Urls = [];
     if (phase2Response && Array.isArray(phase2Response.targetPages) && phase2Response.targetPages.length > 0) {
-      targetPages = phase2Response.targetPages.slice(0, 8);
+      tier1Urls = phase2Response.targetPages.filter(p => typeof p === 'string' && p.startsWith('http')).slice(0, 15);
     } else {
-      targetPages = [postLoginUrl];
+      tier1Urls = [postLoginUrl];
       const dashboardLinks = discoveredLinks.filter(l => /\/(dashboard|analytics|settings|projects|billing|profile)/i.test(l.url)).map(l => l.url);
-      targetPages.push(...dashboardLinks.slice(0, 4));
+      tier1Urls.push(...dashboardLinks.slice(0, 5));
       discoveredLinks.forEach(l => {
-        if (!targetPages.includes(l.url) && targetPages.length < 6) targetPages.push(l.url);
+        if (!tier1Urls.includes(l.url) && tier1Urls.length < 15) tier1Urls.push(l.url);
       });
     }
 
-    // Append discovered SPA tabs if room in target list
-    const combinedTargets = targetPages.map(u => ({ url: u, isSpaTab: false }));
+    // Build combined Tier 1 targets (pages + up to 5 discovered SPA tabs)
+    const tier1Targets = tier1Urls.map(u => ({ url: u, isSpaTab: false }));
     if (discoveredSpaTabs.length > 0) {
-      discoveredSpaTabs.slice(0, 3).forEach(tab => {
-        combinedTargets.push({
+      discoveredSpaTabs.slice(0, 5).forEach(tab => {
+        tier1Targets.push({
           url: postLoginUrl,
           isSpaTab: true,
           spaTabSelector: tab.spaTabSelector,
@@ -878,28 +978,62 @@ async function executePlaywrightPipeline({ testId, userId, url, callbackUrl, aut
       });
     }
 
-    // ─────────────────────────────────────────────────────────────
-    // PHASE 3: SEQUENTIAL EXPLORATION (Desktop + Mobile + Batched Webhook)
-    // ─────────────────────────────────────────────────────────────
-    console.log(`[testerWorker] Starting Phase 3 on ${combinedTargets.length} target pages/views...`);
-    const pagesEvidence = [];
-    const totalTargets = combinedTargets.length;
+    // Tier 2 Targets: Remaining discovered internal pages not in Tier 1 (up to 30 pages)
+    const tier1UrlSet = new Set(tier1Urls);
+    const tier2Targets = [];
+    for (const linkItem of discoveredLinks) {
+      const linkUrl = typeof linkItem === 'string' ? linkItem : linkItem.url;
+      if (linkUrl && !tier1UrlSet.has(linkUrl) && !tier2Targets.includes(linkUrl)) {
+        tier2Targets.push(linkUrl);
+        if (tier2Targets.length >= 30) break;
+      }
+    }
 
-    for (let i = 0; i < combinedTargets.length; i++) {
-      const targetItem = combinedTargets[i];
+    const totalExplorationCount = tier1Targets.length + tier2Targets.length;
+    console.log(`[testerWorker] Starting Two-Tier Exploration: Tier 1 Deep Audit = ${tier1Targets.length} targets, Tier 2 Sweep = ${tier2Targets.length} targets (Total: ${totalExplorationCount} targets)`);
+
+    const pagesEvidence = [];
+    let overallProgressDone = 0;
+
+    // Helper: Run Auto-Scroll Hydration Pass (down and back up)
+    const runAutoScrollHydration = async () => {
+      await page.evaluate(async () => {
+        await new Promise((resolve) => {
+          let step = 0;
+          const maxSteps = 4;
+          const interval = setInterval(() => {
+            step++;
+            window.scrollBy(0, window.innerHeight || 600);
+            if (step >= maxSteps) {
+              clearInterval(interval);
+              window.scrollTo(0, 0);
+              resolve();
+            }
+          }, 250);
+        });
+      }).catch(() => {});
+      await page.waitForTimeout(600);
+    };
+
+    // ─────────────────────────────────────────────────────────
+    // TIER 1: DEEP VISUAL + INTERACTIVE AUDIT (Desktop & Mobile)
+    // ─────────────────────────────────────────────────────────
+    for (let i = 0; i < tier1Targets.length; i++) {
+      const targetItem = tier1Targets[i];
       const targetUrl = targetItem.url;
       const isSpaTab = targetItem.isSpaTab;
       const targetDisplay = isSpaTab ? `${targetUrl} [Tab: ${targetItem.spaTabLabel}]` : targetUrl;
-      console.log(`[testerWorker] Auditing target ${i + 1}/${totalTargets}: ${targetDisplay}`);
+      overallProgressDone++;
+      console.log(`[testerWorker] [Tier 1 Deep Audit] ${i + 1}/${tier1Targets.length} (${overallProgressDone}/${totalExplorationCount}): ${targetDisplay}`);
 
-      // Session recovery check before navigating/interacting
       await ensureSessionActive(targetUrl);
 
       const pageErrors = [];
       const networkAnomalies = [];
       const interactiveLogs = [];
+      const networkFailedUrls = new Set();
+      const httpErrorStatuses = new Map();
 
-      // Event listeners for browser runtime signals
       const onConsole = (msg) => {
         if (msg.type() === 'error') {
           pageErrors.push({ type: 'console_error', text: msg.text().slice(0, 300), location: msg.location() });
@@ -909,9 +1043,11 @@ async function executePlaywrightPipeline({ testId, userId, url, callbackUrl, aut
         pageErrors.push({ type: 'uncaught_exception', text: (err.message || String(err)).slice(0, 300) });
       };
       const onRequestFailed = (req) => {
+        const failedUrl = req.url().slice(0, 200);
+        networkFailedUrls.add(req.url());
         networkAnomalies.push({
           type: 'request_failed',
-          url: req.url().slice(0, 200),
+          url: failedUrl,
           method: req.method(),
           failure: req.failure() ? req.failure().errorText : 'Unknown failure'
         });
@@ -922,6 +1058,7 @@ async function executePlaywrightPipeline({ testId, userId, url, callbackUrl, aut
           const req = res.request();
           const resUrl = res.url();
           if (status >= 400) {
+            httpErrorStatuses.set(resUrl, status);
             networkAnomalies.push({
               type: 'http_error',
               url: resUrl.slice(0, 200),
@@ -943,17 +1080,14 @@ async function executePlaywrightPipeline({ testId, userId, url, callbackUrl, aut
       let loadTimingMs = 0;
 
       try {
-        // 1. Desktop walk (1280x720)
         await page.setViewportSize({ width: 1280, height: 720 });
         const navStart = Date.now();
 
         if (isSpaTab) {
-          // If SPA tab, navigate to parent URL if not already there, then click tab selector
           if (page.url() !== targetUrl) {
-            await page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 15000 });
+            await page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 18000 });
             await page.waitForTimeout(1000);
           }
-          // Check Destructive Guardrail before clicking tab selector
           const tabSafeToClick = await page.evaluate(({ sel }) => {
             const el = document.querySelector(sel);
             if (!el) return false;
@@ -973,33 +1107,97 @@ async function executePlaywrightPipeline({ testId, userId, url, callbackUrl, aut
             await page.waitForTimeout(1200);
           }
         } else {
-          await page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 15000 });
-          await page.waitForTimeout(1000);
+          await page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 18000 });
+          await page.waitForTimeout(600);
         }
 
         loadTimingMs = Date.now() - navStart;
 
-        // DOM Audit: overflow, broken images, dead buttons, empty sections
-        domAudit = await page.evaluate(() => {
+        // Auto-Scroll Hydration Pass (eliminates lazy-load false positives)
+        await runAutoScrollHydration();
+
+        // Accurate DOM Audit: Accurate Broken Images, Content Claims & Interactive Elements
+        const failedUrlList = Array.from(networkFailedUrls);
+        const httpErrorList = Array.from(httpErrorStatuses.entries()).map(([u, s]) => ({ url: u, status: s }));
+
+        domAudit = await page.evaluate(({ failedUrls, httpErrors }) => {
           const docEl = document.documentElement;
           const bodyEl = document.body;
           const scrollWidth = Math.max(docEl.scrollWidth, bodyEl ? bodyEl.scrollWidth : 0);
           const clientWidth = docEl.clientWidth || window.innerWidth;
           const hasHorizontalOverflow = scrollWidth > (clientWidth + 5);
 
-          const brokenImages = Array.from(document.querySelectorAll('img'))
-            .filter((img) => !img.complete || img.naturalWidth === 0)
-            .map((img) => ({ src: (img.src || '').slice(0, 150), alt: img.alt || '' }))
-            .slice(0, 10);
+          // 1. Accurate Broken Image Detection:
+          // Only flag if its src returned >=400/requestfailed OR (complete && naturalWidth === 0 with non-empty src after scroll)
+          const brokenImages = [];
+          const allImages = Array.from(document.querySelectorAll('img'));
+          allImages.forEach((img) => {
+            const rawSrc = (img.src || img.getAttribute('src') || '').trim();
+            if (!rawSrc || rawSrc.startsWith('data:') || rawSrc.length < 5) return;
 
-          const deadButtons = Array.from(document.querySelectorAll('a, button'))
-            .filter((el) => {
-              const href = el.getAttribute('href');
-              return (href === '#' || href === 'javascript:void(0);' || href === 'javascript:;') && !el.onclick;
-            })
-            .map((el) => (el.innerText || el.textContent || '').trim().slice(0, 60))
-            .filter(Boolean)
-            .slice(0, 10);
+            const isNetworkFailed = failedUrls.some(u => u === rawSrc || rawSrc.includes(u));
+            const isHttpError = httpErrors.some(e => e.url === rawSrc || rawSrc.includes(e.url));
+            const isNaturalZero = img.complete === true && img.naturalWidth === 0;
+
+            if (isNetworkFailed || isHttpError || isNaturalZero) {
+              // Ensure it's not a 1x1 tracking pixel
+              const widthAttr = parseInt(img.getAttribute('width') || '10', 10);
+              const heightAttr = parseInt(img.getAttribute('height') || '10', 10);
+              if (widthAttr <= 1 && heightAttr <= 1) return;
+
+              brokenImages.push({
+                src: rawSrc.slice(0, 200),
+                alt: img.alt || '',
+                reason: isHttpError ? 'HTTP Error' : (isNetworkFailed ? 'Network Failed' : 'Rendered naturalWidth 0')
+              });
+            }
+          });
+
+          // 2. Dead Buttons / Controls (Skip modern interactive attributes!)
+          const suspiciousControls = [];
+          const candidates = Array.from(document.querySelectorAll('a, button, [role="button"], [role="tab"]'));
+          const DESTRUCTIVE_REGEX = /\b(log\s*out|sign\s*out|signout|logout|delete\s*(account|profile|workspace|project|organization|team|data|all)|remove\s*account|close\s*account|deactivate|cancel\s*subscription|unsubscribe|revoke\s*token|reset\s*password|change\s*password|pay\s*now|complete\s*purchase|place\s*order|confirm\s*payment|transfer\s*funds|wipe|destroy)\b/i;
+
+          candidates.forEach((el, idx) => {
+            const href = el.getAttribute('href');
+            const isHashOrVoid = href === '#' || href === 'javascript:void(0);' || href === 'javascript:;' || !href;
+            if (!isHashOrVoid) return;
+
+            const text = (el.innerText || el.textContent || '').trim().slice(0, 60);
+            const ariaLabel = el.getAttribute('aria-label') || '';
+            const checkStr = `${text} ${ariaLabel} ${el.className || ''}`;
+            if (DESTRUCTIVE_REGEX.test(checkStr)) return;
+
+            // Check if element has modern interactive/tab/modal attributes
+            const hasInteractiveAttr = el.hasAttribute('data-bs-toggle') ||
+              el.hasAttribute('data-toggle') ||
+              el.hasAttribute('data-bs-target') ||
+              el.hasAttribute('data-target') ||
+              el.getAttribute('role') === 'tab' ||
+              el.getAttribute('role') === 'button' ||
+              el.hasAttribute('aria-controls') ||
+              el.hasAttribute('aria-expanded') ||
+              el.hasAttribute('aria-haspopup') ||
+              el.hasAttribute('@click') ||
+              el.hasAttribute('ng-click') ||
+              Boolean(el.onclick);
+
+            if (!hasInteractiveAttr && text.length > 0) {
+              let sel = el.id ? `#${el.id}` : '';
+              if (!sel) {
+                const parent = el.parentElement;
+                const childIdx = parent ? Array.from(parent.children).indexOf(el) + 1 : 1;
+                sel = `${el.tagName.toLowerCase()}:nth-child(${childIdx})`;
+              }
+              suspiciousControls.push({ selector: sel, text, tag: el.tagName.toLowerCase(), checkIdx: idx });
+            }
+          });
+
+          // 3. Extract Content Statistics & Headings from this page
+          const pageHeadings = Array.from(document.querySelectorAll('h1, h2, h3'))
+            .map(h => ({ level: h.tagName.toLowerCase(), text: (h.innerText || h.textContent || '').trim().slice(0, 150) }))
+            .filter(h => h.text.length > 0)
+            .slice(0, 20);
 
           const missingAltCount = Array.from(document.querySelectorAll('img:not([alt]), img[alt=""]')).length;
           const unlabelledInputs = Array.from(document.querySelectorAll('input:not([aria-label]):not([placeholder])')).length;
@@ -1008,46 +1206,58 @@ async function executePlaywrightPipeline({ testId, userId, url, callbackUrl, aut
             scrollWidth,
             clientWidth,
             hasHorizontalOverflow,
-            brokenImages,
-            deadButtons,
+            brokenImages: brokenImages.slice(0, 15),
+            suspiciousControls: suspiciousControls.slice(0, 10),
+            pageHeadings,
             accessibilitySummary: { missingAltCount, unlabelledInputs }
           };
-        }).catch(() => null);
+        }, { failedUrls: failedUrlList, httpErrors: httpErrorList }).catch(() => null);
 
-        // Safe interactive actions with Destructive/Logout Guardrails
-        try {
-          const interactiveResults = await page.evaluate(() => {
-            const DESTRUCTIVE_REGEX = /\b(log\s*out|sign\s*out|signout|logout|delete\s*(account|profile|workspace|project|organization|team|data|all)|remove\s*account|close\s*account|deactivate|cancel\s*subscription|unsubscribe|revoke\s*token|reset\s*password|change\s*password|pay\s*now|complete\s*purchase|place\s*order|confirm\s*payment|transfer\s*funds|wipe|destroy)\b/i;
-            const actions = [];
+        // Real click verification on up to 5 candidate suspicious dead buttons
+        const verifiedDeadButtons = [];
+        if (domAudit && Array.isArray(domAudit.suspiciousControls)) {
+          for (let cIdx = 0; cIdx < Math.min(domAudit.suspiciousControls.length, 5); cIdx++) {
+            const ctrl = domAudit.suspiciousControls[cIdx];
+            try {
+              const clickResult = await page.evaluate(async (ctrlItem) => {
+                const el = document.querySelectorAll('a, button, [role="button"], [role="tab"]')[ctrlItem.checkIdx];
+                if (!el) return { changed: true };
 
-            const searchInput = document.querySelector('input[type="search"], input[name*="search" i], input[placeholder*="search" i]');
-            if (searchInput) {
-              actions.push({ element: 'search_input', found: true, placeholder: searchInput.placeholder || '' });
-            }
+                const urlBefore = window.location.href;
+                const bodyLenBefore = document.body ? document.body.innerHTML.length : 0;
+                const scrollYBefore = window.scrollY;
 
-            const tabs = Array.from(document.querySelectorAll('[role="tab"], .tab, button[data-tab], nav a, header a')).slice(0, 8);
-            tabs.forEach((t) => {
-              const txt = (t.innerText || t.textContent || '').trim().slice(0, 40);
-              const href = t.getAttribute('href') || '';
-              const aria = t.getAttribute('aria-label') || '';
-              if (DESTRUCTIVE_REGEX.test(`${txt} ${href} ${aria}`) || /\/(log\s*out|sign\s*out|logout)/i.test(href)) {
-                actions.push({ element: 'nav_item', text: txt, skipped: 'Blocked by Destructive/Logout Guardrail' });
-              } else {
-                actions.push({ element: 'nav_item', text: txt });
+                try { el.click(); } catch { return { changed: true }; }
+
+                await new Promise(r => setTimeout(r, 400));
+
+                const urlAfter = window.location.href;
+                const bodyLenAfter = document.body ? document.body.innerHTML.length : 0;
+                const scrollYAfter = window.scrollY;
+
+                const hasUrlChange = urlBefore !== urlAfter;
+                const hasDomMutation = Math.abs(bodyLenAfter - bodyLenBefore) > 10;
+                const hasScrollChange = Math.abs(scrollYAfter - scrollYBefore) > 50;
+
+                return { changed: hasUrlChange || hasDomMutation || hasScrollChange };
+              }, ctrl).catch(() => ({ changed: true }));
+
+              if (!clickResult.changed) {
+                verifiedDeadButtons.push(ctrl.text);
               }
-            });
-            return actions;
-          });
-          interactiveLogs.push(...interactiveResults);
-        } catch {}
+            } catch {}
+          }
+          domAudit.deadButtons = verifiedDeadButtons;
+          delete domAudit.suspiciousControls;
+        }
 
         // Desktop screenshot
         const desktopPng = await page.screenshot({ fullPage: false, type: 'png' }).catch(() => null);
         desktopScreenshotBase64 = await compressScreenshotWebp(desktopPng);
 
-        // 2. Mobile walk (390x844)
+        // Mobile walk (390x844)
         await page.setViewportSize({ width: 390, height: 844 });
-        await page.waitForTimeout(600);
+        await page.waitForTimeout(500);
 
         const mobileAudit = await page.evaluate(() => {
           const scrollWidth = document.documentElement.scrollWidth;
@@ -1071,7 +1281,6 @@ async function executePlaywrightPipeline({ testId, userId, url, callbackUrl, aut
       } catch (pageErr) {
         pageErrors.push({ type: 'page_nav_error', text: pageErr.message });
       } finally {
-        // Clean up listeners for this page
         page.off('console', onConsole);
         page.off('pageerror', onPageError);
         page.off('requestfailed', onRequestFailed);
@@ -1080,6 +1289,7 @@ async function executePlaywrightPipeline({ testId, userId, url, callbackUrl, aut
 
       pagesEvidence.push({
         url: targetDisplay,
+        tier: 1,
         loadTimingMs,
         isSpaTab: Boolean(isSpaTab),
         spaTabLabel: targetItem.spaTabLabel || null,
@@ -1093,30 +1303,154 @@ async function executePlaywrightPipeline({ testId, userId, url, callbackUrl, aut
         }
       });
 
-      // Flush micro-batches of 2 pages to stay well under Vercel's 4.5 MB request limit
-      if (pagesEvidence.length >= 2 || i === combinedTargets.length - 1) {
-        console.log(`[testerWorker] Flushing Phase 3 micro-batch (${pagesEvidence.length} pages)...`);
+      // Flush micro-batches every 2 Tier 1 pages
+      if (pagesEvidence.length >= 2 || i === tier1Targets.length - 1) {
+        console.log(`[testerWorker] Flushing Tier 1 micro-batch (${pagesEvidence.length} pages)...`);
         await postWebhook(callbackUrl, {
           event: 'phase3_batch',
           testId,
           userId,
-          progressDone: i + 1,
-          progressTotal: totalTargets,
+          progressDone: overallProgressDone,
+          progressTotal: totalExplorationCount,
           pagesEvidence: [...pagesEvidence]
         });
-        pagesEvidence.length = 0; // Clear memory buffer immediately
+        pagesEvidence.length = 0;
       }
     }
 
-    // Phase 3 completion signal
+    // ─────────────────────────────────────────────────────────
+    // TIER 2: FAST FULL-SITE SWEEP (Up to 30 Additional Pages)
+    // ─────────────────────────────────────────────────────────
+    console.log(`[testerWorker] Starting Tier 2 Fast Sweep across ${tier2Targets.length} discovered URLs...`);
+    for (let j = 0; j < tier2Targets.length; j++) {
+      const sweepUrl = tier2Targets[j];
+      overallProgressDone++;
+      console.log(`[testerWorker] [Tier 2 Sweep] ${j + 1}/${tier2Targets.length} (${overallProgressDone}/${totalExplorationCount}): ${sweepUrl}`);
+
+      const pageErrors = [];
+      const networkAnomalies = [];
+      let domAudit = null;
+      let loadTimingMs = 0;
+      let sweepScreenshotBase64 = null;
+
+      const onConsole = (msg) => {
+        if (msg.type() === 'error') {
+          pageErrors.push({ type: 'console_error', text: msg.text().slice(0, 300) });
+        }
+      };
+      const onPageError = (err) => {
+        pageErrors.push({ type: 'uncaught_exception', text: (err.message || String(err)).slice(0, 300) });
+      };
+      const onRequestFailed = (req) => {
+        networkAnomalies.push({
+          type: 'request_failed',
+          url: req.url().slice(0, 200),
+          method: req.method(),
+          failure: req.failure() ? req.failure().errorText : 'Unknown failure'
+        });
+      };
+      const onResponse = async (res) => {
+        try {
+          const status = res.status();
+          if (status >= 400) {
+            networkAnomalies.push({
+              type: 'http_error',
+              url: res.url().slice(0, 200),
+              method: res.request().method(),
+              status
+            });
+          }
+        } catch {}
+      };
+
+      page.on('console', onConsole);
+      page.on('pageerror', onPageError);
+      page.on('requestfailed', onRequestFailed);
+      page.on('response', onResponse);
+
+      try {
+        await page.setViewportSize({ width: 1280, height: 720 });
+        const navStart = Date.now();
+        await page.goto(sweepUrl, { waitUntil: 'domcontentloaded', timeout: 10000 });
+        await page.waitForTimeout(400);
+        loadTimingMs = Date.now() - navStart;
+
+        // Single light scroll
+        await page.evaluate(() => window.scrollBy(0, 400)).catch(() => {});
+        await page.waitForTimeout(200);
+
+        domAudit = await page.evaluate(() => {
+          const docEl = document.documentElement;
+          const bodyEl = document.body;
+          const scrollWidth = Math.max(docEl.scrollWidth, bodyEl ? bodyEl.scrollWidth : 0);
+          const clientWidth = docEl.clientWidth || window.innerWidth;
+          const hasHorizontalOverflow = scrollWidth > (clientWidth + 5);
+
+          const h1 = document.querySelector('h1');
+          const title = document.title || '';
+
+          return {
+            title,
+            h1Text: h1 ? (h1.innerText || h1.textContent || '').trim().slice(0, 100) : '',
+            scrollWidth,
+            clientWidth,
+            hasHorizontalOverflow
+          };
+        }).catch(() => null);
+
+        // Only capture a screenshot if a critical error or overflow occurred on this sweep page
+        const hasCriticalError = pageErrors.length > 0 || networkAnomalies.some(a => a.status >= 500) || (domAudit && domAudit.hasHorizontalOverflow);
+        if (hasCriticalError) {
+          const sweepPng = await page.screenshot({ fullPage: false, type: 'png' }).catch(() => null);
+          sweepScreenshotBase64 = await compressScreenshotWebp(sweepPng);
+        }
+
+      } catch (sweepErr) {
+        pageErrors.push({ type: 'page_nav_error', text: sweepErr.message });
+      } finally {
+        page.off('console', onConsole);
+        page.off('pageerror', onPageError);
+        page.off('requestfailed', onRequestFailed);
+        page.off('response', onResponse);
+      }
+
+      pagesEvidence.push({
+        url: sweepUrl,
+        tier: 2,
+        loadTimingMs,
+        errors: pageErrors.slice(0, 10),
+        networkAnomalies: networkAnomalies.slice(0, 10),
+        domAudit,
+        screenshots: {
+          desktopWebpBase64: sweepScreenshotBase64,
+          mobileWebpBase64: null
+        }
+      });
+
+      // Flush micro-batches every 6 Tier 2 sweep pages or at the end
+      if (pagesEvidence.length >= 6 || j === tier2Targets.length - 1) {
+        console.log(`[testerWorker] Flushing Tier 2 micro-batch (${pagesEvidence.length} pages)...`);
+        await postWebhook(callbackUrl, {
+          event: 'phase3_batch',
+          testId,
+          userId,
+          progressDone: overallProgressDone,
+          progressTotal: totalExplorationCount,
+          pagesEvidence: [...pagesEvidence]
+        });
+        pagesEvidence.length = 0;
+      }
+    }
+
+    // Phase 3 completion signal with full count
     await postWebhook(callbackUrl, {
       event: 'phase3_complete',
       testId,
       userId,
-      totalExplored: totalTargets,
+      totalExplored: totalExplorationCount,
       tookMs: Date.now() - startTime
     });
-    console.log(`[testerWorker] Full pipeline completed successfully for test ${testId}`);
+    console.log(`[testerWorker] Full two-tier pipeline completed successfully for test ${testId} (${totalExplorationCount} total pages audited)`);
 
   } catch (err) {
     console.error(`[testerWorker] Fatal error during test ${testId}:`, err);

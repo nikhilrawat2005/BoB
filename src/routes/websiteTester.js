@@ -83,16 +83,20 @@ router.get('/:id', requireAuth, async (req, res) => {
   }
 });
 
-// GET /api/website-tester/:id/pdf - Redirects or streams PDF report
+// GET /api/website-tester/:id/pdf - Generates and streams PDF report Buffer directly on-demand
 router.get('/:id/pdf', requireAuth, async (req, res) => {
   try {
-    const baseUrl = getRequestBaseUrl(req);
-    const test = await testerService.getWebsiteTestStatus(req.userId, req.params.id, baseUrl);
-    if (!test || !test.reportPdf || !test.reportPdf.url) {
-      return res.status(404).json({ error: 'PDF report not found or not yet generated' });
+    const pdfBuffer = await testerService.generateTestReportPdfBuffer(req.userId, req.params.id);
+    if (!pdfBuffer) {
+      return res.status(404).json({ error: 'Website test not found or PDF could not be generated' });
     }
-    res.redirect(test.reportPdf.url);
+    const safeId = String(req.params.id).replace(/[^a-zA-Z0-9_-]/g, '');
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="Bob_Website_Audit_${safeId}.pdf"`);
+    res.setHeader('Content-Length', pdfBuffer.length);
+    return res.end(pdfBuffer);
   } catch (err) {
+    console.error('[websiteTester] PDF download error:', err);
     res.status(500).json({ error: err.message });
   }
 });

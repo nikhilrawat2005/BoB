@@ -8544,17 +8544,79 @@ function renderWebsiteTestDetail(test) {
     authPillHtml = `<span class="tester-badge-pill grey">🔓 Public Audit</span>`;
   }
 
+  // Page coverage summary & audited URLs list
+  const totalDiscovered = test.site?.pageCount || 1;
+  const auditedPagesList = (test.evidence?.domAudits || []).map(d => d.pageUrl).filter(Boolean);
+  const auditedUniquePages = Array.from(new Set(auditedPagesList));
+  const auditedCount = auditedUniquePages.length || (test.evidence?.screenshots ? Math.max(1, Math.round(test.evidence.screenshots.length / 2)) : 1);
+
+  let auditedListHtml = '';
+  if (auditedUniquePages.length > 0) {
+    auditedListHtml = `
+      <details class="tester-coverage-details" style="margin-top: 6px; font-size: 12px; color: var(--text-dim, #888);">
+        <summary style="cursor: pointer; text-decoration: underline;">View all ${auditedUniquePages.length} audited URLs</summary>
+        <ul style="margin: 6px 0 0 16px; padding: 0; max-height: 140px; overflow-y: auto;">
+          ${auditedUniquePages.map(u => `<li><a href="${escHtml(u)}" target="_blank" rel="noopener" style="color: var(--accent, #6366f1); word-break: break-all;">${escHtml(u)}</a></li>`).join('')}
+        </ul>
+      </details>
+    `;
+  }
+
   if (titleEl) titleEl.textContent = test.site?.title || test.url;
   if (metaEl) {
-    metaEl.innerHTML = `<span>🌐 <a href="${escHtml(test.url)}" target="_blank">${escHtml(test.url)}</a></span> • <span>Started: ${fmtDate(test.startedAt)}</span> • <span>Status: <strong>${escHtml(test.status)}</strong></span> • ${authPillHtml}`;
+    metaEl.innerHTML = `
+      <div>
+        <span>🌐 <a href="${escHtml(test.url)}" target="_blank">${escHtml(test.url)}</a></span> • 
+        <span>Started: ${fmtDate(test.startedAt)}</span> • 
+        <span>Status: <strong>${escHtml(test.status)}</strong></span> • 
+        <span>📊 <strong>${escHtml(totalDiscovered)}</strong> Discovered Pages (<strong>${escHtml(auditedCount)}</strong> Audited Deep + Sweep)</span> • 
+        ${authPillHtml}
+      </div>
+      ${auditedListHtml}
+    `;
   }
 
   if (pdfBtn) {
-    if (test.reportPdf?.url) {
-      pdfBtn.classList.remove('hidden');
-      pdfBtn.href = `/api/website-tester/${encodeURIComponent(test.testId)}/pdf`;
-    } else {
-      pdfBtn.classList.add('hidden');
+    pdfBtn.classList.remove('hidden');
+    pdfBtn.href = `/api/website-tester/${encodeURIComponent(test.testId)}/pdf`;
+    if (!pdfBtn.dataset.boundFetch) {
+      pdfBtn.dataset.boundFetch = 'true';
+      pdfBtn.addEventListener('click', async (e) => {
+        e.preventDefault();
+        const originalText = pdfBtn.innerHTML;
+        pdfBtn.innerHTML = '<span>⏳ Generating PDF...</span>';
+        pdfBtn.style.pointerEvents = 'none';
+        try {
+          const user = auth.currentUser;
+          const token = user ? await user.getIdToken() : '';
+          const urlWithFallback = token 
+            ? `/api/website-tester/${encodeURIComponent(test.testId)}/pdf?token=${encodeURIComponent(token)}`
+            : `/api/website-tester/${encodeURIComponent(test.testId)}/pdf`;
+
+          const res = await fetch(urlWithFallback, {
+            headers: token ? { Authorization: `Bearer ${token}` } : {}
+          });
+
+          if (!res.ok) {
+            const errJson = await res.json().catch(() => ({}));
+            throw new Error(errJson.error || `HTTP ${res.status}`);
+          }
+
+          const blob = await res.blob();
+          const blobUrl = URL.createObjectURL(blob);
+          const safeName = (test.site?.title || 'Website_Audit_Report').replace(/[^a-zA-Z0-9_-]/g, '_');
+          triggerDownload(blobUrl, `Bob_Website_Audit_${safeName}.pdf`, 3000);
+
+          pdfBtn.innerHTML = '<span>✅ Downloaded!</span>';
+          setTimeout(() => { pdfBtn.innerHTML = originalText; }, 2000);
+        } catch (downloadErr) {
+          console.error('[websiteTester] PDF download error:', downloadErr);
+          alert('Failed to download PDF report: ' + downloadErr.message);
+          pdfBtn.innerHTML = originalText;
+        } finally {
+          pdfBtn.style.pointerEvents = 'auto';
+        }
+      });
     }
   }
 
