@@ -281,10 +281,26 @@ async function tryWakeAndDispatchWorker(testId, userId, targetUrl, baseUrl) {
       } else {
         const errText = await dispatchRes.text();
         console.error(`[websiteTester] GitHub Actions dispatch returned status ${dispatchRes.status}: ${errText}`);
+        if (db) {
+          await db.collection('users').doc(userId).collection('website_tests').doc(testId).update({
+            status: 'failed',
+            error: `GitHub Actions dispatch failed (HTTP ${dispatchRes.status}): ${errText}`,
+            finishedAt: new Date().toISOString(),
+            'progress.label': `Failed to dispatch runner: HTTP ${dispatchRes.status}`
+          });
+        }
         return { ok: false, error: `GitHub dispatch failed (${dispatchRes.status}): ${errText}` };
       }
     } catch (ghErr) {
       console.error('[websiteTester] Failed to dispatch GitHub workflow:', ghErr);
+      if (db) {
+        await db.collection('users').doc(userId).collection('website_tests').doc(testId).update({
+          status: 'failed',
+          error: `GitHub Actions dispatch exception: ${ghErr.message}`,
+          finishedAt: new Date().toISOString(),
+          'progress.label': `Dispatch Error: ${ghErr.message}`
+        });
+      }
       return { ok: false, error: ghErr.message };
     }
   }
