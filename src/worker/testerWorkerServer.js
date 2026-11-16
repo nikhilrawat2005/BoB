@@ -951,18 +951,45 @@ async function executePlaywrightPipeline({ testId, userId, url, callbackUrl, aut
     // ─────────────────────────────────────────────────────────────
     // TWO-TIER FULL-SITE EXPLORATION PIPELINE (Phase 3)
     // ─────────────────────────────────────────────────────────────
-    // Tier 1 Targets (Up to 15 Priority Pages + Dashboard/SPA Views)
+    // Target Pages Selection: Ensure BOTH Public Landing Pages AND Post-Login Dashboard Views are included!
     let tier1Urls = [];
-    if (phase2Response && Array.isArray(phase2Response.targetPages) && phase2Response.targetPages.length > 0) {
-      tier1Urls = phase2Response.targetPages.filter(p => typeof p === 'string' && p.startsWith('http')).slice(0, 15);
-    } else {
-      tier1Urls = [postLoginUrl];
-      const dashboardLinks = discoveredLinks.filter(l => /\/(dashboard|analytics|settings|projects|billing|profile)/i.test(l.url)).map(l => l.url);
-      tier1Urls.push(...dashboardLinks.slice(0, 5));
-      discoveredLinks.forEach(l => {
-        if (!tier1Urls.includes(l.url) && tier1Urls.length < 15) tier1Urls.push(l.url);
-      });
+    const publicPriorityUrls = [url];
+    const dashboardPriorityUrls = [];
+
+    // Separate discovered links into dashboard/authenticated vs public
+    for (const linkItem of discoveredLinks) {
+      const linkUrl = typeof linkItem === 'string' ? linkItem : linkItem.url;
+      if (!linkUrl) continue;
+      if (/\/(dashboard|analytics|settings|projects|billing|profile|teams|explore|ai-hub|saved|portal|account)/i.test(linkUrl)) {
+        if (!dashboardPriorityUrls.includes(linkUrl)) dashboardPriorityUrls.push(linkUrl);
+      } else {
+        if (!publicPriorityUrls.includes(linkUrl)) publicPriorityUrls.push(linkUrl);
+      }
     }
+
+    if (authResult.authenticated && authResult.postLoginUrl && !dashboardPriorityUrls.includes(authResult.postLoginUrl)) {
+      dashboardPriorityUrls.unshift(authResult.postLoginUrl);
+    }
+
+    // Blend: take priority public routes AND priority dashboard routes in Tier 1 Deep Audit
+    if (phase2Response && Array.isArray(phase2Response.targetPages) && phase2Response.targetPages.length > 0) {
+      const llmTargets = phase2Response.targetPages.filter(p => typeof p === 'string' && p.startsWith('http'));
+      tier1Urls = llmTargets.slice(0, 15);
+    }
+
+    // Ensure at least 3-4 public pages AND 3-4 dashboard pages are always in Tier 1 if available
+    publicPriorityUrls.slice(0, 5).forEach(u => {
+      if (!tier1Urls.includes(u) && tier1Urls.length < 15) tier1Urls.push(u);
+    });
+    dashboardPriorityUrls.slice(0, 6).forEach(u => {
+      if (!tier1Urls.includes(u) && tier1Urls.length < 15) tier1Urls.push(u);
+    });
+
+    // If still room, fill from discovered links
+    discoveredLinks.forEach(l => {
+      const linkUrl = typeof l === 'string' ? l : l.url;
+      if (linkUrl && !tier1Urls.includes(linkUrl) && tier1Urls.length < 15) tier1Urls.push(linkUrl);
+    });
 
     // Build combined Tier 1 targets (pages + up to 5 discovered SPA tabs)
     const tier1Targets = tier1Urls.map(u => ({ url: u, isSpaTab: false }));

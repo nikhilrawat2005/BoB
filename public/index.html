@@ -875,28 +875,32 @@
               </button>
             </div>
 
-            <!-- Collapsible Authentication & Dashboard Access Selector -->
+            <!-- Collapsible Authentication & Dashboard Access Selector (Always expanded by default) -->
             <div class="tester-auth-card">
               <button type="button" id="tester-auth-toggle-btn" class="tester-auth-toggle">
                 <span class="tester-auth-toggle-left">
                   <span class="tester-auth-icon">🔐</span>
-                  <strong>Post-Login & Dashboard Access (Optional)</strong>
-                  <span id="tester-auth-active-pill" class="tester-badge-pill grey">Guest (Public)</span>
+                  <strong>Dual Audit & Dashboard Access (Credentials / Auto-Signup)</strong>
+                  <span id="tester-auth-active-pill" class="tester-badge-pill green">Dual Auto-Audit Active</span>
                 </span>
-                <span id="tester-auth-toggle-arrow" class="tester-auth-arrow">▼</span>
+                <span id="tester-auth-toggle-arrow" class="tester-auth-arrow">▲</span>
               </button>
 
-              <div id="tester-auth-collapse" class="tester-auth-content hidden">
+              <div id="tester-auth-collapse" class="tester-auth-content">
                 <div class="tester-auth-tabs">
-                  <button type="button" class="tester-tab-btn active" data-auth-mode="guest">🌐 Guest (Public Only)</button>
+                  <button type="button" class="tester-tab-btn active" data-auth-mode="auto_signup">✨ Auto-Signup & Explore (Recommended)</button>
                   <button type="button" class="tester-tab-btn" data-auth-mode="credentials">🔑 Login Credentials</button>
                   <button type="button" class="tester-tab-btn" data-auth-mode="session">🍪 Session / Token (OAuth/2FA)</button>
-                  <button type="button" class="tester-tab-btn" data-auth-mode="auto_signup">✨ Auto Test-Signup</button>
+                  <button type="button" class="tester-tab-btn" data-auth-mode="guest">🌐 Guest (Public Only)</button>
                 </div>
 
-                <!-- Pane 1: Guest -->
-                <div id="tester-pane-guest" class="tester-auth-pane active">
-                  <p class="tester-auth-hint">Explores public routes, landing pages, marketing claims, and public navigation only.</p>
+                <!-- Pane 1: Auto-Signup (Default) -->
+                <div id="tester-pane-auto_signup" class="tester-auth-pane active">
+                  <p class="tester-auth-hint">⚡ <strong>Dual Full-Site Audit</strong>: Bob explores public landing pages, then automatically creates a disposable test account to unlock and capture full desktop & mobile screenshots of protected dashboard views and tabs.</p>
+                  <div class="form-group">
+                    <label>Sign Up / Registration URL (Optional — auto-detected if empty)</label>
+                    <input type="url" id="tester-signup-url" placeholder="https://example.com/signup" class="form-control" />
+                  </div>
                 </div>
 
                 <!-- Pane 2: Credentials -->
@@ -941,13 +945,9 @@
                   </div>
                 </div>
 
-                <!-- Pane 4: Auto-Signup -->
-                <div id="tester-pane-auto_signup" class="tester-auth-pane hidden">
-                  <p class="tester-auth-hint">Bob creates a disposable test user account on the target site and audits the post-registration onboarding flow and user dashboard.</p>
-                  <div class="form-group">
-                    <label>Sign Up / Registration URL (Optional - auto-detected if empty)</label>
-                    <input type="url" id="tester-signup-url" placeholder="https://example.com/signup" class="form-control" />
-                  </div>
+                <!-- Pane 4: Guest -->
+                <div id="tester-pane-guest" class="tester-auth-pane hidden">
+                  <p class="tester-auth-hint">Explores public routes, landing pages, marketing claims, and public navigation only (no login or signup attempted).</p>
                 </div>
               </div>
             </div>

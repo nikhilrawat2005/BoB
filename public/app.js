@@ -8215,7 +8215,7 @@ let testerPollTimer = null;
 let currentTesterTestId = null;
 let testerFindingsCache = [];
 let testerActiveFilter = 'all';
-let testerSelectedAuthMode = 'guest';
+let testerSelectedAuthMode = 'auto_signup';
 
 function initWebsiteTesterWorkspace() {
   const runBtn = document.getElementById('tester-run-btn');
