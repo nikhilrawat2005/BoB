@@ -9,6 +9,19 @@ const fileService = require('./fileService');
 const WORKER_URL = (process.env.RENDER_TESTER_WORKER_URL || '').replace(/\/$/, '');
 const WORKER_SECRET = process.env.TESTER_WORKER_SECRET || '';
 
+// In-memory transient map for raw auth credentials during dispatch (Never stored in Firestore)
+const pendingAuthConfigs = new Map(); // testId -> { authConfig, expiresAt }
+
+// Periodic sweep for expired transient authConfigs
+setInterval(() => {
+  const now = Date.now();
+  for (const [testId, entry] of pendingAuthConfigs.entries()) {
+    if (entry.expiresAt && entry.expiresAt < now) {
+      pendingAuthConfigs.delete(testId);
+    }
+  }
+}, 60 * 1000);
+
 /**
  * Normalizes and validates target URL
  */
@@ -67,8 +80,12 @@ async function tryWakeAndDispatchWorker(testId, userId, targetUrl, baseUrl) {
         return { ok: true, queued: true, busy: true };
       }
 
+      // Retrieve transient authConfig if available
+      const pendingEntry = pendingAuthConfigs.get(testId);
+      const authConfig = pendingEntry ? pendingEntry.authConfig : null;
+
       // Worker is awake & idle -> dispatch immediately
-      console.log(`[websiteTester] Worker is awake. Dispatching POST /worker/run for test ${testId}...`);
+      console.log(`[websiteTester] Worker is awake. Dispatching POST /worker/run for test ${testId} (auth mode: ${authConfig?.mode || 'guest'})...`);
       const runRes = await fetch(`${WORKER_URL}/worker/run`, {
         method: 'POST',
         headers: {
@@ -79,16 +96,20 @@ async function tryWakeAndDispatchWorker(testId, userId, targetUrl, baseUrl) {
           testId,
           userId,
           url: targetUrl,
-          callbackUrl
+          callbackUrl,
+          authConfig
         })
       });
 
       if (runRes.status === 202 || runRes.ok) {
+        // Zero-leak: immediately clear raw secrets from memory once accepted by Render
+        pendingAuthConfigs.delete(testId);
+
         if (db) {
           await db.collection('users').doc(userId).collection('website_tests').doc(testId).update({
             status: 'running',
             workerDispatched: true,
-            progress: { phase: 1, label: 'Phase 1: Crawling & discovering site routes in real browser...', done: 1, total: 6 }
+            progress: { phase: 1, label: 'Phase 1: Authenticating & discovering site routes in real browser...', done: 1, total: 6 }
           });
         }
         return { ok: true, dispatched: true };
@@ -104,14 +125,49 @@ async function tryWakeAndDispatchWorker(testId, userId, targetUrl, baseUrl) {
 /**
  * Starts a new autonomous website test run
  */
-async function startWebsiteTest(userId, rawUrl, baseUrl) {
+async function startWebsiteTest(userId, rawUrl, baseUrl, rawAuthConfig = null) {
   const url = normalizeUrl(rawUrl);
   const testId = `test_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
+
+  const mode = (rawAuthConfig && rawAuthConfig.mode) ? rawAuthConfig.mode : 'guest';
+  let sanitizedAuthConfig = null;
+  if (rawAuthConfig && mode !== 'guest') {
+    sanitizedAuthConfig = {
+      mode,
+      loginUrl: rawAuthConfig.loginUrl || null,
+      signupUrl: rawAuthConfig.signupUrl || null,
+      identifier: rawAuthConfig.identifier || '',
+      password: rawAuthConfig.password || '',
+      otpOrPin: rawAuthConfig.otpOrPin || '',
+      cookiesInput: rawAuthConfig.cookiesInput || '',
+      localStorageInput: rawAuthConfig.localStorageInput || '',
+      bearerToken: rawAuthConfig.bearerToken || ''
+    };
+    // Store raw secrets in transient in-memory map ONLY (expires in 10 minutes)
+    pendingAuthConfigs.set(testId, {
+      authConfig: sanitizedAuthConfig,
+      expiresAt: Date.now() + 10 * 60 * 1000
+    });
+  }
+
+  // Sanitized authSummary for Firestore (ZERO secrets stored in DB)
+  const authSummary = {
+    mode,
+    loginUrl: rawAuthConfig?.loginUrl || null,
+    signupUrl: rawAuthConfig?.signupUrl || null,
+    authenticated: false,
+    authStatus: mode === 'guest' ? 'guest' : 'pending',
+    postLoginUrl: null,
+    dashboardViewsFound: 0,
+    authError: null,
+    screenshotUrl: null
+  };
 
   const initialRecord = {
     testId,
     userId,
     url,
+    authSummary,
     status: 'waking_worker',
     workerDispatched: false,
     progress: { phase: 0, label: 'Waking up Render browser worker...', done: 0, total: 6 },
@@ -199,31 +255,80 @@ async function handleWorkerWebhook(payload) {
   // EVENT: PHASE 1 COMPLETE → RUN PHASE 2 (PURPOSE INFERENCE)
   // ─────────────────────────────────────────────────────────────
   if (event === 'phase1_complete') {
-    const { site, discoveryData } = payload;
+    const { site, discoveryData, authResult } = payload;
+
+    let authScreenshotUrl = null;
+    if (authResult?.authScreenshotBase64) {
+      try {
+        const uploadRes = await uploadScreenshotWebp(
+          userId,
+          authResult.authScreenshotBase64,
+          `tester_auth_${testId}_${Date.now()}.webp`
+        );
+        if (uploadRes?.url) {
+          authScreenshotUrl = uploadRes.url;
+        }
+      } catch (authUpErr) {
+        console.warn('[websiteTester] Failed to upload auth screenshot:', authUpErr.message);
+      }
+    }
+
+    const prevAuthSummary = currentData.authSummary || {};
+    const updatedAuthSummary = {
+      ...prevAuthSummary,
+      mode: authResult?.mode || prevAuthSummary.mode || 'guest',
+      authenticated: Boolean(authResult?.authenticated),
+      authStatus: authResult?.authenticated ? 'authenticated' : (authResult?.authError ? 'failed' : (prevAuthSummary.mode === 'guest' ? 'guest' : 'public_fallback')),
+      postLoginUrl: authResult?.postLoginUrl || null,
+      dashboardViewsFound: authResult?.dashboardViewsFound || 0,
+      authError: authResult?.authError || null,
+      screenshotUrl: authScreenshotUrl || prevAuthSummary.screenshotUrl || null
+    };
+
+    const initialEvidenceShots = [...(currentData.evidence?.screenshots || [])];
+    if (authScreenshotUrl) {
+      initialEvidenceShots.unshift({
+        pageUrl: authResult?.postLoginUrl || site.startUrl,
+        viewport: '1280x720',
+        label: 'Post-Login Dashboard Landing (Auth Snapshot)',
+        fileId: null,
+        url: authScreenshotUrl
+      });
+    }
+
     await docRef.update({
       site,
+      authSummary: updatedAuthSummary,
       status: 'running',
+      'evidence.screenshots': initialEvidenceShots,
       'progress.phase': 2,
-      'progress.label': 'Phase 2: Inferring site purpose, journeys & marketing claims...',
+      'progress.label': 'Phase 2: Inferring site purpose, journeys & dashboard capabilities...',
       'progress.done': 2
     });
 
     // Run Phase 2 Purpose Inference via Gemini Pool
     const prompt = `You are a Principal Software QA & Product Architect.
-Analyze this website discovery crawl data to infer what the product/service is, what user journeys are essential, and what explicit claims it makes.
+Analyze this website discovery crawl data to infer what the product/service is, what user journeys are essential (both public and authenticated dashboard flows), and what explicit claims it makes.
 
 DISCOVERY DATA:
 URL: ${site.startUrl}
 Title: ${site.title}
+Authentication Result: ${JSON.stringify(authResult || { mode: 'guest' })}
 Homepage Headings: ${JSON.stringify(discoveryData.homepage?.headings || [])}
 Homepage CTAs: ${JSON.stringify(discoveryData.homepage?.ctas || [])}
 Forms: ${JSON.stringify(discoveryData.homepage?.forms || [])}
+Interactive SPA Dashboard Views/Tabs: ${JSON.stringify((discoveryData.spaTabs || []).slice(0, 15))}
 Text Snippet: ${(discoveryData.homepage?.textSample || '').slice(0, 3000)}
-Sample Discovered Internal Links: ${JSON.stringify((discoveryData.linksSample || []).slice(0, 30))}
+Sample Discovered Internal Links: ${JSON.stringify((discoveryData.linksSample || []).slice(0, 40))}
+
+INSTRUCTIONS FOR TARGET PAGES SELECTION:
+- If authenticated (${Boolean(authResult?.authenticated)}), ensure at least 70% of targetPages are post-login dashboard/protected routes (e.g., /dashboard, /analytics, /settings, /projects, /profile, /billing) or discovered SPA tabs.
+- Also include key public flows (e.g. homepage, pricing/features) for complete end-to-end verification.
+- Inventory both Public Claims and Authenticated Dashboard Capabilities/Modules in claimedFeatures and explicitClaims.
 
 Respond ONLY with a JSON object in this exact format:
 {
-  "summary": "1-2 sentence core purpose of the website",
+  "summary": "1-2 sentence core purpose of the website and dashboard",
   "primaryUserJourneys": ["Journey 1...", "Journey 2..."],
   "claimedFeatures": ["Feature 1...", "Feature 2..."],
   "explicitClaims": ["e.g. AI-powered...", "real-time updates...", "100% free..."],
@@ -259,12 +364,17 @@ Respond ONLY with a JSON object in this exact format:
     }
 
     // Ensure targetPages has startUrl and valid strings
-    const finalTargetPages = Array.isArray(purpose.targetPages) && purpose.targetPages.length > 0
+    let finalTargetPages = Array.isArray(purpose.targetPages) && purpose.targetPages.length > 0
       ? purpose.targetPages.filter(p => typeof p === 'string' && p.startsWith('http'))
       : [site.startUrl];
 
     if (!finalTargetPages.includes(site.startUrl)) {
       finalTargetPages.unshift(site.startUrl);
+    }
+
+    // If authenticated and postLoginUrl exists and isn't included, insert it right after startUrl
+    if (authResult?.postLoginUrl && !finalTargetPages.includes(authResult.postLoginUrl)) {
+      finalTargetPages.splice(1, 0, authResult.postLoginUrl);
     }
 
     await docRef.update({
@@ -277,7 +387,7 @@ Respond ONLY with a JSON object in this exact format:
     // Return targetPages and claims directly in HTTP response for Render worker to proceed
     return {
       ok: true,
-      targetPages: finalTargetPages.slice(0, 6),
+      targetPages: finalTargetPages.slice(0, 8),
       journeys: purpose.primaryUserJourneys || [],
       explicitClaims: purpose.explicitClaims || []
     };
@@ -456,6 +566,7 @@ Analyze and synthesize all triage findings, runtime logs, and browser evidence f
 Produce an in-depth, rigorous, highly explaining, and actionable audit report.
 
 SITE AUDITED: ${site.startUrl} ("${site.title}")
+AUTHENTICATION CONTEXT: ${JSON.stringify(testData.authSummary || { mode: 'guest' })}
 PURPOSE & JOURNEYS: ${JSON.stringify(purpose)}
 MARKETING CLAIMS TO VERIFY: ${JSON.stringify(purpose.explicitClaims || [])}
 TRIAGE FINDINGS: ${JSON.stringify(triageFindings.slice(0, 30))}
@@ -469,12 +580,14 @@ Instructions:
    - What the product is and who it serves.
    - Overall health rating (Stable, Degraded, Critical).
    - Core technical / UX bottlenecks observed during live browser interaction.
+   - If authenticated, include a dedicated evaluation of protected post-login dashboard modules, API authentication health (e.g. 401/403/500 errors), empty state bugs, broken sidebar navigation, and hardcoded vs dynamic dashboard data.
 2. Claim Verification Matrix:
    - For every marketing claim, assign a verdict ('VERIFIED', 'DISPROVEN', 'LIKELY', 'INCONCLUSIVE').
    - Provide an in-depth "reasoning" with tangible evidence (what network requests, DOM elements, or missing states proved or questioned this claim).
    - Provide a "businessImpact" (how this affects user conversion or brand credibility).
 3. Discovered Defects & Anomalies:
    - Group and deduplicate findings into: 'confirmed' (hard technical failures like 4xx/5xx, net::ERR, script crashes), 'likely' (probable bugs), 'ux' (friction points, missing breadcrumbs/nav), or 'capability-verification' (feature gaps).
+   - Flag specific post-login defects (e.g. broken dashboard API endpoints returning 401/403/500, empty state bugs, broken sidebar navigation, unresponsive dashboard widgets, fake/hardcoded metrics vs real API data).
    - For each finding, provide:
      * title: Clear and descriptive.
      * url: Exact route where it occurs.
@@ -579,6 +692,14 @@ Respond ONLY with a valid JSON object in this format:
 
     let reportPdfRecord = null;
     try {
+      const authSummary = testData.authSummary || {};
+      const authModeDisplay = {
+        guest: 'Guest (Public Crawl Only)',
+        credentials: 'Login Credentials (Multi-Step Form)',
+        session: 'Session Injection (Cookies / localStorage / Bearer Token)',
+        auto_signup: 'Autonomous Test Registration (Auto-Signup)'
+      }[authSummary.mode] || (authSummary.mode || 'Guest');
+
       const pdfSections = [
         {
           heading: '1. Executive Summary & Application Health',
@@ -587,17 +708,25 @@ Respond ONLY with a valid JSON object in this format:
             `Audit Title: ${site.title || 'Web Application'}\n` +
             `Health Status: ${synthesizedResult.healthStatus || 'Evaluated'}` +
             (synthesizedResult.healthScore ? ` (${synthesizedResult.healthScore}/100)` : '') + '\n' +
-            `Total Pages Explored: ${site.pageCount || 1}\n` +
+            `Total Pages / Views Explored: ${site.pageCount || 1}\n` +
             `Total Detected Findings: ${finalFindings.length}`
         },
         {
-          heading: '2. Product Purpose & Discovered User Journeys',
+          heading: '2. Authentication & Post-Login Dashboard Coverage',
+          body: `Authentication Mode: ${authModeDisplay}\n` +
+            `Login Verification Status: ${authSummary.authenticated ? 'Authenticated Successfully' : (authSummary.mode === 'guest' ? 'Guest Mode (Public Audit)' : `Auth Incomplete / Public Fallback${authSummary.authError ? ` (${authSummary.authError})` : ''}`)}\n` +
+            (authSummary.postLoginUrl ? `Post-Login Landing Route: ${authSummary.postLoginUrl}\n` : '') +
+            `Protected Dashboard Pages & SPA Tabs Audited: ${authSummary.dashboardViewsFound || 0}\n` +
+            `Destructive & Logout Guardrails: Active (Prevented unintended logout and state mutation)`
+        },
+        {
+          heading: '3. Product Purpose & Discovered User Journeys',
           body: `Inferred Core Purpose:\n${purpose.summary || 'Web Application'}\n\n` +
             `Key User Journeys Tested:\n${(purpose.primaryUserJourneys || []).map(j => `• ${j}`).join('\n')}\n\n` +
             `Identified Content/Page Types:\n${(purpose.contentTypes || []).map(c => `• ${c}`).join('\n')}`
         },
         {
-          heading: '3. Marketing Claims vs. Browser Reality Matrix',
+          heading: '4. Marketing Claims vs. Browser Reality Matrix',
           body: (synthesizedResult.claimMatrix && synthesizedResult.claimMatrix.length > 0)
             ? synthesizedResult.claimMatrix.map(m => {
                 return `[${m.verdict}] "${m.claim}"\n` +
@@ -607,7 +736,7 @@ Respond ONLY with a valid JSON object in this format:
             : 'No explicit marketing claims verified during this automated run.'
         },
         {
-          heading: '4. Deep Technical & UX Findings',
+          heading: '5. Deep Technical & UX Findings',
           body: finalFindings.length > 0
             ? finalFindings.map((f, i) => {
                 return `─────────────────────────────────────────────────────────────\n` +
@@ -624,9 +753,12 @@ Respond ONLY with a valid JSON object in this format:
             : 'No defects or anomalies detected during this automated test run.'
         },
         {
-          heading: '5. Methodology & Browser Test Protocol',
+          heading: '6. Methodology & Browser Test Protocol',
           body: `This audit was executed autonomously using headless Chromium via Playwright on a stateless worker.\n` +
             `• Viewports Tested: Desktop (1280x720) and Mobile Responsive (390x844).\n` +
+            `• Phase 0 Authentication: Pre-crawl credential login, cookie/localStorage session injection, or autonomous account creation.\n` +
+            `• SPA & Dashboard Discovery: Audited protected dashboard routes and interactive single-page app tabs.\n` +
+            `• Destructive Action Guardrails: Actively blacklisted logout, delete account, and payment submission triggers.\n` +
             `• Analyzed Signals: DOM horizontal scroll overflow, broken asset links, dead navigation targets, console errors, HTTP >=400 failures, and streaming sync anomalies.\n` +
             `• Screenshots were compressed to WebP (Quality 65) and permanently archived in Cloudinary.`
         }

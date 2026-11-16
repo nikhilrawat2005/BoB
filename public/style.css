@@ -5216,6 +5216,117 @@ body.collab-on .collab-state { color: #fff; background: var(--green); }
   border: 1px solid rgba(148, 163, 184, 0.3);
 }
 
+/* Authentication Card & Controls */
+.tester-auth-card {
+  background: var(--bg-card, #121217);
+  border: 1px solid var(--border, #262630);
+  border-radius: 8px;
+  overflow: hidden;
+  margin-top: 0.25rem;
+  transition: border-color 0.2s ease;
+}
+
+.tester-auth-card:focus-within, .tester-auth-card:hover {
+  border-color: rgba(99, 102, 241, 0.4);
+}
+
+.tester-auth-toggle {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.65rem 0.9rem;
+  background: transparent;
+  border: none;
+  color: var(--text, #e2e8f0);
+  font-size: 0.85rem;
+  cursor: pointer;
+  text-align: left;
+}
+
+.tester-auth-toggle:hover {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.tester-auth-toggle-left {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.tester-auth-icon {
+  font-size: 1rem;
+}
+
+.tester-auth-arrow {
+  font-size: 0.75rem;
+  color: var(--text-dim, #94a3b8);
+}
+
+.tester-auth-content {
+  padding: 0.85rem;
+  border-top: 1px solid var(--border, #262630);
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.tester-auth-tabs {
+  display: flex;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.75rem;
+}
+
+.tester-tab-btn {
+  background: var(--bg-input, #16161c);
+  border: 1px solid var(--border, #2e2e3a);
+  color: var(--text-dim, #9ca3af);
+  padding: 0.35rem 0.75rem;
+  border-radius: 6px;
+  font-size: 0.78rem;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.tester-tab-btn:hover {
+  color: #fff;
+  border-color: rgba(99, 102, 241, 0.5);
+}
+
+.tester-tab-btn.active {
+  background: rgba(99, 102, 241, 0.15);
+  color: #a5b4fc;
+  border-color: #6366f1;
+  font-weight: 600;
+}
+
+.tester-auth-hint {
+  font-size: 0.8rem;
+  color: var(--text-dim, #94a3b8);
+  margin-bottom: 0.65rem;
+  line-height: 1.4;
+}
+
+.tester-form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 0.6rem;
+}
+
+.tester-form-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.code-font {
+  font-family: monospace;
+  font-size: 0.78rem !important;
+}
+
+.req {
+  color: #f87171;
+}
+
 @keyframes spin {
   to { transform: rotate(360deg); }
 }

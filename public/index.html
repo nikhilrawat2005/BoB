@@ -875,6 +875,83 @@
               </button>
             </div>
 
+            <!-- Collapsible Authentication & Dashboard Access Selector -->
+            <div class="tester-auth-card">
+              <button type="button" id="tester-auth-toggle-btn" class="tester-auth-toggle">
+                <span class="tester-auth-toggle-left">
+                  <span class="tester-auth-icon">🔐</span>
+                  <strong>Post-Login & Dashboard Access (Optional)</strong>
+                  <span id="tester-auth-active-pill" class="tester-badge-pill grey">Guest (Public)</span>
+                </span>
+                <span id="tester-auth-toggle-arrow" class="tester-auth-arrow">▼</span>
+              </button>
+
+              <div id="tester-auth-collapse" class="tester-auth-content hidden">
+                <div class="tester-auth-tabs">
+                  <button type="button" class="tester-tab-btn active" data-auth-mode="guest">🌐 Guest (Public Only)</button>
+                  <button type="button" class="tester-tab-btn" data-auth-mode="credentials">🔑 Login Credentials</button>
+                  <button type="button" class="tester-tab-btn" data-auth-mode="session">🍪 Session / Token (OAuth/2FA)</button>
+                  <button type="button" class="tester-tab-btn" data-auth-mode="auto_signup">✨ Auto Test-Signup</button>
+                </div>
+
+                <!-- Pane 1: Guest -->
+                <div id="tester-pane-guest" class="tester-auth-pane active">
+                  <p class="tester-auth-hint">Explores public routes, landing pages, marketing claims, and public navigation only.</p>
+                </div>
+
+                <!-- Pane 2: Credentials -->
+                <div id="tester-pane-credentials" class="tester-auth-pane hidden">
+                  <p class="tester-auth-hint">Bob executes automated login in Chromium and explores your post-login dashboard routes & SPA sidebar tabs. <strong class="text-accent">Secrets remain in-memory for this job only and are never saved to database.</strong></p>
+                  <div class="tester-form-grid">
+                    <div class="form-group">
+                      <label>Login URL (Optional - auto-detected if empty)</label>
+                      <input type="url" id="tester-cred-login-url" placeholder="https://example.com/login" class="form-control" />
+                    </div>
+                    <div class="form-group">
+                      <label>Email / Username <span class="req">*</span></label>
+                      <input type="text" id="tester-cred-identifier" placeholder="admin@example.com" class="form-control" />
+                    </div>
+                    <div class="form-group">
+                      <label>Password <span class="req">*</span></label>
+                      <input type="password" id="tester-cred-password" placeholder="••••••••" class="form-control" />
+                    </div>
+                    <div class="form-group">
+                      <label>OTP / 2FA PIN (Optional - for test accounts)</label>
+                      <input type="text" id="tester-cred-otp" placeholder="123456" class="form-control" />
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Pane 3: Session Injection -->
+                <div id="tester-pane-session" class="tester-auth-pane hidden">
+                  <p class="tester-auth-hint">Bypass Google OAuth, Clerk, Firebase, Supabase, or 2FA gates by injecting active browser session cookies or JWT storage directly into Chromium.</p>
+                  <div class="tester-form-stack">
+                    <div class="form-group">
+                      <label>Cookies (JSON array or raw "key1=val1; key2=val2" string)</label>
+                      <textarea id="tester-session-cookies" rows="2" placeholder='session_id=xyz123; token=eyJhbGciOi... or [{"name":"session","value":"xyz"}]' class="form-control code-font"></textarea>
+                    </div>
+                    <div class="form-group">
+                      <label>localStorage JSON (Optional - for JWT / Supabase / Firebase clients)</label>
+                      <textarea id="tester-session-localstorage" rows="2" placeholder='{"sb-auth-token": "..."}' class="form-control code-font"></textarea>
+                    </div>
+                    <div class="form-group">
+                      <label>Bearer Token (Optional - attaches Authorization header to same-origin requests)</label>
+                      <input type="text" id="tester-session-bearer" placeholder="eyJhbGciOi..." class="form-control code-font" />
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Pane 4: Auto-Signup -->
+                <div id="tester-pane-auto_signup" class="tester-auth-pane hidden">
+                  <p class="tester-auth-hint">Bob creates a disposable test user account on the target site and audits the post-registration onboarding flow and user dashboard.</p>
+                  <div class="form-group">
+                    <label>Sign Up / Registration URL (Optional - auto-detected if empty)</label>
+                    <input type="url" id="tester-signup-url" placeholder="https://example.com/signup" class="form-control" />
+                  </div>
+                </div>
+              </div>
+            </div>
+
             <!-- Cold Start Notice Banner -->
             <div id="tester-cold-notice" class="tester-cold-notice hidden">
               <div class="tester-cold-spinner"></div>

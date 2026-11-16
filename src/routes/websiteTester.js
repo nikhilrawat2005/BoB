@@ -45,13 +45,13 @@ router.post('/webhook', async (req, res) => {
 // POST /api/website-tester - Starts a new autonomous website test
 router.post('/', requireAuth, async (req, res) => {
   try {
-    const { url } = req.body || {};
+    const { url, authConfig } = req.body || {};
     if (!url) {
       return res.status(400).json({ error: 'Field "url" is required' });
     }
 
     const baseUrl = getRequestBaseUrl(req);
-    const testRecord = await testerService.startWebsiteTest(req.userId, url, baseUrl);
+    const testRecord = await testerService.startWebsiteTest(req.userId, url, baseUrl, authConfig);
     res.status(202).json(testRecord);
   } catch (err) {
     res.status(400).json({ error: err.message });
@@ -115,7 +115,8 @@ router.post('/:id/rerun', requireAuth, async (req, res) => {
     if (!existing || !existing.url) {
       return res.status(404).json({ error: 'Original test not found' });
     }
-    const newTest = await testerService.startWebsiteTest(req.userId, existing.url, baseUrl);
+    const { authConfig } = req.body || {};
+    const newTest = await testerService.startWebsiteTest(req.userId, existing.url, baseUrl, authConfig);
     res.status(202).json(newTest);
   } catch (err) {
     res.status(500).json({ error: err.message });

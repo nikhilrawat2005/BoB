@@ -8215,6 +8215,7 @@ let testerPollTimer = null;
 let currentTesterTestId = null;
 let testerFindingsCache = [];
 let testerActiveFilter = 'all';
+let testerSelectedAuthMode = 'guest';
 
 function initWebsiteTesterWorkspace() {
   const runBtn = document.getElementById('tester-run-btn');
@@ -8223,6 +8224,50 @@ function initWebsiteTesterWorkspace() {
   const rerunBtn = document.getElementById('tester-rerun-btn');
   const deleteBtn = document.getElementById('tester-delete-btn');
   const filterPills = document.querySelectorAll('#tester-findings-filters .pill');
+  const authToggleBtn = document.getElementById('tester-auth-toggle-btn');
+  const authCollapse = document.getElementById('tester-auth-collapse');
+  const authArrow = document.getElementById('tester-auth-toggle-arrow');
+  const authPill = document.getElementById('tester-auth-active-pill');
+  const authTabBtns = document.querySelectorAll('.tester-auth-tabs .tester-tab-btn');
+
+  // Auth collapsible toggle
+  if (authToggleBtn && !authToggleBtn.dataset.bound) {
+    authToggleBtn.dataset.bound = 'true';
+    authToggleBtn.addEventListener('click', () => {
+      if (authCollapse) {
+        const isHidden = authCollapse.classList.toggle('hidden');
+        if (authArrow) authArrow.textContent = isHidden ? '▼' : '▲';
+      }
+    });
+  }
+
+  // Auth tabs switching
+  authTabBtns.forEach(btn => {
+    if (!btn.dataset.bound) {
+      btn.dataset.bound = 'true';
+      btn.addEventListener('click', () => {
+        authTabBtns.forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        const mode = btn.dataset.authMode || 'guest';
+        testerSelectedAuthMode = mode;
+
+        document.querySelectorAll('.tester-auth-pane').forEach(p => p.classList.add('hidden'));
+        const activePane = document.getElementById(`tester-pane-${mode}`);
+        if (activePane) activePane.classList.remove('hidden');
+
+        if (authPill) {
+          const pillLabels = {
+            guest: 'Guest (Public)',
+            credentials: 'Credentials',
+            session: 'Session / Token',
+            auto_signup: 'Auto-Signup'
+          };
+          authPill.textContent = pillLabels[mode] || mode;
+          authPill.className = `tester-badge-pill ${mode === 'guest' ? 'grey' : 'amber'}`;
+        }
+      });
+    }
+  });
 
   if (runBtn && !runBtn.dataset.bound) {
     runBtn.dataset.bound = 'true';
@@ -8270,6 +8315,41 @@ function initWebsiteTesterWorkspace() {
   loadWebsiteTestsList();
 }
 
+function getTesterAuthConfig() {
+  const mode = testerSelectedAuthMode || 'guest';
+  if (mode === 'guest') return { mode: 'guest' };
+
+  if (mode === 'credentials') {
+    const loginUrl = (document.getElementById('tester-cred-login-url')?.value || '').trim();
+    const identifier = (document.getElementById('tester-cred-identifier')?.value || '').trim();
+    const password = (document.getElementById('tester-cred-password')?.value || '').trim();
+    const otpOrPin = (document.getElementById('tester-cred-otp')?.value || '').trim();
+
+    if (!identifier || !password) {
+      throw new Error('Please enter both Email/Username and Password for credential login.');
+    }
+    return { mode: 'credentials', loginUrl, identifier, password, otpOrPin };
+  }
+
+  if (mode === 'session') {
+    const cookiesInput = (document.getElementById('tester-session-cookies')?.value || '').trim();
+    const localStorageInput = (document.getElementById('tester-session-localstorage')?.value || '').trim();
+    const bearerToken = (document.getElementById('tester-session-bearer')?.value || '').trim();
+
+    if (!cookiesInput && !localStorageInput && !bearerToken) {
+      throw new Error('Please provide at least one session token, cookie, or localStorage entry.');
+    }
+    return { mode: 'session', cookiesInput, localStorageInput, bearerToken };
+  }
+
+  if (mode === 'auto_signup') {
+    const signupUrl = (document.getElementById('tester-signup-url')?.value || '').trim();
+    return { mode: 'auto_signup', signupUrl };
+  }
+
+  return { mode: 'guest' };
+}
+
 async function handleStartWebsiteTest() {
   const urlInput = document.getElementById('tester-url-input');
   const runBtn = document.getElementById('tester-run-btn');
@@ -8277,6 +8357,14 @@ async function handleStartWebsiteTest() {
 
   if (!rawUrl) {
     alert('Please enter a target website URL to test.');
+    return;
+  }
+
+  let authConfig = null;
+  try {
+    authConfig = getTesterAuthConfig();
+  } catch (authErr) {
+    alert(authErr.message);
     return;
   }
 
@@ -8288,7 +8376,7 @@ async function handleStartWebsiteTest() {
 
     const res = await apiFetch('/api/website-tester', {
       method: 'POST',
-      body: JSON.stringify({ url: rawUrl })
+      body: JSON.stringify({ url: rawUrl, authConfig })
     });
 
     if (res && res.testId) {
@@ -8446,9 +8534,19 @@ function renderWebsiteTestDetail(test) {
   const metaEl = document.getElementById('tester-detail-meta');
   const pdfBtn = document.getElementById('tester-download-pdf-btn');
 
+  const authSum = test.authSummary || {};
+  let authPillHtml = '';
+  if (authSum.authenticated) {
+    authPillHtml = `<span class="tester-badge-pill green" title="Post-login dashboard explored">🔐 Authenticated Dashboard Audit (${escHtml(authSum.dashboardViewsFound || 0)} views)</span>`;
+  } else if (authSum.mode && authSum.mode !== 'guest') {
+    authPillHtml = `<span class="tester-badge-pill amber" title="${escHtml(authSum.authError || 'Could not authenticate')}">⚠️ Auth Incomplete — Fell Back to Public Crawl</span>`;
+  } else {
+    authPillHtml = `<span class="tester-badge-pill grey">🔓 Public Audit</span>`;
+  }
+
   if (titleEl) titleEl.textContent = test.site?.title || test.url;
   if (metaEl) {
-    metaEl.innerHTML = `<span>🌐 <a href="${escHtml(test.url)}" target="_blank">${escHtml(test.url)}</a></span> • <span>Started: ${fmtDate(test.startedAt)}</span> • <span>Status: <strong>${escHtml(test.status)}</strong></span>`;
+    metaEl.innerHTML = `<span>🌐 <a href="${escHtml(test.url)}" target="_blank">${escHtml(test.url)}</a></span> • <span>Started: ${fmtDate(test.startedAt)}</span> • <span>Status: <strong>${escHtml(test.status)}</strong></span> • ${authPillHtml}`;
   }
 
   if (pdfBtn) {

@@ -121,13 +121,521 @@ const CHROMIUM_ARGS = [
   '--js-flags=--max-old-space-size=192'
 ];
 
-// Main Playwright execution pipeline (Phases 1 & 3 on Render)
-async function executePlaywrightPipeline({ testId, userId, url, callbackUrl }) {
+// Destructive and logout action guardrail blacklist regex
+const DESTRUCTIVE_ACTION_REGEX = /\b(log\s*out|sign\s*out|signout|logout|delete\s*(account|profile|workspace|project|organization|team|data|all)|remove\s*account|close\s*account|deactivate|cancel\s*subscription|unsubscribe|revoke\s*token|reset\s*password|change\s*password|pay\s*now|complete\s*purchase|place\s*order|confirm\s*payment|transfer\s*funds|wipe|destroy)\b/i;
+
+/**
+ * Checks whether an element descriptor or URL is destructive or a logout trigger
+ */
+function isDestructiveOrLogout(text = '', href = '', attributes = {}) {
+  const combinedText = [
+    text,
+    href,
+    attributes.ariaLabel || '',
+    attributes.title || '',
+    attributes.id || '',
+    attributes.name || '',
+    attributes.className || ''
+  ].join(' ');
+
+  if (DESTRUCTIVE_ACTION_REGEX.test(combinedText)) return true;
+  if (href && /\/(log\s*out|sign\s*out|signout|logout|delete-account|remove-account)/i.test(href)) return true;
+  return false;
+}
+
+/**
+ * Normalizes cookie input (JSON array or raw Cookie header string 'k1=v1; k2=v2')
+ */
+function normalizeCookies(cookiesInput, targetUrl) {
+  if (!cookiesInput) return [];
+  const parsedTarget = new URL(targetUrl);
+  const targetDomain = parsedTarget.hostname;
+
+  if (Array.isArray(cookiesInput)) {
+    return cookiesInput.map(c => ({
+      name: c.name || c.key,
+      value: String(c.value),
+      domain: c.domain || targetDomain,
+      path: c.path || '/',
+      httpOnly: Boolean(c.httpOnly),
+      secure: typeof c.secure === 'boolean' ? c.secure : parsedTarget.protocol === 'https:',
+      sameSite: c.sameSite || 'Lax'
+    })).filter(c => c.name && c.value !== undefined);
+  }
+
+  if (typeof cookiesInput === 'string') {
+    const trimmed = cookiesInput.trim();
+    if (trimmed.startsWith('[') || trimmed.startsWith('{')) {
+      try {
+        const parsed = JSON.parse(trimmed);
+        if (Array.isArray(parsed)) return normalizeCookies(parsed, targetUrl);
+        if (typeof parsed === 'object' && parsed !== null) {
+          return Object.entries(parsed).map(([k, v]) => ({
+            name: k,
+            value: String(v),
+            domain: targetDomain,
+            path: '/',
+            secure: parsedTarget.protocol === 'https:'
+          }));
+        }
+      } catch {}
+    }
+
+    // Cookie header string: "key1=val1; key2=val2"
+    return trimmed.split(';')
+      .map(pair => pair.trim())
+      .filter(Boolean)
+      .map(pair => {
+        const eqIdx = pair.indexOf('=');
+        if (eqIdx === -1) return null;
+        return {
+          name: pair.slice(0, eqIdx).trim(),
+          value: pair.slice(eqIdx + 1).trim(),
+          domain: targetDomain,
+          path: '/',
+          secure: parsedTarget.protocol === 'https:'
+        };
+      })
+      .filter(Boolean);
+  }
+
+  return [];
+}
+
+/**
+ * Phase 0: Pre-Crawl Authentication Engine
+ * Supports: 'session', 'credentials', 'auto_signup'
+ */
+async function performAuthentication(context, page, startUrl, authConfig) {
+  const result = {
+    mode: authConfig?.mode || 'guest',
+    authenticated: false,
+    postLoginUrl: null,
+    dashboardViewsFound: 0,
+    authError: null,
+    authScreenshotBase64: null,
+    savedCookies: [],
+    savedLocalStorage: {}
+  };
+
+  if (!authConfig || authConfig.mode === 'guest') {
+    return result;
+  }
+
+  console.log(`[testerWorker] Executing Phase 0 Auth Handshake in mode: "${authConfig.mode}"...`);
+
+  try {
+    // ─────────────────────────────────────────────────────────────
+    // MODE 1: SESSION INJECTION (Cookies / localStorage / Bearer)
+    // ─────────────────────────────────────────────────────────────
+    if (authConfig.mode === 'session') {
+      const normalizedCookies = normalizeCookies(authConfig.cookiesInput, startUrl);
+      if (normalizedCookies.length > 0) {
+        try {
+          await context.addCookies(normalizedCookies);
+          console.log(`[testerWorker] Injected ${normalizedCookies.length} session cookies.`);
+        } catch (cErr) {
+          console.warn('[testerWorker] Cookie injection warning:', cErr.message);
+        }
+      }
+
+      // localStorage injection
+      if (authConfig.localStorageInput) {
+        let storageEntries = {};
+        if (typeof authConfig.localStorageInput === 'object') {
+          storageEntries = authConfig.localStorageInput;
+        } else if (typeof authConfig.localStorageInput === 'string') {
+          try {
+            storageEntries = JSON.parse(authConfig.localStorageInput);
+          } catch {}
+        }
+
+        if (Object.keys(storageEntries).length > 0) {
+          await context.addInitScript((entries) => {
+            try {
+              for (const [k, v] of Object.entries(entries)) {
+                window.localStorage.setItem(k, typeof v === 'string' ? v : JSON.stringify(v));
+              }
+            } catch (_) {}
+          }, storageEntries);
+          console.log(`[testerWorker] Registered localStorage init script with ${Object.keys(storageEntries).length} entries.`);
+        }
+      }
+
+      // Bearer token injection
+      if (authConfig.bearerToken) {
+        const token = authConfig.bearerToken.replace(/^Bearer\s+/i, '').trim();
+        const origin = new URL(startUrl).origin;
+        await context.route('**/*', (route) => {
+          const req = route.request();
+          if (req.url().startsWith(origin)) {
+            const headers = { ...req.headers() };
+            if (!headers['authorization']) {
+              headers['authorization'] = `Bearer ${token}`;
+            }
+            return route.continue({ headers });
+          }
+          route.continue();
+        });
+        console.log('[testerWorker] Attached Bearer token route interceptor.');
+      }
+
+      // Navigate to target start URL
+      await page.goto(startUrl, { waitUntil: 'domcontentloaded', timeout: 20000 });
+      await page.waitForTimeout(2000); // Allow SPA hydration
+
+      const currentUrl = page.url();
+      result.postLoginUrl = currentUrl;
+
+      // Check authenticated indicators
+      const authIndicators = await page.evaluate(() => {
+        const hasAuthText = Boolean(document.body.innerText.match(/dashboard|projects|settings|profile|sign\s*out|log\s*out/i));
+        const hasSidebarOrAvatar = Boolean(document.querySelector('aside, nav[class*="sidebar" i], [class*="dashboard" i], img[class*="avatar" i], [aria-label*="profile" i]'));
+        return { hasAuthText, hasSidebarOrAvatar };
+      }).catch(() => ({ hasAuthText: false, hasSidebarOrAvatar: false }));
+
+      result.authenticated = authIndicators.hasSidebarOrAvatar || authIndicators.hasAuthText;
+
+      const landingPng = await page.screenshot({ fullPage: false, type: 'png' }).catch(() => null);
+      result.authScreenshotBase64 = await compressScreenshotWebp(landingPng);
+      console.log(`[testerWorker] Session injection complete. Authenticated: ${result.authenticated}`);
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // MODE 2: SMART MULTI-STEP CREDENTIAL LOGIN
+    // ─────────────────────────────────────────────────────────────
+    else if (authConfig.mode === 'credentials') {
+      const loginUrl = authConfig.loginUrl || startUrl;
+      console.log(`[testerWorker] Navigating to login URL: ${loginUrl}`);
+      await page.goto(loginUrl, { waitUntil: 'domcontentloaded', timeout: 20000 });
+      await page.waitForTimeout(1500);
+
+      // If on startUrl and no visible login inputs, try finding and clicking Login / Sign In link
+      const hasVisibleLoginInput = await page.evaluate(() => {
+        return Boolean(document.querySelector('input[type="password"], input[type="email"], input[name*="user" i]'));
+      }).catch(() => false);
+
+      if (!hasVisibleLoginInput) {
+        const clickedLogin = await page.evaluate(() => {
+          const links = Array.from(document.querySelectorAll('a, button'));
+          const loginBtn = links.find(l => {
+            const txt = (l.innerText || l.textContent || '').trim();
+            const href = l.getAttribute('href') || '';
+            return /^(log\s*in|sign\s*in|portal)$/i.test(txt) || /\/(login|signin)/i.test(href);
+          });
+          if (loginBtn) {
+            loginBtn.click();
+            return true;
+          }
+          return false;
+        }).catch(() => false);
+
+        if (clickedLogin) {
+          console.log('[testerWorker] Clicked login navigation trigger on landing page.');
+          await page.waitForTimeout(2500);
+        }
+      }
+
+      // Step 1: Identifier / Username / Email
+      const identifierFilled = await page.evaluate((identifierVal) => {
+        const selectors = [
+          'input[type="email"]',
+          'input[name*="email" i]',
+          'input[name*="user" i]',
+          'input[name*="login" i]',
+          'input[id*="email" i]',
+          'input[autocomplete="username"]',
+          'input[type="text"]'
+        ];
+        for (const sel of selectors) {
+          const el = document.querySelector(sel);
+          if (el && (el.offsetParent !== null || window.getComputedStyle(el).display !== 'none')) {
+            el.focus();
+            el.value = identifierVal;
+            el.dispatchEvent(new Event('input', { bubbles: true }));
+            el.dispatchEvent(new Event('change', { bubbles: true }));
+            return true;
+          }
+        }
+        return false;
+      }, authConfig.identifier || '');
+
+      if (!identifierFilled) {
+        throw new Error('Unable to locate visible email or username input field.');
+      }
+      console.log('[testerWorker] Filled identifier field.');
+      await page.waitForTimeout(600);
+
+      // Step 2: Check for Password field (Single-step vs Two-step flow)
+      let hasPasswordInput = await page.evaluate(() => {
+        const pw = document.querySelector('input[type="password"]');
+        return Boolean(pw && (pw.offsetParent !== null || window.getComputedStyle(pw).display !== 'none'));
+      }).catch(() => false);
+
+      if (!hasPasswordInput) {
+        console.log('[testerWorker] Password field not visible; attempting two-step Next/Continue click...');
+        await page.evaluate(() => {
+          const buttons = Array.from(document.querySelectorAll('button, input[type="submit"], a.btn'));
+          const nextBtn = buttons.find(b => {
+            const txt = (b.innerText || b.value || '').trim();
+            return /^(next|continue|submit|proceed)$/i.test(txt);
+          });
+          if (nextBtn) nextBtn.click();
+        }).catch(() => {});
+
+        // Wait up to 4000ms for password input to appear
+        await page.waitForSelector('input[type="password"]', { timeout: 4000 }).catch(() => {});
+      }
+
+      // Fill Password
+      const passwordFilled = await page.evaluate((pwVal) => {
+        const pw = document.querySelector('input[type="password"]');
+        if (pw) {
+          pw.focus();
+          pw.value = pwVal;
+          pw.dispatchEvent(new Event('input', { bubbles: true }));
+          pw.dispatchEvent(new Event('change', { bubbles: true }));
+          return true;
+        }
+        return false;
+      }, authConfig.password || '');
+
+      if (!passwordFilled) {
+        throw new Error('Unable to locate password input field.');
+      }
+      console.log('[testerWorker] Filled password field.');
+      await page.waitForTimeout(600);
+
+      // Step 3: Submit Login Form
+      const submitted = await page.evaluate(() => {
+        const submitBtn = document.querySelector('button[type="submit"], input[type="submit"]');
+        if (submitBtn) {
+          submitBtn.click();
+          return true;
+        }
+        const buttons = Array.from(document.querySelectorAll('button'));
+        const loginBtn = buttons.find(b => /log\s*in|sign\s*in|continue|submit|enter/i.test(b.innerText || ''));
+        if (loginBtn) {
+          loginBtn.click();
+          return true;
+        }
+        return false;
+      }).catch(() => false);
+
+      if (!submitted) {
+        await page.keyboard.press('Enter');
+      }
+
+      // Wait up to 8s for navigation / settlement
+      await Promise.race([
+        page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 8000 }).catch(() => {}),
+        page.waitForTimeout(4500)
+      ]);
+
+      // Step 3b: Handle OTP/PIN if provided
+      if (authConfig.otpOrPin) {
+        const otpFilled = await page.evaluate((otpVal) => {
+          const otpInput = document.querySelector('input[name*="otp" i], input[name*="code" i], input[autocomplete="one-time-code"], input[placeholder*="code" i], input[placeholder*="otp" i]');
+          if (otpInput) {
+            otpInput.focus();
+            otpInput.value = otpVal;
+            otpInput.dispatchEvent(new Event('input', { bubbles: true }));
+            otpInput.dispatchEvent(new Event('change', { bubbles: true }));
+            return true;
+          }
+          return false;
+        }, authConfig.otpOrPin).catch(() => false);
+
+        if (otpFilled) {
+          console.log('[testerWorker] Filled OTP / PIN input.');
+          await page.keyboard.press('Enter');
+          await page.waitForTimeout(3000);
+        }
+      }
+
+      // Step 4: Verify Login & Snapshot
+      const postUrl = page.url();
+      result.postLoginUrl = postUrl;
+
+      const isStillOnLogin = /\/(login|signin)/i.test(postUrl);
+      const postCheck = await page.evaluate(() => {
+        const text = document.body ? document.body.innerText : '';
+        const hasAuthIndicators = Boolean(text.match(/dashboard|logout|sign\s*out|my\s*account|settings/i));
+        const hasSidebarOrAvatar = Boolean(document.querySelector('aside, nav[class*="sidebar" i], [class*="dashboard" i], img[class*="avatar" i], [aria-label*="profile" i]'));
+        return { hasAuthIndicators, hasSidebarOrAvatar };
+      }).catch(() => ({ hasAuthIndicators: false, hasSidebarOrAvatar: false }));
+
+      result.authenticated = !isStillOnLogin && (postCheck.hasAuthIndicators || postCheck.hasSidebarOrAvatar);
+
+      const landingPng = await page.screenshot({ fullPage: false, type: 'png' }).catch(() => null);
+      result.authScreenshotBase64 = await compressScreenshotWebp(landingPng);
+      console.log(`[testerWorker] Credential login completed. Authenticated: ${result.authenticated} - Current URL: ${postUrl}`);
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // MODE 3: AUTONOMOUS TEST REGISTRATION (Auto-Signup)
+    // ─────────────────────────────────────────────────────────────
+    else if (authConfig.mode === 'auto_signup') {
+      const signupUrl = authConfig.signupUrl || startUrl;
+      console.log(`[testerWorker] Navigating to signup URL: ${signupUrl}`);
+      await page.goto(signupUrl, { waitUntil: 'domcontentloaded', timeout: 20000 });
+      await page.waitForTimeout(1500);
+
+      // Check if registration inputs are visible, otherwise locate Sign Up link
+      const hasSignupInput = await page.evaluate(() => {
+        return Boolean(document.querySelector('input[type="password"], input[type="email"]'));
+      }).catch(() => false);
+
+      if (!hasSignupInput) {
+        await page.evaluate(() => {
+          const links = Array.from(document.querySelectorAll('a, button'));
+          const regBtn = links.find(l => {
+            const txt = (l.innerText || l.textContent || '').trim();
+            const href = l.getAttribute('href') || '';
+            return /^(sign\s*up|register|create\s*account|get\s*started)$/i.test(txt) || /\/(signup|register)/i.test(href);
+          });
+          if (regBtn) regBtn.click();
+        }).catch(() => {});
+        await page.waitForTimeout(2500);
+      }
+
+      // Deterministic test credentials
+      const testEmail = `bob.audit.${Date.now()}@testmail.app`;
+      const testPassword = `BobAudit#${new Date().getFullYear()}!`;
+      const testName = 'Bob QA Tester';
+
+      await page.evaluate(({ name, email, password }) => {
+        const nameInput = document.querySelector('input[name*="name" i], input[id*="name" i], input[placeholder*="name" i]');
+        if (nameInput) {
+          nameInput.focus();
+          nameInput.value = name;
+          nameInput.dispatchEvent(new Event('input', { bubbles: true }));
+        }
+
+        const emailInput = document.querySelector('input[type="email"], input[name*="email" i], input[id*="email" i]');
+        if (emailInput) {
+          emailInput.focus();
+          emailInput.value = email;
+          emailInput.dispatchEvent(new Event('input', { bubbles: true }));
+        }
+
+        const pwInputs = Array.from(document.querySelectorAll('input[type="password"]'));
+        pwInputs.forEach((p) => {
+          p.focus();
+          p.value = password;
+          p.dispatchEvent(new Event('input', { bubbles: true }));
+        });
+
+        // Accept checkboxes if any (e.g. Terms)
+        const checkboxes = Array.from(document.querySelectorAll('input[type="checkbox"]'));
+        checkboxes.forEach(c => { if (!c.checked) c.click(); });
+      }, { name: testName, email: testEmail, password: testPassword }).catch(() => {});
+
+      await page.waitForTimeout(500);
+
+      // Submit Registration
+      await page.evaluate(() => {
+        const submitBtn = document.querySelector('button[type="submit"], input[type="submit"]');
+        if (submitBtn) {
+          submitBtn.click();
+          return;
+        }
+        const buttons = Array.from(document.querySelectorAll('button'));
+        const regBtn = buttons.find(b => /sign\s*up|register|create|get\s*started/i.test(b.innerText || ''));
+        if (regBtn) regBtn.click();
+      }).catch(() => {});
+
+      await Promise.race([
+        page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 8000 }).catch(() => {}),
+        page.waitForTimeout(4500)
+      ]);
+
+      const postUrl = page.url();
+      result.postLoginUrl = postUrl;
+      result.authenticated = !/\/(signup|register)/i.test(postUrl);
+
+      const landingPng = await page.screenshot({ fullPage: false, type: 'png' }).catch(() => null);
+      result.authScreenshotBase64 = await compressScreenshotWebp(landingPng);
+      console.log(`[testerWorker] Auto-signup complete. Authenticated: ${result.authenticated} - URL: ${postUrl}`);
+    }
+
+    // Capture Reusable savedAuthSnapshot for Session Persistence Recovery
+    if (result.authenticated) {
+      result.savedCookies = await context.cookies().catch(() => []);
+      result.savedLocalStorage = await page.evaluate(() => {
+        try {
+          return { ...window.localStorage };
+        } catch (_) {
+          return {};
+        }
+      }).catch(() => ({}));
+      console.log(`[testerWorker] Captured session recovery snapshot (${result.savedCookies.length} cookies, ${Object.keys(result.savedLocalStorage).length} localStorage keys).`);
+    }
+
+  } catch (err) {
+    console.warn('[testerWorker] Phase 0 Authentication failed, falling back to public crawl:', err.message);
+    result.authError = err.message;
+    result.authenticated = false;
+    result.postLoginUrl = page.url();
+  }
+
+  return result;
+}
+
+/**
+ * Discovers interactive SPA Dashboard Views & Sidebar Tabs that change views without <a href>
+ */
+async function discoverSpaInteractiveViews(page) {
+  return await page.evaluate(() => {
+    const DESTRUCTIVE_REGEX = /\b(log\s*out|sign\s*out|signout|logout|delete\s*(account|profile|workspace|project|organization|team|data|all)|remove\s*account|close\s*account|deactivate|cancel\s*subscription|unsubscribe|revoke\s*token|reset\s*password|change\s*password|pay\s*now|complete\s*purchase|place\s*order|confirm\s*payment|transfer\s*funds|wipe|destroy)\b/i;
+    const views = [];
+
+    const candidates = Array.from(document.querySelectorAll(
+      'aside button, aside [role="tab"], aside [role="menuitem"], nav[class*="sidebar" i] button, [class*="sidebar" i] button, [class*="dashboard" i] [role="tab"], [role="tablist"] [role="tab"]'
+    ));
+
+    for (let i = 0; i < candidates.length && views.length < 8; i++) {
+      const el = candidates[i];
+      const text = (el.innerText || el.textContent || '').trim().slice(0, 60);
+      const ariaLabel = el.getAttribute('aria-label') || '';
+      const title = el.getAttribute('title') || '';
+      const checkString = `${text} ${ariaLabel} ${title} ${el.className || ''}`;
+
+      if (!text && !ariaLabel) continue;
+      if (DESTRUCTIVE_REGEX.test(checkString)) continue;
+
+      // Build unique selector
+      let selector = '';
+      if (el.id) {
+        selector = `#${el.id}`;
+      } else if (el.getAttribute('role') === 'tab' && ariaLabel) {
+        selector = `[role="tab"][aria-label="${ariaLabel}"]`;
+      } else if (el.getAttribute('data-tab')) {
+        selector = `[data-tab="${el.getAttribute('data-tab')}"]`;
+      } else {
+        const idx = Array.from(el.parentElement ? el.parentElement.children : []).indexOf(el) + 1;
+        selector = `${el.tagName.toLowerCase()}:nth-child(${idx})`;
+      }
+
+      views.push({
+        spaTabSelector: selector,
+        spaTabLabel: text || ariaLabel,
+        title: `Dashboard Tab: ${text || ariaLabel}`,
+        isDashboardView: true
+      });
+    }
+
+    return views;
+  }).catch(() => []);
+}
+
+// Main Playwright execution pipeline (Phases 0, 1 & 3 on Render)
+async function executePlaywrightPipeline({ testId, userId, url, callbackUrl, authConfig }) {
   let browser = null;
   const startTime = Date.now();
 
   try {
-    console.log(`[testerWorker] Starting execution for test ${testId} - URL: ${url}`);
+    console.log(`[testerWorker] Starting execution for test ${testId} - URL: ${url} (Auth Mode: ${authConfig?.mode || 'guest'})`);
     browser = await chromium.launch({
       headless: true,
       args: CHROMIUM_ARGS
@@ -142,12 +650,47 @@ async function executePlaywrightPipeline({ testId, userId, url, callbackUrl }) {
     const parsedOrigin = new URL(url).origin;
 
     // ─────────────────────────────────────────────────────────────
-    // PHASE 1: DISCOVERY CRAWL (BFS internal link graph + homepage audit)
+    // PHASE 0: AUTHENTICATION HANDSHAKE & SESSION PERSISTENCE
+    // ─────────────────────────────────────────────────────────────
+    const authResult = await performAuthentication(context, page, url, authConfig);
+    const postLoginUrl = authResult.authenticated && authResult.postLoginUrl ? authResult.postLoginUrl : url;
+
+    // Helper: restore session persistence snapshot if page drops or redirects to login
+    const ensureSessionActive = async (targetDestUrl) => {
+      if (!authResult.authenticated) return;
+      const current = page.url();
+      if (/\/(login|signin)/i.test(current)) {
+        console.warn(`[testerWorker] Detected unexpected session drop to login (${current}). Restoring saved session snapshot...`);
+        try {
+          if (authResult.savedCookies && authResult.savedCookies.length > 0) {
+            await context.addCookies(authResult.savedCookies);
+          }
+          if (authResult.savedLocalStorage && Object.keys(authResult.savedLocalStorage).length > 0) {
+            await page.evaluate((entries) => {
+              try {
+                for (const [k, v] of Object.entries(entries)) {
+                  window.localStorage.setItem(k, typeof v === 'string' ? v : JSON.stringify(v));
+                }
+              } catch (_) {}
+            }, authResult.savedLocalStorage);
+          }
+          await page.goto(targetDestUrl || postLoginUrl, { waitUntil: 'domcontentloaded', timeout: 15000 });
+          await page.waitForTimeout(1000);
+        } catch (resErr) {
+          console.warn('[testerWorker] Session recovery attempt notice:', resErr.message);
+        }
+      }
+    };
+
+    // ─────────────────────────────────────────────────────────────
+    // PHASE 1: DISCOVERY CRAWL (BFS Graph + SPA Sidebar Discovery)
     // ─────────────────────────────────────────────────────────────
     const discoveryStartTime = Date.now();
     const visitedUrls = new Set();
     const discoveredLinks = [];
-    const linkQueue = [url];
+    const linkQueue = [postLoginUrl];
+    if (url !== postLoginUrl) linkQueue.push(url);
+
     const SAFETY_CAP = 10000;
     const DISCOVERY_TIMEOUT_MS = 25000;
 
@@ -157,9 +700,11 @@ async function executePlaywrightPipeline({ testId, userId, url, callbackUrl }) {
     let ctas = [];
     let formsOverview = [];
 
-    // Visit Start Page
-    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 20000 });
-    await page.waitForTimeout(1500); // Allow brief client hydration
+    // Ensure we start discovery on postLoginUrl
+    if (page.url() !== postLoginUrl) {
+      await page.goto(postLoginUrl, { waitUntil: 'domcontentloaded', timeout: 20000 }).catch(() => {});
+      await page.waitForTimeout(1500);
+    }
 
     pageTitle = await page.title().catch(() => '');
 
@@ -199,18 +744,28 @@ async function executePlaywrightPipeline({ testId, userId, url, callbackUrl }) {
     formsOverview = homepageData.forms;
     homepageVisibleText = homepageData.bodyText;
 
-    // Fast DOM Link Extraction (Visible + Hidden menus/drawers)
+    // Fast DOM Link Extraction with Destructive/Logout Guardrails
     const extractPageLinks = async () => {
       return await page.evaluate(({ origin }) => {
+        const DESTRUCTIVE_REGEX = /\b(log\s*out|sign\s*out|signout|logout|delete\s*(account|profile|workspace|project|organization|team|data|all)|remove\s*account|close\s*account|deactivate|cancel\s*subscription|unsubscribe|revoke\s*token|reset\s*password|change\s*password|pay\s*now|complete\s*purchase|place\s*order|confirm\s*payment|transfer\s*funds|wipe|destroy)\b/i;
         const links = [];
         const anchors = document.querySelectorAll('a[href]');
         anchors.forEach((a) => {
           try {
             const rawHref = a.getAttribute('href');
             if (!rawHref || rawHref.startsWith('#') || rawHref.startsWith('javascript:') || rawHref.startsWith('mailto:') || rawHref.startsWith('tel:')) return;
+            const text = (a.innerText || a.textContent || '').trim().slice(0, 100);
+            const ariaLabel = a.getAttribute('aria-label') || '';
+            const title = a.getAttribute('title') || '';
+            const checkStr = `${text} ${ariaLabel} ${title} ${rawHref}`;
+
+            // Destructive Guardrail Check
+            if (DESTRUCTIVE_REGEX.test(checkStr) || /\/(log\s*out|sign\s*out|signout|logout|delete-account)/i.test(rawHref)) {
+              return;
+            }
+
             const fullUrl = new URL(rawHref, window.location.href).href;
             if (fullUrl.startsWith(origin)) {
-              const text = (a.innerText || a.textContent || '').trim().slice(0, 100);
               const isVisible = (a.offsetParent !== null) && (window.getComputedStyle(a).display !== 'none');
               links.push({ url: fullUrl.split('#')[0], linkText: text, isVisible });
             }
@@ -227,6 +782,13 @@ async function executePlaywrightPipeline({ testId, userId, url, callbackUrl }) {
         discoveredLinks.push(l);
         if (linkQueue.length < 50) linkQueue.push(l.url);
       }
+    }
+
+    // SPA Sidebar & Tab Discovery on authenticated dashboard
+    let discoveredSpaTabs = [];
+    if (authResult.authenticated || /dashboard|portal|app/i.test(postLoginUrl)) {
+      discoveredSpaTabs = await discoverSpaInteractiveViews(page);
+      console.log(`[testerWorker] Discovered ${discoveredSpaTabs.length} interactive SPA dashboard tabs/views.`);
     }
 
     // BFS crawl remaining links until timeout or safety cap
@@ -247,15 +809,28 @@ async function executePlaywrightPipeline({ testId, userId, url, callbackUrl }) {
       }
     }
 
+    // Count dashboard views found
+    const dashboardRoutesCount = discoveredLinks.filter(l => /\/(dashboard|analytics|settings|projects|billing|profile|teams|workspaces)/i.test(l.url)).length + discoveredSpaTabs.length;
+    authResult.dashboardViewsFound = dashboardRoutesCount;
+
     const discoveryPayload = {
       event: 'phase1_complete',
       testId,
       userId,
+      authResult: {
+        mode: authResult.mode,
+        authenticated: authResult.authenticated,
+        postLoginUrl: authResult.postLoginUrl,
+        dashboardViewsFound: authResult.dashboardViewsFound,
+        authError: authResult.authError,
+        authScreenshotBase64: authResult.authScreenshotBase64
+      },
       site: {
         title: pageTitle,
         startUrl: url,
+        postLoginUrl,
         origin: parsedOrigin,
-        pageCount: discoveredLinks.length + 1,
+        pageCount: discoveredLinks.length + discoveredSpaTabs.length + 1,
         truncated: discoveredLinks.length >= SAFETY_CAP,
         tookMs: Date.now() - discoveryStartTime
       },
@@ -267,28 +842,58 @@ async function executePlaywrightPipeline({ testId, userId, url, callbackUrl }) {
           ctas,
           forms: formsOverview,
         },
-        linksSample: discoveredLinks.slice(0, 50)
+        linksSample: discoveredLinks.slice(0, 50),
+        spaTabs: discoveredSpaTabs
       }
     };
 
-    console.log(`[testerWorker] Phase 1 complete. Discovered ${discoveredLinks.length + 1} pages. Sending to Vercel webhook...`);
+    console.log(`[testerWorker] Phase 1 complete. Discovered ${discoveredLinks.length + 1} pages & ${discoveredSpaTabs.length} SPA tabs. Sending to Vercel webhook...`);
     const phase2Response = await postWebhook(callbackUrl, discoveryPayload);
     console.log(`[testerWorker] Phase 2 plan received from Vercel:`, phase2Response);
 
-    const targetPages = (phase2Response && Array.isArray(phase2Response.targetPages) && phase2Response.targetPages.length > 0)
-      ? phase2Response.targetPages.slice(0, 6)
-      : [url, ...discoveredLinks.map(l => l.url).slice(0, 5)];
+    // Prioritized target selection: blend discovered dashboard views, SPA tabs, and public routes
+    let targetPages = [];
+    if (phase2Response && Array.isArray(phase2Response.targetPages) && phase2Response.targetPages.length > 0) {
+      targetPages = phase2Response.targetPages.slice(0, 8);
+    } else {
+      targetPages = [postLoginUrl];
+      const dashboardLinks = discoveredLinks.filter(l => /\/(dashboard|analytics|settings|projects|billing|profile)/i.test(l.url)).map(l => l.url);
+      targetPages.push(...dashboardLinks.slice(0, 4));
+      discoveredLinks.forEach(l => {
+        if (!targetPages.includes(l.url) && targetPages.length < 6) targetPages.push(l.url);
+      });
+    }
+
+    // Append discovered SPA tabs if room in target list
+    const combinedTargets = targetPages.map(u => ({ url: u, isSpaTab: false }));
+    if (discoveredSpaTabs.length > 0) {
+      discoveredSpaTabs.slice(0, 3).forEach(tab => {
+        combinedTargets.push({
+          url: postLoginUrl,
+          isSpaTab: true,
+          spaTabSelector: tab.spaTabSelector,
+          spaTabLabel: tab.spaTabLabel,
+          title: tab.title
+        });
+      });
+    }
 
     // ─────────────────────────────────────────────────────────────
     // PHASE 3: SEQUENTIAL EXPLORATION (Desktop + Mobile + Batched Webhook)
     // ─────────────────────────────────────────────────────────────
-    console.log(`[testerWorker] Starting Phase 3 on ${targetPages.length} target pages...`);
+    console.log(`[testerWorker] Starting Phase 3 on ${combinedTargets.length} target pages/views...`);
     const pagesEvidence = [];
-    const totalPages = targetPages.length;
+    const totalTargets = combinedTargets.length;
 
-    for (let i = 0; i < targetPages.length; i++) {
-      const targetUrl = targetPages[i];
-      console.log(`[testerWorker] Auditing page ${i + 1}/${totalPages}: ${targetUrl}`);
+    for (let i = 0; i < combinedTargets.length; i++) {
+      const targetItem = combinedTargets[i];
+      const targetUrl = targetItem.url;
+      const isSpaTab = targetItem.isSpaTab;
+      const targetDisplay = isSpaTab ? `${targetUrl} [Tab: ${targetItem.spaTabLabel}]` : targetUrl;
+      console.log(`[testerWorker] Auditing target ${i + 1}/${totalTargets}: ${targetDisplay}`);
+
+      // Session recovery check before navigating/interacting
+      await ensureSessionActive(targetUrl);
 
       const pageErrors = [];
       const networkAnomalies = [];
@@ -341,8 +946,37 @@ async function executePlaywrightPipeline({ testId, userId, url, callbackUrl }) {
         // 1. Desktop walk (1280x720)
         await page.setViewportSize({ width: 1280, height: 720 });
         const navStart = Date.now();
-        await page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 15000 });
-        await page.waitForTimeout(1000);
+
+        if (isSpaTab) {
+          // If SPA tab, navigate to parent URL if not already there, then click tab selector
+          if (page.url() !== targetUrl) {
+            await page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 15000 });
+            await page.waitForTimeout(1000);
+          }
+          // Check Destructive Guardrail before clicking tab selector
+          const tabSafeToClick = await page.evaluate(({ sel }) => {
+            const el = document.querySelector(sel);
+            if (!el) return false;
+            const DESTRUCTIVE_REGEX = /\b(log\s*out|sign\s*out|signout|logout|delete\s*(account|profile|workspace|project|organization|team|data|all)|remove\s*account|close\s*account|deactivate|cancel\s*subscription|unsubscribe|revoke\s*token|reset\s*password|change\s*password|pay\s*now|complete\s*purchase|place\s*order|confirm\s*payment|transfer\s*funds|wipe|destroy)\b/i;
+            const text = (el.innerText || el.textContent || '').trim();
+            const aria = el.getAttribute('aria-label') || '';
+            const href = el.getAttribute('href') || '';
+            if (DESTRUCTIVE_REGEX.test(`${text} ${aria} ${href}`)) return false;
+            el.click();
+            return true;
+          }, { sel: targetItem.spaTabSelector });
+
+          if (!tabSafeToClick) {
+            interactiveLogs.push({ action: targetItem.spaTabLabel, skipped: 'Blocked by Destructive/Logout Guardrail' });
+          } else {
+            interactiveLogs.push({ action: 'Clicked SPA Tab', label: targetItem.spaTabLabel });
+            await page.waitForTimeout(1200);
+          }
+        } else {
+          await page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 15000 });
+          await page.waitForTimeout(1000);
+        }
+
         loadTimingMs = Date.now() - navStart;
 
         // DOM Audit: overflow, broken images, dead buttons, empty sections
@@ -380,17 +1014,27 @@ async function executePlaywrightPipeline({ testId, userId, url, callbackUrl }) {
           };
         }).catch(() => null);
 
-        // Safe interactive actions: boundary inputs & tab clicks
+        // Safe interactive actions with Destructive/Logout Guardrails
         try {
           const interactiveResults = await page.evaluate(() => {
+            const DESTRUCTIVE_REGEX = /\b(log\s*out|sign\s*out|signout|logout|delete\s*(account|profile|workspace|project|organization|team|data|all)|remove\s*account|close\s*account|deactivate|cancel\s*subscription|unsubscribe|revoke\s*token|reset\s*password|change\s*password|pay\s*now|complete\s*purchase|place\s*order|confirm\s*payment|transfer\s*funds|wipe|destroy)\b/i;
             const actions = [];
+
             const searchInput = document.querySelector('input[type="search"], input[name*="search" i], input[placeholder*="search" i]');
             if (searchInput) {
               actions.push({ element: 'search_input', found: true, placeholder: searchInput.placeholder || '' });
             }
-            const tabs = Array.from(document.querySelectorAll('[role="tab"], .tab, button[data-tab], nav a, header a')).slice(0, 5);
+
+            const tabs = Array.from(document.querySelectorAll('[role="tab"], .tab, button[data-tab], nav a, header a')).slice(0, 8);
             tabs.forEach((t) => {
-              actions.push({ element: 'nav_item', text: (t.innerText || t.textContent || '').trim().slice(0, 40) });
+              const txt = (t.innerText || t.textContent || '').trim().slice(0, 40);
+              const href = t.getAttribute('href') || '';
+              const aria = t.getAttribute('aria-label') || '';
+              if (DESTRUCTIVE_REGEX.test(`${txt} ${href} ${aria}`) || /\/(log\s*out|sign\s*out|logout)/i.test(href)) {
+                actions.push({ element: 'nav_item', text: txt, skipped: 'Blocked by Destructive/Logout Guardrail' });
+              } else {
+                actions.push({ element: 'nav_item', text: txt });
+              }
             });
             return actions;
           });
@@ -435,8 +1079,10 @@ async function executePlaywrightPipeline({ testId, userId, url, callbackUrl }) {
       }
 
       pagesEvidence.push({
-        url: targetUrl,
+        url: targetDisplay,
         loadTimingMs,
+        isSpaTab: Boolean(isSpaTab),
+        spaTabLabel: targetItem.spaTabLabel || null,
         errors: pageErrors.slice(0, 15),
         networkAnomalies: networkAnomalies.slice(0, 15),
         interactiveLogs,
@@ -448,14 +1094,14 @@ async function executePlaywrightPipeline({ testId, userId, url, callbackUrl }) {
       });
 
       // Flush micro-batches of 2 pages to stay well under Vercel's 4.5 MB request limit
-      if (pagesEvidence.length >= 2 || i === targetPages.length - 1) {
+      if (pagesEvidence.length >= 2 || i === combinedTargets.length - 1) {
         console.log(`[testerWorker] Flushing Phase 3 micro-batch (${pagesEvidence.length} pages)...`);
         await postWebhook(callbackUrl, {
           event: 'phase3_batch',
           testId,
           userId,
           progressDone: i + 1,
-          progressTotal: totalPages,
+          progressTotal: totalTargets,
           pagesEvidence: [...pagesEvidence]
         });
         pagesEvidence.length = 0; // Clear memory buffer immediately
@@ -467,7 +1113,7 @@ async function executePlaywrightPipeline({ testId, userId, url, callbackUrl }) {
       event: 'phase3_complete',
       testId,
       userId,
-      totalExplored: totalPages,
+      totalExplored: totalTargets,
       tookMs: Date.now() - startTime
     });
     console.log(`[testerWorker] Full pipeline completed successfully for test ${testId}`);
@@ -494,7 +1140,7 @@ async function executePlaywrightPipeline({ testId, userId, url, callbackUrl }) {
 
 // POST /worker/run — initiates an asynchronous test run
 app.post('/worker/run', requireWorkerSecret, (req, res) => {
-  const { testId, userId, url, callbackUrl } = req.body || {};
+  const { testId, userId, url, callbackUrl, authConfig } = req.body || {};
 
   if (!testId || !userId || !url || !callbackUrl) {
     return res.status(400).json({ error: 'Missing required parameters: testId, userId, url, callbackUrl' });
@@ -518,7 +1164,7 @@ app.post('/worker/run', requireWorkerSecret, (req, res) => {
   });
 
   // Execute pipeline in background
-  executePlaywrightPipeline({ testId, userId, url, callbackUrl });
+  executePlaywrightPipeline({ testId, userId, url, callbackUrl, authConfig });
 });
 
 app.listen(PORT, () => {
