@@ -123,11 +123,44 @@ async function tryWakeAndDispatchWorker(testId, userId, targetUrl, baseUrl) {
 }
 
 /**
- * Starts a new autonomous website test run
+ * Generates deterministic testId based on userId and normalized URL
+ * Ensures only 1 record per URL per user (upsert/overwrite on re-run)
+ */
+function getDeterministicTestId(userId, normalizedUrl) {
+  const hash = crypto.createHash('sha256').update(`${userId}:${normalizedUrl}`).digest('hex').slice(0, 16);
+  return `test_${hash}`;
+}
+
+/**
+ * Starts a new autonomous website test run (Overwrites existing record for the same URL)
  */
 async function startWebsiteTest(userId, rawUrl, baseUrl, rawAuthConfig = null) {
   const url = normalizeUrl(rawUrl);
-  const testId = `test_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
+  // Deterministic testId so running/rerunning the same URL overwrites/updates the present record instead of creating copies
+  const testId = getDeterministicTestId(userId, url);
+
+  // If there are existing records for this exact URL with legacy timestamp testIds, delete them so user sees only the present one
+  if (db) {
+    try {
+      const existingSnaps = await db.collection('users').doc(userId).collection('website_tests')
+        .where('url', '==', url)
+        .get();
+      const batch = db.batch();
+      let deleteCount = 0;
+      existingSnaps.forEach((doc) => {
+        if (doc.id !== testId) {
+          batch.delete(doc.ref);
+          deleteCount++;
+        }
+      });
+      if (deleteCount > 0) {
+        await batch.commit();
+        console.log(`[websiteTester] Cleaned up ${deleteCount} duplicate/legacy test record(s) for ${url}`);
+      }
+    } catch (cleanupErr) {
+      console.warn('[websiteTester] Duplicate cleanup warning:', cleanupErr.message);
+    }
+  }
 
   const mode = (rawAuthConfig && rawAuthConfig.mode) ? rawAuthConfig.mode : 'guest';
   let sanitizedAuthConfig = null;
@@ -214,16 +247,49 @@ async function getWebsiteTestStatus(userId, testId, baseUrl) {
 }
 
 /**
- * Lists past website tests for user
+ * Lists past website tests for user (De-duplicates to ensure only latest run per URL is returned)
  */
 async function listWebsiteTests(userId, limit = 20) {
   if (!db) return [];
   const snap = await db.collection('users').doc(userId).collection('website_tests')
     .orderBy('startedAt', 'desc')
-    .limit(limit)
+    .limit(limit * 2) // Fetch a slightly larger batch to deduplicate if any legacy copies exist
     .get();
 
-  return snap.docs.map((d) => d.data());
+  const allRecords = snap.docs.map((d) => d.data());
+  const seenUrls = new Set();
+  const uniqueRecords = [];
+  const duplicateIdsToDelete = [];
+
+  for (const rec of allRecords) {
+    if (!rec || !rec.url) continue;
+    const norm = normalizeUrl(rec.url);
+    if (!seenUrls.has(norm)) {
+      seenUrls.add(norm);
+      uniqueRecords.push(rec);
+    } else {
+      // Legacy duplicate found — mark for background deletion
+      duplicateIdsToDelete.push(rec.testId);
+    }
+  }
+
+  // Asynchronously clean up legacy duplicates in Firestore
+  if (duplicateIdsToDelete.length > 0) {
+    (async () => {
+      try {
+        const batch = db.batch();
+        duplicateIdsToDelete.forEach((id) => {
+          batch.delete(db.collection('users').doc(userId).collection('website_tests').doc(id));
+        });
+        await batch.commit();
+        console.log(`[websiteTester] Automatically purged ${duplicateIdsToDelete.length} legacy duplicate test copies for user ${userId}`);
+      } catch (err) {
+        console.warn('[websiteTester] Background duplicate purge notice:', err.message);
+      }
+    })();
+  }
+
+  return uniqueRecords.slice(0, limit);
 }
 
 /**
