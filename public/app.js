@@ -8550,11 +8550,28 @@ function renderWebsiteTestDetail(test) {
   const auditedUniquePages = Array.from(new Set(auditedPagesList));
   const auditedCount = auditedUniquePages.length || (test.evidence?.screenshots ? Math.max(1, Math.round(test.evidence.screenshots.length / 2)) : 1);
 
+  // Check Axe and Visual AI presence in evidence / findings
+  const hasAxe = (test.evidence?.domAudits || []).some(d => d.audit?.axe && d.audit.axe.violationsCount > 0);
+  const axeViolationsTotal = (test.evidence?.domAudits || []).reduce((acc, d) => acc + (d.audit?.axe?.violationsCount || 0), 0);
+  const hasVisionFindings = (test.findings || []).some(f => f.category === 'visual-defect');
+
+  let axeBadgeHtml = '';
+  if (hasAxe || axeViolationsTotal > 0) {
+    axeBadgeHtml = ` • <span class="tester-badge-pill amber" title="WCAG 2.1 AA Violations detected by Axe-Core">♿ Axe-Core WCAG (${axeViolationsTotal} issues)</span>`;
+  } else if (test.status === 'done') {
+    axeBadgeHtml = ` • <span class="tester-badge-pill green" title="WCAG 2.1 AA Compliant">♿ WCAG 2.1 Audited</span>`;
+  }
+
+  let visionBadgeHtml = '';
+  if (hasVisionFindings || (test.evidence?.screenshots && test.evidence.screenshots.length > 0)) {
+    visionBadgeHtml = ` • <span class="tester-badge-pill accent" title="Multimodal Vision AI evaluated visual presentation">👁️ Vision AI Triaged</span>`;
+  }
+
   let auditedListHtml = '';
   if (auditedUniquePages.length > 0) {
     auditedListHtml = `
       <details class="tester-coverage-details" style="margin-top: 6px; font-size: 12px; color: var(--text-dim, #888);">
-        <summary style="cursor: pointer; text-decoration: underline;">View all ${auditedUniquePages.length} audited URLs</summary>
+        <summary style="cursor: pointer; text-decoration: underline;">View all ${auditedUniquePages.length} audited URLs (Tier 1 Deep + Tier 2 Sweep)</summary>
         <ul style="margin: 6px 0 0 16px; padding: 0; max-height: 140px; overflow-y: auto;">
           ${auditedUniquePages.map(u => `<li><a href="${escHtml(u)}" target="_blank" rel="noopener" style="color: var(--accent, #6366f1); word-break: break-all;">${escHtml(u)}</a></li>`).join('')}
         </ul>
@@ -8571,6 +8588,8 @@ function renderWebsiteTestDetail(test) {
         <span>Status: <strong>${escHtml(test.status)}</strong></span> • 
         <span>📊 <strong>${escHtml(totalDiscovered)}</strong> Discovered Pages (<strong>${escHtml(auditedCount)}</strong> Audited Deep + Sweep)</span> • 
         ${authPillHtml}
+        ${axeBadgeHtml}
+        ${visionBadgeHtml}
       </div>
       ${auditedListHtml}
     `;

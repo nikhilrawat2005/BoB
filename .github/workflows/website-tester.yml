@@ -1,0 +1,55 @@
+name: Bob Autonomous Website Tester
+
+on:
+  workflow_dispatch:
+    inputs:
+      testId:
+        required: true
+        type: string
+      userId:
+        required: true
+        type: string
+      url:
+        required: true
+        type: string
+      callbackUrl:
+        required: true
+        type: string
+
+jobs:
+  run-website-audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install worker dependencies
+        working-directory: src/worker
+        run: npm install --omit=dev
+
+      - name: Cache Playwright Chromium
+        id: playwright-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-chromium-${{ hashFiles('src/worker/package.json') }}
+
+      - name: Install Playwright Chromium
+        working-directory: src/worker
+        run: npx playwright install chromium && sudo npx playwright install-deps chromium
+
+      - name: Execute Autonomous Website Audit
+        working-directory: src/worker
+        env:
+          TEST_ID: ${{ github.event.inputs.testId }}
+          USER_ID: ${{ github.event.inputs.userId }}
+          TARGET_URL: ${{ github.event.inputs.url }}
+          CALLBACK_URL: ${{ github.event.inputs.callbackUrl }}
+          TESTER_WORKER_SECRET: ${{ secrets.TESTER_WORKER_SECRET }}
+        run: node --expose-gc runTesterJob.js

@@ -3,12 +3,14 @@
   "version": "1.0.0",
   "description": "Stateless Playwright Browser Worker for Bob AI Website Tester",
   "main": "testerWorkerServer.js",
-  "scripts": {
-    "start": "node --expose-gc testerWorkerServer.js"
-  },
   "dependencies": {
+    "@axe-core/playwright": "^4.10.0",
     "express": "^4.19.2",
     "playwright": "1.48.2",
     "sharp": "^0.33.5"
+  },
+  "scripts": {
+    "start": "node --expose-gc testerWorkerServer.js",
+    "run-job": "node --expose-gc runTesterJob.js"
   }
 }

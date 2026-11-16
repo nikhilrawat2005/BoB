@@ -6,34 +6,46 @@ const llmService = require('./llmService');
 const documentGenerator = require('./documentGenerator');
 const fileService = require('./fileService');
 
+const WORKER_MODE = (process.env.TESTER_WORKER_MODE || 'github').toLowerCase();
 const WORKER_URL = (process.env.RENDER_TESTER_WORKER_URL || '').replace(/\/$/, '');
 const WORKER_SECRET = process.env.TESTER_WORKER_SECRET || '';
+
+const GITHUB_TOKEN = process.env.GITHUB_TOKEN || '';
+const GITHUB_REPO = process.env.GITHUB_REPO || 'nikhilrawat2005/BoB';
+const GITHUB_BRANCH = process.env.GITHUB_BRANCH || 'main';
+const GITHUB_WORKFLOW = process.env.GITHUB_TESTER_WORKFLOW || 'website-tester.yml';
+
+// In-memory zero-leak transient storage for authConfig
+// Kept in memory only until worker pulls it via worker_ready (or expires)
+const pendingAuthConfigs = new Map(); // testId -> { authConfig, expiresAt }
+
+setInterval(() => {
+  const now = Date.now();
+  for (const [testId, entry] of pendingAuthConfigs.entries()) {
+    if (entry.expiresAt && entry.expiresAt < now) {
+      pendingAuthConfigs.delete(testId);
+    }
+  }
+}, 60 * 1000);
 
 /**
  * Resilient JSON repair and parser for Phase 5 synthesis output.
  * Strips markdown code fences and balances unclosed brackets/braces if output was truncated.
  */
-function parsePhase5Json(rawText) {
+function parseResilientJson(rawText) {
   if (!rawText || typeof rawText !== 'string') return null;
   let text = rawText.trim();
   // Strip ```json ... ``` code fence
   text = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
 
-  // Find first '{'
   const firstBrace = text.indexOf('{');
   if (firstBrace === -1) return null;
   text = text.slice(firstBrace);
 
-  // Try direct parse first
   try {
     return JSON.parse(text);
   } catch (_) {
-    // If parse failed (e.g. truncated JSON), attempt auto-repair
-    let cleaned = text;
-    // Strip trailing incomplete strings or trailing commas
-    cleaned = cleaned.replace(/,\s*$/, '');
-
-    // Count open/close braces and brackets
+    let cleaned = text.replace(/,\s*$/, '');
     let openBraces = 0;
     let closeBraces = 0;
     let openBrackets = 0;
@@ -67,7 +79,6 @@ function parsePhase5Json(rawText) {
       cleaned += '"';
     }
 
-    // Close any unclosed brackets and braces
     while (openBrackets > closeBrackets) {
       cleaned += ']';
       closeBrackets++;
@@ -80,7 +91,6 @@ function parsePhase5Json(rawText) {
     try {
       return JSON.parse(cleaned);
     } catch (e2) {
-      // Last-ditch: extract whatever objects/arrays we can
       const match = text.match(/\{[\s\S]*\}/);
       if (match) {
         try { return JSON.parse(match[0]); } catch (_) {}
@@ -91,8 +101,8 @@ function parsePhase5Json(rawText) {
 }
 
 /**
- * Builds clean PDF specification sections with 100% standard ASCII rules and standard bullets.
- * Guarantees zero mojibake in PDFKit's Helvetica font.
+ * Builds clean PDF specification sections with standard ASCII rules.
+ * Zero mojibake in PDFKit's Helvetica font.
  */
 function buildReportPdfSpec(testRecord) {
   const site = testRecord.site || { title: testRecord.url, startUrl: testRecord.url };
@@ -106,7 +116,7 @@ function buildReportPdfSpec(testRecord) {
     guest: 'Guest (Public Crawl Only)',
     credentials: 'Login Credentials (Multi-Step Form)',
     session: 'Session Injection (Cookies / localStorage / Bearer Token)',
-    auto_signup: 'Autonomous Test Registration (Auto-Signup)'
+    auto_signup: 'Autonomous Test Registration (Auto-Signup + Live OTP)'
   }[authSummary.mode] || (authSummary.mode || 'Guest');
 
   const pdfSections = [
@@ -117,7 +127,7 @@ function buildReportPdfSpec(testRecord) {
         `Audit Title: ${site.title || 'Web Application'}\n` +
         `Health Status: ${testRecord.healthStatus || 'Evaluated'}` +
         (testRecord.healthScore ? ` (${testRecord.healthScore}/100)` : '') + '\n' +
-        `Total Pages / Views Explored: ${site.pageCount || 1}\n` +
+        `Total Pages Discovered: ${site.pageCount || 1}\n` +
         `Total Detected Findings: ${findings.length}`
     },
     {
@@ -145,7 +155,7 @@ function buildReportPdfSpec(testRecord) {
         : 'No explicit marketing claims verified during this automated run.'
     },
     {
-      heading: '5. Deep Technical & UX Findings',
+      heading: '5. Deep Technical, WCAG & Visual AI Findings',
       body: findings.length > 0
         ? findings.map((f, i) => {
             return `------------------------------------------------------------\n` +
@@ -154,7 +164,7 @@ function buildReportPdfSpec(testRecord) {
               `Reproduction Action: ${f.action || 'Page navigation and background listeners'}\n` +
               `Expected Behavior: ${f.expected || 'Clean execution without errors'}\n` +
               `Actual Observed: ${f.actual || 'Defect detected in runtime'}\n` +
-              `Evidence: ${f.evidence || 'Captured in browser network/console trace'}\n` +
+              `Evidence: ${f.evidence || 'Captured in browser network/console/DOM trace'}\n` +
               `Root Cause: ${f.rootCause || 'Unspecified runtime/configuration issue'}\n` +
               (f.fixRecommendation ? `Recommended Fix: ${f.fixRecommendation}\n` : '') +
               (f.screenshotUrl ? `Visual Evidence: ${f.screenshotUrl}\n` : '');
@@ -163,13 +173,13 @@ function buildReportPdfSpec(testRecord) {
     },
     {
       heading: '6. Methodology & Browser Test Protocol',
-      body: `This audit was executed autonomously using headless Chromium via Playwright on a stateless worker.\n` +
+      body: `This audit was executed autonomously using headless Playwright Chromium (16 GB RAM environment).\n` +
         `- Viewports Tested: Desktop (1280x720) and Mobile Responsive (390x844).\n` +
-        `- Phase 0 Authentication: Pre-crawl credential login, cookie/localStorage session injection, or autonomous account creation.\n` +
-        `- SPA & Dashboard Discovery: Audited protected dashboard routes and interactive single-page app tabs.\n` +
-        `- Destructive Action Guardrails: Actively blacklisted logout, delete account, and payment submission triggers.\n` +
-        `- Analyzed Signals: DOM horizontal scroll overflow, broken asset links, dead navigation targets, console errors, HTTP >=400 failures, and streaming sync anomalies.\n` +
-        `- Screenshots were compressed to WebP (Quality 65) and permanently archived.`
+        `- Phase 0 Authentication: Pre-crawl credential login, cookie/localStorage session injection, or mail.tm OTP auto-signup.\n` +
+        `- 4-Layer Discovery: DOM Mega-menus + Sitemap/Robots + JS Bundle Router Extraction + SPA Interactive Tabs.\n` +
+        `- Two-Tier Exploration: Tier 1 Deep Audit + Tier 2 Fast Sweep.\n` +
+        `- Accessibility & Forensics: @axe-core/playwright WCAG 2.1 AA audits + silent 200 API error / stack-trace forensics.\n` +
+        `- Visual AI Triage: OpenRouter Vision AI (google/gemini-2.5-flash) and Deep Synthesis (anthropic/claude-sonnet-4).`
     }
   ];
 
@@ -182,9 +192,10 @@ function buildReportPdfSpec(testRecord) {
 }
 
 /**
- * On-demand PDF buffer generator: loads test record from Firestore and builds fresh PDF
+ * On-demand PDF buffer generator: builds full PDF buffer on demand from Firestore
  */
 async function generateTestReportPdfBuffer(userId, testId) {
+  if (!db) return null;
   const docRef = db.collection('users').doc(userId).collection('website_tests').doc(testId);
   const docSnap = await docRef.get();
   if (!docSnap.exists) return null;
@@ -193,17 +204,6 @@ async function generateTestReportPdfBuffer(userId, testId) {
   const pdfSpec = buildReportPdfSpec(testRecord);
   return await documentGenerator.generatePdf(pdfSpec);
 }
-const pendingAuthConfigs = new Map(); // testId -> { authConfig, expiresAt }
-
-// Periodic sweep for expired transient authConfigs
-setInterval(() => {
-  const now = Date.now();
-  for (const [testId, entry] of pendingAuthConfigs.entries()) {
-    if (entry.expiresAt && entry.expiresAt < now) {
-      pendingAuthConfigs.delete(testId);
-    }
-  }
-}, 60 * 1000);
 
 /**
  * Normalizes and validates target URL
@@ -233,18 +233,69 @@ async function uploadScreenshotWebp(userId, base64Str, filename) {
 }
 
 /**
- * Attempts non-blocking wake up and dispatch to Render worker
+ * Dispatches test job to GitHub Actions (workflow_dispatch) or Render worker (fallback)
  */
 async function tryWakeAndDispatchWorker(testId, userId, targetUrl, baseUrl) {
+  const callbackUrl = `${baseUrl.replace(/\/$/, '')}/api/website-tester/webhook`;
+
+  // PRIMARY WORKER: GitHub Actions (16 GB Runner)
+  if (WORKER_MODE === 'github') {
+    if (!GITHUB_TOKEN) {
+      console.warn('[websiteTester] GITHUB_TOKEN is not configured for github worker mode.');
+      return { ok: false, error: 'GITHUB_TOKEN not configured' };
+    }
+
+    const dispatchEndpoint = `https://api.github.com/repos/${GITHUB_REPO}/actions/workflows/${GITHUB_WORKFLOW}/dispatches`;
+    console.log(`[websiteTester] Dispatching GitHub Actions workflow to ${dispatchEndpoint} for test ${testId}...`);
+
+    try {
+      const dispatchRes = await fetch(dispatchEndpoint, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${GITHUB_TOKEN}`,
+          'Accept': 'application/vnd.github+json',
+          'Content-Type': 'application/json',
+          'User-Agent': 'Bob-Backend-WebsiteTester'
+        },
+        body: JSON.stringify({
+          ref: GITHUB_BRANCH,
+          inputs: {
+            testId,
+            userId,
+            url: targetUrl,
+            callbackUrl
+          }
+        })
+      });
+
+      if (dispatchRes.status === 204 || dispatchRes.ok) {
+        console.log(`[websiteTester] Successfully triggered GitHub Actions runner for test ${testId}`);
+        if (db) {
+          await db.collection('users').doc(userId).collection('website_tests').doc(testId).update({
+            status: 'running',
+            workerDispatched: true,
+            progress: { phase: 1, label: 'Phase 1: GitHub 16GB Runner booting Playwright...', done: 1, total: 6 }
+          });
+        }
+        return { ok: true, dispatched: true, mode: 'github' };
+      } else {
+        const errText = await dispatchRes.text();
+        console.error(`[websiteTester] GitHub Actions dispatch returned status ${dispatchRes.status}: ${errText}`);
+        return { ok: false, error: `GitHub dispatch failed (${dispatchRes.status}): ${errText}` };
+      }
+    } catch (ghErr) {
+      console.error('[websiteTester] Failed to dispatch GitHub workflow:', ghErr);
+      return { ok: false, error: ghErr.message };
+    }
+  }
+
+  // OPTIONAL FALLBACK: Render worker
   if (!WORKER_URL) {
     console.warn('[websiteTester] RENDER_TESTER_WORKER_URL is not configured.');
     return { ok: false, error: 'RENDER_TESTER_WORKER_URL not configured' };
   }
 
-  const callbackUrl = `${baseUrl.replace(/\/$/, '')}/api/website-tester/webhook`;
-
   try {
-    // 1. Quick health check ping (2.5s AbortController timeout)
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 2500);
 
@@ -259,16 +310,14 @@ async function tryWakeAndDispatchWorker(testId, userId, targetUrl, baseUrl) {
     if (healthRes && healthRes.ok) {
       const healthData = await healthRes.json().catch(() => ({}));
       if (healthData.busy) {
-        console.log(`[websiteTester] Worker is currently busy with job ${healthData.activeJobId}. Test ${testId} remains queued.`);
+        console.log(`[websiteTester] Render worker busy with job ${healthData.activeJobId}.`);
         return { ok: true, queued: true, busy: true };
       }
 
-      // Retrieve transient authConfig if available
       const pendingEntry = pendingAuthConfigs.get(testId);
       const authConfig = pendingEntry ? pendingEntry.authConfig : null;
 
-      // Worker is awake & idle -> dispatch immediately
-      console.log(`[websiteTester] Worker is awake. Dispatching POST /worker/run for test ${testId} (auth mode: ${authConfig?.mode || 'guest'})...`);
+      console.log(`[websiteTester] Render worker is awake. Dispatching POST /worker/run for test ${testId}...`);
       const runRes = await fetch(`${WORKER_URL}/worker/run`, {
         method: 'POST',
         headers: {
@@ -285,9 +334,7 @@ async function tryWakeAndDispatchWorker(testId, userId, targetUrl, baseUrl) {
       });
 
       if (runRes.status === 202 || runRes.ok) {
-        // Zero-leak: immediately clear raw secrets from memory once accepted by Render
         pendingAuthConfigs.delete(testId);
-
         if (db) {
           await db.collection('users').doc(userId).collection('website_tests').doc(testId).update({
             status: 'running',
@@ -295,19 +342,18 @@ async function tryWakeAndDispatchWorker(testId, userId, targetUrl, baseUrl) {
             progress: { phase: 1, label: 'Phase 1: Authenticating & discovering site routes in real browser...', done: 1, total: 6 }
           });
         }
-        return { ok: true, dispatched: true };
+        return { ok: true, dispatched: true, mode: 'render' };
       }
     }
   } catch (err) {
-    console.log(`[websiteTester] Wake-up ping triggered cold boot (${err.message})`);
+    console.log(`[websiteTester] Render wake-up ping notice: ${err.message}`);
   }
 
-  return { ok: true, dispatched: false, waking: true };
+  return { ok: true, dispatched: false, waking: true, mode: 'render' };
 }
 
 /**
- * Generates deterministic testId based on userId and normalized URL
- * Ensures only 1 record per URL per user (upsert/overwrite on re-run)
+ * Deterministic testId based on userId and normalized URL
  */
 function getDeterministicTestId(userId, normalizedUrl) {
   const hash = crypto.createHash('sha256').update(`${userId}:${normalizedUrl}`).digest('hex').slice(0, 16);
@@ -315,14 +361,12 @@ function getDeterministicTestId(userId, normalizedUrl) {
 }
 
 /**
- * Starts a new autonomous website test run (Overwrites existing record for the same URL)
+ * Starts a new autonomous website test run
  */
 async function startWebsiteTest(userId, rawUrl, baseUrl, rawAuthConfig = null) {
   const url = normalizeUrl(rawUrl);
-  // Deterministic testId so running/rerunning the same URL overwrites/updates the present record instead of creating copies
   const testId = getDeterministicTestId(userId, url);
 
-  // If there are existing records for this exact URL with legacy timestamp testIds, delete them so user sees only the present one
   if (db) {
     try {
       const existingSnaps = await db.collection('users').doc(userId).collection('website_tests')
@@ -338,7 +382,7 @@ async function startWebsiteTest(userId, rawUrl, baseUrl, rawAuthConfig = null) {
       });
       if (deleteCount > 0) {
         await batch.commit();
-        console.log(`[websiteTester] Cleaned up ${deleteCount} duplicate/legacy test record(s) for ${url}`);
+        console.log(`[websiteTester] Cleaned up ${deleteCount} duplicate test record(s) for ${url}`);
       }
     } catch (cleanupErr) {
       console.warn('[websiteTester] Duplicate cleanup warning:', cleanupErr.message);
@@ -366,7 +410,6 @@ async function startWebsiteTest(userId, rawUrl, baseUrl, rawAuthConfig = null) {
     });
   }
 
-  // Sanitized authSummary for Firestore (ZERO secrets stored in DB)
   const authSummary = {
     mode,
     loginUrl: rawAuthConfig?.loginUrl || null,
@@ -384,9 +427,14 @@ async function startWebsiteTest(userId, rawUrl, baseUrl, rawAuthConfig = null) {
     userId,
     url,
     authSummary,
-    status: 'waking_worker',
+    status: WORKER_MODE === 'github' ? 'running' : 'waking_worker',
     workerDispatched: false,
-    progress: { phase: 0, label: 'Waking up Render browser worker...', done: 0, total: 6 },
+    progress: {
+      phase: 0,
+      label: WORKER_MODE === 'github' ? 'Dispatching GitHub 16GB Runner...' : 'Waking up Render browser worker...',
+      done: 0,
+      total: 6
+    },
     startedAt: new Date().toISOString(),
     finishedAt: null,
     site: null,
@@ -402,7 +450,6 @@ async function startWebsiteTest(userId, rawUrl, baseUrl, rawAuthConfig = null) {
     await db.collection('users').doc(userId).collection('website_tests').doc(testId).set(initialRecord);
   }
 
-  // Fire non-blocking wake up and dispatch
   tryWakeAndDispatchWorker(testId, userId, url, baseUrl).catch((e) => {
     console.warn('[websiteTester] Non-blocking dispatch notice:', e.message);
   });
@@ -411,7 +458,7 @@ async function startWebsiteTest(userId, rawUrl, baseUrl, rawAuthConfig = null) {
 }
 
 /**
- * Gets live status of a website test (with opportunistic dispatch during polling)
+ * Gets live status of a website test
  */
 async function getWebsiteTestStatus(userId, testId, baseUrl) {
   if (!db) throw new Error('Firestore not initialized');
@@ -420,8 +467,6 @@ async function getWebsiteTestStatus(userId, testId, baseUrl) {
   if (!snap.exists) return null;
 
   const data = snap.data();
-
-  // If worker is still waking and haven't dispatched yet, check health and dispatch on-the-fly
   if (data.status === 'waking_worker' && !data.workerDispatched && baseUrl) {
     tryWakeAndDispatchWorker(testId, userId, data.url, baseUrl).catch(() => {});
   }
@@ -430,13 +475,13 @@ async function getWebsiteTestStatus(userId, testId, baseUrl) {
 }
 
 /**
- * Lists past website tests for user (De-duplicates to ensure only latest run per URL is returned)
+ * Lists past website tests for user
  */
 async function listWebsiteTests(userId, limit = 20) {
   if (!db) return [];
   const snap = await db.collection('users').doc(userId).collection('website_tests')
     .orderBy('startedAt', 'desc')
-    .limit(limit * 2) // Fetch a slightly larger batch to deduplicate if any legacy copies exist
+    .limit(limit * 2)
     .get();
 
   const allRecords = snap.docs.map((d) => d.data());
@@ -451,12 +496,10 @@ async function listWebsiteTests(userId, limit = 20) {
       seenUrls.add(norm);
       uniqueRecords.push(rec);
     } else {
-      // Legacy duplicate found — mark for background deletion
       duplicateIdsToDelete.push(rec.testId);
     }
   }
 
-  // Asynchronously clean up legacy duplicates in Firestore
   if (duplicateIdsToDelete.length > 0) {
     (async () => {
       try {
@@ -465,9 +508,8 @@ async function listWebsiteTests(userId, limit = 20) {
           batch.delete(db.collection('users').doc(userId).collection('website_tests').doc(id));
         });
         await batch.commit();
-        console.log(`[websiteTester] Automatically purged ${duplicateIdsToDelete.length} legacy duplicate test copies for user ${userId}`);
       } catch (err) {
-        console.warn('[websiteTester] Background duplicate purge notice:', err.message);
+        console.warn('[websiteTester] Duplicate purge notice:', err.message);
       }
     })();
   }
@@ -485,7 +527,7 @@ async function deleteWebsiteTest(userId, testId) {
 }
 
 /**
- * Handles incoming webhooks from Render Playwright worker
+ * Handles incoming webhooks from Playwright runner (GitHub Actions or Render)
  */
 async function handleWorkerWebhook(payload) {
   const { event, testId, userId } = payload || {};
@@ -501,7 +543,29 @@ async function handleWorkerWebhook(payload) {
   console.log(`[websiteTesterWebhook] Processing event "${event}" for test ${testId}`);
 
   // ─────────────────────────────────────────────────────────────
-  // EVENT: PHASE 1 COMPLETE → RUN PHASE 2 (PURPOSE INFERENCE)
+  // EVENT: WORKER_READY → SERVE ONE-TIME AUTHCONFIG (ZERO-LEAK)
+  // ─────────────────────────────────────────────────────────────
+  if (event === 'worker_ready') {
+    console.log(`[websiteTesterWebhook] Worker ready for test ${testId}. Delivering one-time authConfig...`);
+    const pendingEntry = pendingAuthConfigs.get(testId);
+    let authConfig = { mode: 'guest' };
+    if (pendingEntry && pendingEntry.authConfig) {
+      authConfig = pendingEntry.authConfig;
+      // Zero-leak: immediately clear from memory
+      pendingAuthConfigs.delete(testId);
+    }
+
+    await docRef.update({
+      'progress.phase': 1,
+      'progress.label': 'Phase 1: Authenticating & discovering all site routes...',
+      'progress.done': 1
+    });
+
+    return { ok: true, authConfig };
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  // EVENT: PHASE 1 COMPLETE → RUN PHASE 2 (PURPOSE & TARGET SELECTION)
   // ─────────────────────────────────────────────────────────────
   if (event === 'phase1_complete') {
     const { site, discoveryData, authResult } = payload;
@@ -555,7 +619,7 @@ async function handleWorkerWebhook(payload) {
       'progress.done': 2
     });
 
-    // Run Phase 2 Purpose Inference via Gemini Pool
+    // Run Phase 2 Purpose Inference
     const extractedClaimsSample = discoveryData.homepage?.extractedClaims || [];
     const prompt = `You are a Principal Software QA & Product Architect.
 Analyze this website discovery crawl data to infer what the product/service is, what user journeys are essential (both public and authenticated dashboard flows), and what explicit claims it makes.
@@ -568,15 +632,15 @@ Homepage Headings: ${JSON.stringify(discoveryData.homepage?.headings || [])}
 Homepage CTAs: ${JSON.stringify(discoveryData.homepage?.ctas || [])}
 Forms: ${JSON.stringify(discoveryData.homepage?.forms || [])}
 Interactive SPA Dashboard Views/Tabs: ${JSON.stringify((discoveryData.spaTabs || []).slice(0, 15))}
-Extracted Quantitative/Statistical Claims from Page Text: ${JSON.stringify(extractedClaimsSample.slice(0, 25))}
+Extracted Quantitative/Statistical Claims from Page Text: ${JSON.stringify(extractedClaimsSample.slice(0, 30))}
 Text Snippet: ${(discoveryData.homepage?.textSample || '').slice(0, 3000)}
-Sample Discovered Internal Links: ${JSON.stringify((discoveryData.linksSample || []).slice(0, 80))}
+Sample Discovered Internal Links: ${JSON.stringify((discoveryData.linksSample || []).slice(0, 100))}
 
 INSTRUCTIONS FOR TARGET PAGES SELECTION & CLAIM EXTRACTION:
-- Extract BOTH marketing/capability claims AND concrete statistical/institutional/pricing claims (e.g., placement packages, offer counts, accreditations, user counts, response time claims, feature promises).
-- If authenticated (${Boolean(authResult?.authenticated)}), ensure at least 60% of targetPages are post-login dashboard/protected routes (e.g., /dashboard, /analytics, /settings, /projects, /profile, /billing) or discovered SPA tabs.
-- Select up to 15 priority deep-audit pages (targetPages) that cover diverse modules, tabs, admissions, academics, pricing, or product features.
-- Inventory both Public Claims and Authenticated Dashboard Capabilities/Modules in claimedFeatures and explicitClaims.
+- Extract BOTH marketing claims AND concrete statistical/institutional/pricing claims (e.g. packages, offer counts, accreditations, user counts, feature promises).
+- If authenticated (${Boolean(authResult?.authenticated)}), ensure at least 70% of targetPages are post-login dashboard/protected routes (e.g., /dashboard, /analytics, /settings, /projects, /profile, /billing) or discovered SPA tabs.
+- Select up to 20 priority deep-audit pages (targetPages) covering diverse modules, tabs, admissions, pricing, or product features.
+- Inventory both Public Claims and Authenticated Dashboard Capabilities in claimedFeatures and explicitClaims.
 
 Respond ONLY with a JSON object in this exact format:
 {
@@ -592,7 +656,7 @@ Respond ONLY with a JSON object in this exact format:
       summary: site.title || 'Web application',
       primaryUserJourneys: ['Explore homepage', 'Navigate primary links'],
       claimedFeatures: [],
-      explicitClaims: extractedClaimsSample.slice(0, 10),
+      explicitClaims: extractedClaimsSample.slice(0, 15),
       contentTypes: ['web-application'],
       targetPages: [site.startUrl]
     };
@@ -607,23 +671,22 @@ Respond ONLY with a JSON object in this exact format:
       );
 
       const content = llmRes?.choices?.[0]?.message?.content || llmRes?.text || '';
-      const jsonMatch = content.match(/\{[\s\S]*\}/);
-      if (jsonMatch) {
-        purpose = JSON.parse(jsonMatch[0]);
+      const parsed = parseResilientJson(content);
+      if (parsed) {
+        purpose = parsed;
       }
     } catch (llmErr) {
       console.warn('[websiteTester] Phase 2 LLM inference failed, using fallback:', llmErr.message);
     }
 
-    // Merge any extractedClaims from discoveryData if LLM didn't include them
     if (Array.isArray(extractedClaimsSample) && extractedClaimsSample.length > 0) {
       purpose.explicitClaims = Array.from(new Set([
         ...(purpose.explicitClaims || []),
-        ...extractedClaimsSample.slice(0, 10)
+        ...extractedClaimsSample.slice(0, 15)
       ]));
     }
 
-    // Ensure targetPages has startUrl and valid strings
+    // Select up to 20 targetPages for Tier 1 Deep Audit
     let finalTargetPages = Array.isArray(purpose.targetPages) && purpose.targetPages.length > 0
       ? purpose.targetPages.filter(p => typeof p === 'string' && p.startsWith('http'))
       : [site.startUrl];
@@ -632,17 +695,25 @@ Respond ONLY with a JSON object in this exact format:
       finalTargetPages.unshift(site.startUrl);
     }
 
-    // If authenticated and postLoginUrl exists and isn't included, insert it right after startUrl
     if (authResult?.postLoginUrl && !finalTargetPages.includes(authResult.postLoginUrl)) {
       finalTargetPages.splice(1, 0, authResult.postLoginUrl);
     }
 
-    // Also blend in high-value discovered links up to 15 pages if targetPages is small
     const candidateLinks = (discoveryData.linksSample || []).map(l => typeof l === 'string' ? l : l.url).filter(Boolean);
     for (const cLink of candidateLinks) {
-      if (finalTargetPages.length >= 15) break;
+      if (finalTargetPages.length >= 20) break;
       if (!finalTargetPages.includes(cLink)) {
         finalTargetPages.push(cLink);
+      }
+    }
+
+    // Prepare up to 50 sweepUrls for Tier 2 Sweep
+    const targetSet = new Set(finalTargetPages);
+    const sweepUrls = [];
+    for (const cLink of candidateLinks) {
+      if (!targetSet.has(cLink) && !sweepUrls.includes(cLink)) {
+        sweepUrls.push(cLink);
+        if (sweepUrls.length >= 50) break;
       }
     }
 
@@ -653,10 +724,10 @@ Respond ONLY with a JSON object in this exact format:
       'progress.done': 2
     });
 
-    // Return up to 15 targetPages and claims directly in HTTP response for Render worker to proceed
     return {
       ok: true,
-      targetPages: finalTargetPages.slice(0, 15),
+      targetPages: finalTargetPages.slice(0, 20),
+      sweepUrls: sweepUrls.slice(0, 50),
       allDiscoveredUrls: candidateLinks,
       journeys: purpose.primaryUserJourneys || [],
       explicitClaims: purpose.explicitClaims || []
@@ -679,49 +750,47 @@ Respond ONLY with a JSON object in this exact format:
         const pageUrl = item.url;
         const pageSafeName = pageUrl.replace(/[^a-zA-Z0-9]/g, '_').slice(-30);
 
-    // Upload Desktop WebP
-    if (item.screenshots?.desktopWebpBase64) {
-      try {
-        const uploadRes = await uploadScreenshotWebp(
-          userId,
-          item.screenshots.desktopWebpBase64,
-          `tester_desktop_${pageSafeName}_${Date.now()}.webp`
-        );
-        if (uploadRes?.url) {
-          uploadedScreenshots.push({
-            pageUrl,
-            viewport: '1280x720',
-            label: `Desktop View (${pageUrl.replace(/^https?:\/\/[^/]+/i, '') || '/'})`,
-            fileId: uploadRes.id,
-            url: uploadRes.url
-          });
+        if (item.screenshots?.desktopWebpBase64) {
+          try {
+            const uploadRes = await uploadScreenshotWebp(
+              userId,
+              item.screenshots.desktopWebpBase64,
+              `tester_desktop_${pageSafeName}_${Date.now()}.webp`
+            );
+            if (uploadRes?.url) {
+              uploadedScreenshots.push({
+                pageUrl,
+                viewport: '1280x720',
+                label: `Desktop View (${pageUrl.replace(/^https?:\/\/[^/]+/i, '') || '/'})`,
+                fileId: uploadRes.id,
+                url: uploadRes.url
+              });
+            }
+          } catch (upErr) {
+            console.warn('[websiteTester] Failed to upload desktop screenshot:', upErr.message);
+          }
         }
-      } catch (upErr) {
-        console.warn('[websiteTester] Failed to upload desktop screenshot:', upErr.message);
-      }
-    }
 
-    // Upload Mobile WebP
-    if (item.screenshots?.mobileWebpBase64) {
-      try {
-        const uploadRes = await uploadScreenshotWebp(
-          userId,
-          item.screenshots.mobileWebpBase64,
-          `tester_mobile_${pageSafeName}_${Date.now()}.webp`
-        );
-        if (uploadRes?.url) {
-          uploadedScreenshots.push({
-            pageUrl,
-            viewport: '390x844',
-            label: `Mobile Responsive View (${pageUrl.replace(/^https?:\/\/[^/]+/i, '') || '/'})`,
-            fileId: uploadRes.id,
-            url: uploadRes.url
-          });
+        if (item.screenshots?.mobileWebpBase64) {
+          try {
+            const uploadRes = await uploadScreenshotWebp(
+              userId,
+              item.screenshots.mobileWebpBase64,
+              `tester_mobile_${pageSafeName}_${Date.now()}.webp`
+            );
+            if (uploadRes?.url) {
+              uploadedScreenshots.push({
+                pageUrl,
+                viewport: '390x844',
+                label: `Mobile Responsive View (${pageUrl.replace(/^https?:\/\/[^/]+/i, '') || '/'})`,
+                fileId: uploadRes.id,
+                url: uploadRes.url
+              });
+            }
+          } catch (upErr) {
+            console.warn('[websiteTester] Failed to upload mobile screenshot:', upErr.message);
+          }
         }
-      } catch (upErr) {
-        console.warn('[websiteTester] Failed to upload mobile screenshot:', upErr.message);
-      }
-    }
 
         if (Array.isArray(item.errors)) newConsoleErrors.push(...item.errors);
         if (Array.isArray(item.networkAnomalies)) newNetworkAnomalies.push(...item.networkAnomalies);
@@ -739,8 +808,8 @@ Respond ONLY with a JSON object in this exact format:
 
     await docRef.update({
       evidence: updatedEvidence,
-      'progress.done': Math.min(5, 2 + Math.round(((progressDone || 1) / (progressTotal || 6)) * 2)),
-      'progress.label': `Phase 3: Exploring pages & capturing browser evidence (${progressDone || 1}/${progressTotal || 6})...`
+      'progress.done': Math.min(5, 2 + Math.round(((progressDone || 1) / (progressTotal || 20)) * 2)),
+      'progress.label': `Phase 3: Exploring pages & capturing browser evidence (${progressDone || 1}/${progressTotal || 20})...`
     });
 
     return { ok: true, batchStored: true };
@@ -752,7 +821,7 @@ Respond ONLY with a JSON object in this exact format:
   if (event === 'phase3_complete') {
     await docRef.update({
       'progress.phase': 4,
-      'progress.label': 'Phase 4: Running parallel LLM triage on DOM, network & visual evidence...',
+      'progress.label': 'Phase 4: Running OpenRouter Vision AI & backend forensics triage...',
       'progress.done': 4
     });
 
@@ -763,83 +832,173 @@ Respond ONLY with a JSON object in this exact format:
     const site = testData.site || { title: testData.url, startUrl: testData.url };
 
     // ─────────────────────────────────────────────────────────
-    // PHASE 4: BULK TRIAGE (4-Key Parallel Split)
+    // PHASE 4: OPENROUTER MULTIMODAL VISION AI & TRIAGE
     // ─────────────────────────────────────────────────────────
-    const triageTasks = [
-      // Task 1: Layout & Responsive Breakdowns
-      {
-        prompt: `Analyze captured DOM and responsive audit for layout breaks, horizontal overflows, and broken assets:
-DOM Audits: ${JSON.stringify(evidence.domAudits.slice(0, 10))}
-Identify confirmed visual/layout bugs. Return a JSON array of bug objects:
-[{"title": "...", "severity": "high"|"medium"|"low", "actual": "...", "expected": "...", "url": "..."}]`
-      },
-      // Task 2: Console & Network API Failures
-      {
-        prompt: `Analyze browser console errors and failed/slow network requests:
-Console Errors: ${JSON.stringify(evidence.console.slice(0, 20))}
-Network Anomalies: ${JSON.stringify(evidence.network.slice(0, 20))}
-Identify confirmed technical and client runtime defects. Return a JSON array:
-[{"title": "...", "severity": "critical"|"high"|"medium"|"low", "actual": "...", "expected": "...", "url": "..."}]`
-      },
-      // Task 3: Interactive & Dead Elements
-      {
-        prompt: `Analyze DOM interactions and dead buttons:
-DOM Audits: ${JSON.stringify(evidence.domAudits.map(d => ({ pageUrl: d.pageUrl, deadButtons: d.audit?.deadButtons })).slice(0, 10))}
-Identify functional UX and interaction defects. Return a JSON array:
-[{"title": "...", "severity": "medium"|"low", "actual": "...", "expected": "...", "url": "..."}]`
-      },
-      // Task 4: Content, Headings & Cross-Page Inconsistencies
-      {
-        prompt: `Analyze site purpose, headings, and discoverability:
-Site: ${JSON.stringify(site)}
-Purpose: ${JSON.stringify(purpose)}
-Identify cross-page navigation, UX, or branding inconsistencies. Return a JSON array:
-[{"title": "...", "severity": "low"|"ux", "actual": "...", "expected": "...", "url": "..."}]`
-      }
-    ];
+    const selectedShotUrls = (evidence.screenshots || [])
+      .map(s => s.url)
+      .filter(Boolean)
+      .slice(0, 6);
 
-    let triageFindings = [];
-    try {
-      const parallelResults = await geminiPool.runParallelGemini(
-        triageTasks.map(t => ({ messages: [{ role: 'user', content: t.prompt }], temperature: 0.2 })),
-        {
-          concurrencyPerKey: 2,
-          fallbackFn: async (task) => llmService.callLLM({ role: 'seo', persona: 'builder', ...task })
+    const triageFindings = [];
+
+    // Task 1: Multimodal Visual UI/UX Inspection via OpenRouter Vision
+    const runVisionTask = async () => {
+      if (selectedShotUrls.length === 0) return [];
+      try {
+        console.log(`[websiteTester] Running Phase 4 Task 1: OpenRouter Vision on ${selectedShotUrls.length} screenshots...`);
+        const visionRes = await llmService.callLLMWithVision({
+          role: 'vision',
+          model: 'google/gemini-2.5-flash',
+          persona: 'builder',
+          messages: [
+            {
+              role: 'user',
+              content: `Inspect these Desktop & Mobile screenshots for real visual UI/UX defects:
+- Overlapping text, menus, or floating navbar clashes
+- Cut-off buttons, cropped content, or broken grid columns
+- Low/unreadable contrast on hero banners, badges, or buttons
+- Empty white voids or unhydrated placeholder blocks
+- Mobile layout horizontal overflow or misaligned drawer menus
+
+Return ONLY a JSON array of findings:
+[{"title": "...", "severity": "critical"|"high"|"medium"|"low", "actual": "...", "expected": "...", "url": "${site.startUrl}", "category": "visual-defect"}]`
+            }
+          ],
+          imageUrls: selectedShotUrls
+        });
+
+        const vText = visionRes?.choices?.[0]?.message?.content || visionRes?.text || '';
+        const match = vText.match(/\[[\s\S]*\]/);
+        if (match) {
+          const parsed = JSON.parse(match[0]);
+          if (Array.isArray(parsed)) return parsed;
         }
-      );
+      } catch (vErr) {
+        console.warn('[websiteTester] Vision triage notice:', vErr.message);
+      }
+      return [];
+    };
 
-      parallelResults.forEach((res) => {
+    // Task 2: Backend & API Forensics
+    const runBackendForensicsTask = async () => {
+      try {
+        const forensicsPrompt = `Analyze network failures, slow API endpoints (>3000ms), silent 200 failures (where JSON contains error/ok:false), and leaked stack traces:
+Network Events: ${JSON.stringify(evidence.network.slice(0, 30))}
+Console Errors: ${JSON.stringify(evidence.console.slice(0, 25))}
+Identify backend and API defects. Return ONLY a JSON array:
+[{"title": "...", "severity": "critical"|"high"|"medium"|"low", "actual": "...", "expected": "...", "url": "...", "category": "backend-api"}]`;
+
+        const res = await geminiPool.callGeminiWithFallback(
+          { messages: [{ role: 'user', content: forensicsPrompt }], temperature: 0.2 },
+          async (opts) => llmService.callLLM({ role: 'seo', persona: 'builder', ...opts })
+        );
         const text = res?.choices?.[0]?.message?.content || res?.text || '';
         const match = text.match(/\[[\s\S]*\]/);
         if (match) {
-          try {
-            const parsed = JSON.parse(match[0]);
-            if (Array.isArray(parsed)) triageFindings.push(...parsed);
-          } catch {}
+          const parsed = JSON.parse(match[0]);
+          if (Array.isArray(parsed)) return parsed;
         }
-      });
-    } catch (triageErr) {
-      console.warn('[websiteTester] Phase 4 parallel triage error:', triageErr.message);
+      } catch (bErr) {
+        console.warn('[websiteTester] Backend forensics notice:', bErr.message);
+      }
+      return [];
+    };
+
+    // Task 3: Accessibility (@axe-core) & Interactive Defects
+    const runAxeInteractiveTask = async () => {
+      try {
+        const axeData = evidence.domAudits.map(d => ({
+          pageUrl: d.pageUrl,
+          axe: d.audit?.axe,
+          deadButtons: d.audit?.deadButtons,
+          formFuzzing: d.audit?.formFuzzing
+        })).slice(0, 15);
+
+        const a11yPrompt = `Analyze WCAG @axe-core accessibility violations, click-verified dead buttons, and form fuzzing responses:
+Audit Data: ${JSON.stringify(axeData)}
+Identify confirmed accessibility, interactive, and form validation defects. Return ONLY a JSON array:
+[{"title": "...", "severity": "high"|"medium"|"low", "actual": "...", "expected": "...", "url": "...", "category": "accessibility-interactive"}]`;
+
+        const res = await geminiPool.callGeminiWithFallback(
+          { messages: [{ role: 'user', content: a11yPrompt }], temperature: 0.2 },
+          async (opts) => llmService.callLLM({ role: 'seo', persona: 'builder', ...opts })
+        );
+        const text = res?.choices?.[0]?.message?.content || res?.text || '';
+        const match = text.match(/\[[\s\S]*\]/);
+        if (match) {
+          const parsed = JSON.parse(match[0]);
+          if (Array.isArray(parsed)) return parsed;
+        }
+      } catch (aErr) {
+        console.warn('[websiteTester] A11y & interaction notice:', aErr.message);
+      }
+      return [];
+    };
+
+    // Task 4: Cross-Page Contradictions & Content Hygiene
+    const runContentContradictionsTask = async () => {
+      try {
+        const contentData = evidence.domAudits.map(d => ({
+          pageUrl: d.pageUrl,
+          placeholderIssues: d.audit?.placeholderIssues,
+          extractedStats: d.audit?.extractedPageStats,
+          pageHeadings: d.audit?.pageHeadings
+        })).slice(0, 20);
+
+        const hygienePrompt = `Analyze content hygiene, placeholder text (Lorem ipsum, undefined, NaN, [object Object]), and cross-page statistical contradictions:
+Extracted Claims from Homepage: ${JSON.stringify(purpose.explicitClaims || [])}
+Page Content Audit Data: ${JSON.stringify(contentData)}
+Identify contradictory numbers (e.g. 60 LPA vs 45 LPA, differing placement counts), template bugs, or branding defects. Return ONLY a JSON array:
+[{"title": "...", "severity": "medium"|"low"|"ux", "actual": "...", "expected": "...", "url": "...", "category": "contradiction-hygiene"}]`;
+
+        const res = await geminiPool.callGeminiWithFallback(
+          { messages: [{ role: 'user', content: hygienePrompt }], temperature: 0.2 },
+          async (opts) => llmService.callLLM({ role: 'seo', persona: 'builder', ...opts })
+        );
+        const text = res?.choices?.[0]?.message?.content || res?.text || '';
+        const match = text.match(/\[[\s\S]*\]/);
+        if (match) {
+          const parsed = JSON.parse(match[0]);
+          if (Array.isArray(parsed)) return parsed;
+        }
+      } catch (cErr) {
+        console.warn('[websiteTester] Contradiction triage notice:', cErr.message);
+      }
+      return [];
+    };
+
+    try {
+      const [vShots, bForensics, aInteractive, cContradictions] = await Promise.all([
+        runVisionTask(),
+        runBackendForensicsTask(),
+        runAxeInteractiveTask(),
+        runContentContradictionsTask()
+      ]);
+
+      triageFindings.push(...vShots, ...bForensics, ...aInteractive, ...cContradictions);
+      console.log(`[websiteTester] Phase 4 complete: aggregated ${triageFindings.length} findings across 4 parallel triage lanes.`);
+    } catch (phase4Err) {
+      console.warn('[websiteTester] Phase 4 triage error:', phase4Err.message);
     }
 
     // ─────────────────────────────────────────────────────────
-    // PHASE 5: DEEP CLAIM VERIFICATION (Claim vs Reality Matrix)
+    // PHASE 5: DEEP SYNTHESIS (max_tokens: 8192 + Strong Model)
     // ─────────────────────────────────────────────────────────
     await docRef.update({
       'progress.phase': 5,
-      'progress.label': 'Phase 5: Verifying site claims against captured network & DOM reality...',
+      'progress.label': 'Phase 5: Deep synthesis & contradiction verification (Claude Sonnet 4)...',
       'progress.done': 5
     });
 
-    const claimPrompt = `You are a Principal Software QA Architect and Senior Product Reliability Engineer.
+    const claimPrompt = `You are a Principal Software QA Architect and Senior Reliability Engineer.
 Analyze and synthesize all triage findings, runtime logs, and browser evidence for this website audit.
 Produce an in-depth, rigorous, highly explaining, and actionable audit report.
 
 SITE AUDITED: ${site.startUrl} ("${site.title}")
 AUTHENTICATION CONTEXT: ${JSON.stringify(testData.authSummary || { mode: 'guest' })}
 PURPOSE & JOURNEYS: ${JSON.stringify(purpose)}
-MARKETING CLAIMS TO VERIFY: ${JSON.stringify(purpose.explicitClaims || [])}
-TRIAGE FINDINGS: ${JSON.stringify(triageFindings.slice(0, 30))}
+MARKETING & STATISTICAL CLAIMS TO VERIFY: ${JSON.stringify(purpose.explicitClaims || [])}
+TRIAGE FINDINGS: ${JSON.stringify(triageFindings.slice(0, 35))}
 BROWSER CONSOLE ERRORS: ${JSON.stringify(evidence.console.slice(0, 25))}
 NETWORK ANOMALIES & FAILED REQUESTS: ${JSON.stringify(evidence.network.slice(0, 25))}
 DOM & RESPONSIVE AUDITS: ${JSON.stringify(evidence.domAudits.slice(0, 10))}
@@ -848,27 +1007,27 @@ SCREENSHOT LABELS & URLS: ${JSON.stringify(evidence.screenshots.map(s => ({ page
 Instructions:
 1. Executive Summary: Write a clear 2-3 paragraph executive summary explaining:
    - What the product is and who it serves.
-   - Overall health rating (Stable, Degraded, Critical).
-   - Core technical / UX bottlenecks observed during live browser interaction.
-   - If authenticated, include a dedicated evaluation of protected post-login dashboard modules, API authentication health (e.g. 401/403/500 errors), empty state bugs, broken sidebar navigation, and hardcoded vs dynamic dashboard data.
+   - Overall health rating (Stable, Degraded Performance, Critical Defects).
+   - Core technical, visual, accessibility, or backend bottlenecks.
+   - If authenticated, include evaluation of post-login dashboard modules, API authentication health, empty state bugs, and sidebar navigation.
 2. Claim Verification Matrix:
-   - For every marketing claim, assign a verdict ('VERIFIED', 'DISPROVEN', 'LIKELY', 'INCONCLUSIVE').
-   - Provide an in-depth "reasoning" with tangible evidence (what network requests, DOM elements, or missing states proved or questioned this claim).
-   - Provide a "businessImpact" (how this affects user conversion or brand credibility).
-3. Discovered Defects & Anomalies:
-   - Group and deduplicate findings into: 'confirmed' (hard technical failures like 4xx/5xx, net::ERR, script crashes), 'likely' (probable bugs), 'ux' (friction points, missing breadcrumbs/nav), or 'capability-verification' (feature gaps).
-   - Flag specific post-login defects (e.g. broken dashboard API endpoints returning 401/403/500, empty state bugs, broken sidebar navigation, unresponsive dashboard widgets, fake/hardcoded metrics vs real API data).
+   - For every claim in MARKETING & STATISTICAL CLAIMS, assign a verdict ('VERIFIED', 'DISPROVEN', 'LIKELY', 'INCONCLUSIVE').
+   - Provide concrete "reasoning" citing DOM text, stats, or network responses.
+   - Provide "businessImpact".
+3. Discovered Defects:
+   - Group findings: 'confirmed' (hard technical/API failures, 4xx/5xx, net::ERR), 'likely', 'ux', 'accessibility', 'visual-defect'.
+   - Avoid generic phrases like "Detected in browser audit logs" or "DOM/Script anomaly". Populate exact failed URLs, HTTP codes, console traces, or affected selectors.
    - For each finding, provide:
      * title: Clear and descriptive.
      * url: Exact route where it occurs.
      * severity: 'critical', 'high', 'medium', or 'low'.
-     * action: Specific reproduction steps taken by the automated browser.
-     * expected: What a healthy application should do.
-     * actual: Exact error message, HTTP code, or broken DOM state observed.
+     * action: Reproduction steps.
+     * expected: Expected behavior.
+     * actual: Exact error message, HTTP code, or broken DOM state.
      * evidence: Direct technical log or network URL excerpt.
-     * rootCause: Deep architectural / code-level explanation of why this bug is happening.
-     * fixRecommendation: Step-by-step actionable code/architecture fix for the developer.
-     * screenshotUrl: Exact matching screenshot URL from the evidence list or null.
+     * rootCause: Deep architectural / code-level explanation.
+     * fixRecommendation: Actionable code/architecture fix.
+     * screenshotUrl: Matching screenshot URL from evidence list or null.
 
 Respond ONLY with a valid JSON object in this format:
 {
@@ -893,7 +1052,7 @@ Respond ONLY with a valid JSON object in this format:
       "actual": "Observed failure...",
       "evidence": "Technical proof...",
       "screenshotUrl": "matching screenshot URL or null",
-      "category": "confirmed" | "likely" | "ux" | "capability-verification",
+      "category": "confirmed" | "likely" | "ux" | "accessibility" | "visual-defect",
       "severity": "critical" | "high" | "medium" | "low",
       "confidence": 0.95,
       "rootCause": "Deep technical root cause...",
@@ -903,22 +1062,25 @@ Respond ONLY with a valid JSON object in this format:
 }`;
 
     let synthesizedResult = {
-      summary: `Automated audit completed for ${site.startUrl}. Examined desktop and mobile rendering across key routes.`,
+      summary: `Automated audit completed for ${site.startUrl}. Examined desktop and mobile viewports across key routes.`,
       claimMatrix: [],
       findings: []
     };
 
     try {
-      // Explicitly pass max_tokens: 8192 so JSON is never cut off at 2,000 tokens
+      console.log(`[websiteTester] Running Phase 5 Deep Synthesis using strong model: ${llmService.strongModelName()} (max_tokens: 8192)...`);
       const phase5Res = await llmService.callLLM({
         role: 'builder',
+        persona: 'builder',
+        model: llmService.strongModelName(),
+        preferOpenRouter: true,
         messages: [{ role: 'user', content: claimPrompt }],
         max_tokens: 8192,
         temperature: 0.2
       });
 
       const rawText = phase5Res?.choices?.[0]?.message?.content || phase5Res?.text || '';
-      const parsed = parsePhase5Json(rawText);
+      const parsed = parseResilientJson(rawText);
       if (parsed) {
         synthesizedResult = parsed;
       } else {
@@ -927,7 +1089,6 @@ Respond ONLY with a valid JSON object in this format:
     } catch (phase5Err) {
       console.warn('[websiteTester] Phase 5 synthesis fallback (trying Gemini direct):', phase5Err.message);
 
-      // Attempt fallback via geminiPool directly with max_tokens: 8192
       try {
         const geminiDirectRes = await geminiPool.callGeminiDirect({
           messages: [{ role: 'user', content: claimPrompt }],
@@ -935,7 +1096,7 @@ Respond ONLY with a valid JSON object in this format:
           temperature: 0.2
         });
         const geminiText = geminiDirectRes?.choices?.[0]?.message?.content || geminiDirectRes?.text || '';
-        const parsedGemini = parsePhase5Json(geminiText);
+        const parsedGemini = parseResilientJson(geminiText);
         if (parsedGemini) {
           synthesizedResult = parsedGemini;
         } else {
@@ -944,12 +1105,10 @@ Respond ONLY with a valid JSON object in this format:
       } catch (geminiFallbackErr) {
         console.warn('[websiteTester] Phase 5 Gemini direct also failed, constructing evidence-backed fallback:', geminiFallbackErr.message);
 
-        // Populate deterministic, evidence-backed findings directly from captured signals
         synthesizedResult.findings = triageFindings.map((f, idx) => {
           let realEvidence = f.evidence || f.actual;
           let realRootCause = f.rootCause;
 
-          // Check if there is an exact matching network or console error
           const matchedNet = evidence.network?.find(n => n.url && (f.url ? n.url.includes(f.url) : true));
           const matchedConsole = evidence.console?.find(c => c.text && f.title && c.text.toLowerCase().includes(f.title.toLowerCase().slice(0, 20)));
 
@@ -969,7 +1128,7 @@ Respond ONLY with a valid JSON object in this format:
             } else if (matchedConsole) {
               realRootCause = `Uncaught script error in client JavaScript execution.`;
             } else {
-              realRootCause = `Discrepancy between DOM state and expected layout/behavior.`;
+              realRootCause = `Discrepancy between DOM/Visual state and expected layout.`;
             }
           }
 
@@ -992,7 +1151,7 @@ Respond ONLY with a valid JSON object in this format:
       }
     }
 
-    // Enforce claimMatrix population if empty but explicitClaims exist
+    // Guarantee claimMatrix is populated whenever explicitClaims exist
     const claimsToVerify = purpose.explicitClaims || [];
     if ((!synthesizedResult.claimMatrix || synthesizedResult.claimMatrix.length === 0) && claimsToVerify.length > 0) {
       console.log(`[websiteTester] Running dedicated claim verification pass for ${claimsToVerify.length} claims...`);
@@ -1015,7 +1174,6 @@ Evaluate each claim and return a JSON array:
         }
       } catch (claimPassErr) {
         console.warn('[websiteTester] Dedicated claim pass notice:', claimPassErr.message);
-        // Fallback matrix from explicit claims
         synthesizedResult.claimMatrix = claimsToVerify.slice(0, 10).map(c => ({
           claim: c,
           verdict: 'VERIFIED',
@@ -1025,7 +1183,6 @@ Evaluate each claim and return a JSON array:
       }
     }
 
-    // Associate screenshots with findings if matching URL exists
     const finalFindings = (synthesizedResult.findings || []).map((finding, idx) => {
       let matchedShot = null;
       if (finding.url && evidence.screenshots.length > 0) {
@@ -1067,7 +1224,6 @@ Evaluate each claim and return a JSON array:
       if (pdfBuffer) {
         const safeTitle = site.title ? site.title.replace(/[^a-zA-Z0-9]/g, '_') : 'Report';
         const filename = `Website_Audit_${safeTitle}_${Date.now()}.pdf`;
-        // Save using saveGeneratedFile to avoid text-extraction overhead and get proper record
         const uploadRes = await fileService.saveGeneratedFile(userId, pdfBuffer, filename, 'application/pdf');
         if (uploadRes?.url) {
           reportPdfRecord = {
@@ -1081,7 +1237,6 @@ Evaluate each claim and return a JSON array:
       console.warn('[websiteTester] Phase 6 PDF generation notice:', pdfErr.message);
     }
 
-    // Complete audit in Firestore
     await docRef.update({
       status: 'done',
       finishedAt: new Date().toISOString(),
