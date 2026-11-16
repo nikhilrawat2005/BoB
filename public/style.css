@@ -5040,6 +5040,27 @@ body.collab-on .collab-state { color: #fff; background: var(--green); }
   line-height: 1.4;
 }
 
+.tester-matrix-impact {
+  margin-top: 0.5rem;
+  font-size: 0.78rem;
+  background: rgba(99, 102, 241, 0.08);
+  border-left: 2px solid #6366f1;
+  padding: 0.3rem 0.5rem;
+  border-radius: 0 4px 4px 0;
+  color: #c7d2fe;
+}
+
+.tester-fix-box {
+  background: rgba(16, 185, 129, 0.08);
+  border-left: 2px solid #10b981;
+  padding: 0.4rem 0.6rem;
+  border-radius: 0 4px 4px 0;
+  margin-top: 0.25rem;
+  color: #a7f3d0;
+  font-size: 0.82rem;
+  line-height: 1.4;
+}
+
 .tester-filter-pills {
   display: flex;
   gap: 0.4rem;

@@ -299,49 +299,49 @@ Respond ONLY with a JSON object in this exact format:
         const pageUrl = item.url;
         const pageSafeName = pageUrl.replace(/[^a-zA-Z0-9]/g, '_').slice(-30);
 
-        // Upload Desktop WebP
-        if (item.screenshots?.desktopWebpBase64) {
-          try {
-            const uploadRes = await uploadScreenshotWebp(
-              userId,
-              item.screenshots.desktopWebpBase64,
-              `tester_desktop_${pageSafeName}_${Date.now()}.webp`
-            );
-            if (uploadRes?.url) {
-              uploadedScreenshots.push({
-                pageUrl,
-                viewport: '1280x720',
-                label: 'Desktop View',
-                fileId: uploadRes.id,
-                url: uploadRes.url
-              });
-            }
-          } catch (upErr) {
-            console.warn('[websiteTester] Failed to upload desktop screenshot:', upErr.message);
-          }
+    // Upload Desktop WebP
+    if (item.screenshots?.desktopWebpBase64) {
+      try {
+        const uploadRes = await uploadScreenshotWebp(
+          userId,
+          item.screenshots.desktopWebpBase64,
+          `tester_desktop_${pageSafeName}_${Date.now()}.webp`
+        );
+        if (uploadRes?.url) {
+          uploadedScreenshots.push({
+            pageUrl,
+            viewport: '1280x720',
+            label: `Desktop View (${pageUrl.replace(/^https?:\/\/[^/]+/i, '') || '/'})`,
+            fileId: uploadRes.id,
+            url: uploadRes.url
+          });
         }
+      } catch (upErr) {
+        console.warn('[websiteTester] Failed to upload desktop screenshot:', upErr.message);
+      }
+    }
 
-        // Upload Mobile WebP
-        if (item.screenshots?.mobileWebpBase64) {
-          try {
-            const uploadRes = await uploadScreenshotWebp(
-              userId,
-              item.screenshots.mobileWebpBase64,
-              `tester_mobile_${pageSafeName}_${Date.now()}.webp`
-            );
-            if (uploadRes?.url) {
-              uploadedScreenshots.push({
-                pageUrl,
-                viewport: '390x844',
-                label: 'Mobile Responsive View',
-                fileId: uploadRes.id,
-                url: uploadRes.url
-              });
-            }
-          } catch (upErr) {
-            console.warn('[websiteTester] Failed to upload mobile screenshot:', upErr.message);
-          }
+    // Upload Mobile WebP
+    if (item.screenshots?.mobileWebpBase64) {
+      try {
+        const uploadRes = await uploadScreenshotWebp(
+          userId,
+          item.screenshots.mobileWebpBase64,
+          `tester_mobile_${pageSafeName}_${Date.now()}.webp`
+        );
+        if (uploadRes?.url) {
+          uploadedScreenshots.push({
+            pageUrl,
+            viewport: '390x844',
+            label: `Mobile Responsive View (${pageUrl.replace(/^https?:\/\/[^/]+/i, '') || '/'})`,
+            fileId: uploadRes.id,
+            url: uploadRes.url
+          });
         }
+      } catch (upErr) {
+        console.warn('[websiteTester] Failed to upload mobile screenshot:', upErr.message);
+      }
+    }
 
         if (Array.isArray(item.errors)) newConsoleErrors.push(...item.errors);
         if (Array.isArray(item.networkAnomalies)) newNetworkAnomalies.push(...item.networkAnomalies);
@@ -451,47 +451,70 @@ Identify cross-page navigation, UX, or branding inconsistencies. Return a JSON a
       'progress.done': 5
     });
 
-    const claimPrompt = `You are an Autonomous AI Website Tester.
-Synthesize all triage findings and verify marketing claims against evidence.
+    const claimPrompt = `You are a Principal Software QA Architect and Senior Product Reliability Engineer.
+Analyze and synthesize all triage findings, runtime logs, and browser evidence for this website audit.
+Produce an in-depth, rigorous, highly explaining, and actionable audit report.
 
-SITE: ${site.startUrl} (${site.title})
-PURPOSE: ${JSON.stringify(purpose)}
-EXPLICIT CLAIMS: ${JSON.stringify(purpose.explicitClaims || [])}
-TRIAGE FINDINGS: ${JSON.stringify(triageFindings.slice(0, 25))}
-CAPTURED NETWORK & CONSOLE:
-Console: ${JSON.stringify(evidence.console.slice(0, 15))}
-Network: ${JSON.stringify(evidence.network.slice(0, 15))}
-SCREENSHOTS: ${JSON.stringify(evidence.screenshots.map(s => ({ pageUrl: s.pageUrl, label: s.label, url: s.url })))}
+SITE AUDITED: ${site.startUrl} ("${site.title}")
+PURPOSE & JOURNEYS: ${JSON.stringify(purpose)}
+MARKETING CLAIMS TO VERIFY: ${JSON.stringify(purpose.explicitClaims || [])}
+TRIAGE FINDINGS: ${JSON.stringify(triageFindings.slice(0, 30))}
+BROWSER CONSOLE ERRORS: ${JSON.stringify(evidence.console.slice(0, 25))}
+NETWORK ANOMALIES & FAILED REQUESTS: ${JSON.stringify(evidence.network.slice(0, 25))}
+DOM & RESPONSIVE AUDITS: ${JSON.stringify(evidence.domAudits.slice(0, 10))}
+SCREENSHOT LABELS & URLS: ${JSON.stringify(evidence.screenshots.map(s => ({ pageUrl: s.pageUrl, label: s.label, url: s.url })))}
 
-Task:
-Produce a structured synthesis of verified findings.
-Each finding MUST be categorized into one of: 'confirmed', 'likely', 'ux', 'capability-verification'.
-Severity MUST be: 'critical', 'high', 'medium', or 'low'.
+Instructions:
+1. Executive Summary: Write a clear 2-3 paragraph executive summary explaining:
+   - What the product is and who it serves.
+   - Overall health rating (Stable, Degraded, Critical).
+   - Core technical / UX bottlenecks observed during live browser interaction.
+2. Claim Verification Matrix:
+   - For every marketing claim, assign a verdict ('VERIFIED', 'DISPROVEN', 'LIKELY', 'INCONCLUSIVE').
+   - Provide an in-depth "reasoning" with tangible evidence (what network requests, DOM elements, or missing states proved or questioned this claim).
+   - Provide a "businessImpact" (how this affects user conversion or brand credibility).
+3. Discovered Defects & Anomalies:
+   - Group and deduplicate findings into: 'confirmed' (hard technical failures like 4xx/5xx, net::ERR, script crashes), 'likely' (probable bugs), 'ux' (friction points, missing breadcrumbs/nav), or 'capability-verification' (feature gaps).
+   - For each finding, provide:
+     * title: Clear and descriptive.
+     * url: Exact route where it occurs.
+     * severity: 'critical', 'high', 'medium', or 'low'.
+     * action: Specific reproduction steps taken by the automated browser.
+     * expected: What a healthy application should do.
+     * actual: Exact error message, HTTP code, or broken DOM state observed.
+     * evidence: Direct technical log or network URL excerpt.
+     * rootCause: Deep architectural / code-level explanation of why this bug is happening.
+     * fixRecommendation: Step-by-step actionable code/architecture fix for the developer.
+     * screenshotUrl: Exact matching screenshot URL from the evidence list or null.
 
-Respond ONLY with a JSON object:
+Respond ONLY with a valid JSON object in this format:
 {
-  "summary": "High-level audit executive summary (1-2 paragraphs)",
+  "summary": "Detailed 2-3 paragraph executive summary...",
+  "healthScore": 75,
+  "healthStatus": "Degraded Performance" | "Stable" | "Critical Defects",
   "claimMatrix": [
     {
       "claim": "Claim text",
-      "verdict": "VERIFIED" | "DISPROVEN" | "INCONCLUSIVE" | "UNTESTED",
-      "reasoning": "What the network/DOM proved or failed to prove"
+      "verdict": "VERIFIED" | "DISPROVEN" | "LIKELY" | "INCONCLUSIVE",
+      "reasoning": "Detailed technical reasoning based on DOM & network evidence...",
+      "businessImpact": "Impact on user trust and adoption..."
     }
   ],
   "findings": [
     {
       "id": "bug_1",
-      "title": "Clear concise issue title",
-      "url": "Specific page URL",
-      "action": "Steps that expose the issue",
-      "expected": "Expected behavior",
-      "actual": "Observed behavior",
-      "evidence": "Network status, console log, or DOM overflow metric",
+      "title": "Clear issue title",
+      "url": "https://...",
+      "action": "Navigated to page and initiated listener...",
+      "expected": "Expected behavior...",
+      "actual": "Observed failure...",
+      "evidence": "Technical proof...",
       "screenshotUrl": "matching screenshot URL or null",
       "category": "confirmed" | "likely" | "ux" | "capability-verification",
       "severity": "critical" | "high" | "medium" | "low",
       "confidence": 0.95,
-      "rootCause": "Probable root cause"
+      "rootCause": "Deep technical root cause...",
+      "fixRecommendation": "Concrete guidance on how developers can fix this..."
     }
   ]
 }`;
@@ -556,40 +579,64 @@ Respond ONLY with a JSON object:
 
     let reportPdfRecord = null;
     try {
+      const pdfSections = [
+        {
+          heading: '1. Executive Summary & Application Health',
+          body: `${synthesizedResult.summary || 'Audit executed across desktop and mobile viewports.'}\n\n` +
+            `Target Application: ${site.startUrl}\n` +
+            `Audit Title: ${site.title || 'Web Application'}\n` +
+            `Health Status: ${synthesizedResult.healthStatus || 'Evaluated'}` +
+            (synthesizedResult.healthScore ? ` (${synthesizedResult.healthScore}/100)` : '') + '\n' +
+            `Total Pages Explored: ${site.pageCount || 1}\n` +
+            `Total Detected Findings: ${finalFindings.length}`
+        },
+        {
+          heading: '2. Product Purpose & Discovered User Journeys',
+          body: `Inferred Core Purpose:\n${purpose.summary || 'Web Application'}\n\n` +
+            `Key User Journeys Tested:\n${(purpose.primaryUserJourneys || []).map(j => `• ${j}`).join('\n')}\n\n` +
+            `Identified Content/Page Types:\n${(purpose.contentTypes || []).map(c => `• ${c}`).join('\n')}`
+        },
+        {
+          heading: '3. Marketing Claims vs. Browser Reality Matrix',
+          body: (synthesizedResult.claimMatrix && synthesizedResult.claimMatrix.length > 0)
+            ? synthesizedResult.claimMatrix.map(m => {
+                return `[${m.verdict}] "${m.claim}"\n` +
+                  `Evidence & Analysis: ${m.reasoning || 'Evaluated against browser runtime.'}\n` +
+                  (m.businessImpact ? `Business & Trust Impact: ${m.businessImpact}\n` : '');
+              }).join('\n')
+            : 'No explicit marketing claims verified during this automated run.'
+        },
+        {
+          heading: '4. Deep Technical & UX Findings',
+          body: finalFindings.length > 0
+            ? finalFindings.map((f, i) => {
+                return `─────────────────────────────────────────────────────────────\n` +
+                  `FINDING #${i + 1}: [${(f.severity || 'MEDIUM').toUpperCase()}] [${(f.category || 'DEFECT').toUpperCase()}] ${f.title}\n` +
+                  `URL: ${f.url || site.startUrl}\n` +
+                  `Reproduction Action: ${f.action || 'Page navigation and background listeners'}\n` +
+                  `Expected Behavior: ${f.expected || 'Clean execution without errors'}\n` +
+                  `Actual Observed: ${f.actual || 'Defect detected in runtime'}\n` +
+                  `Evidence: ${f.evidence || 'Captured in browser network/console trace'}\n` +
+                  `Root Cause: ${f.rootCause || 'Unspecified runtime/configuration issue'}\n` +
+                  (f.fixRecommendation ? `Recommended Fix: ${f.fixRecommendation}\n` : '') +
+                  (f.screenshotUrl ? `Visual Evidence: ${f.screenshotUrl}\n` : '');
+              }).join('\n')
+            : 'No defects or anomalies detected during this automated test run.'
+        },
+        {
+          heading: '5. Methodology & Browser Test Protocol',
+          body: `This audit was executed autonomously using headless Chromium via Playwright on a stateless worker.\n` +
+            `• Viewports Tested: Desktop (1280x720) and Mobile Responsive (390x844).\n` +
+            `• Analyzed Signals: DOM horizontal scroll overflow, broken asset links, dead navigation targets, console errors, HTTP >=400 failures, and streaming sync anomalies.\n` +
+            `• Screenshots were compressed to WebP (Quality 65) and permanently archived in Cloudinary.`
+        }
+      ];
+
       const pdfSpec = {
         format: 'pdf',
-        title: `Bob Autonomous AI Website Audit - ${site.title || site.startUrl}`,
+        title: `Autonomous AI Website Audit Report - ${site.title || site.startUrl}`,
         filename: `website_audit_${testId}.pdf`,
-        sections: [
-          {
-            heading: '1. Executive Summary',
-            body: `${synthesizedResult.summary || 'Audit executed across desktop and mobile viewports.'}\n\nSite: ${site.startUrl}\nPages Explored: ${site.pageCount || 1}\nTotal Findings: ${finalFindings.length}`
-          },
-          {
-            heading: '2. Purpose & Feature Inference',
-            body: `Inferred Purpose: ${purpose.summary || 'Web Application'}\n\nPrimary User Journeys:\n${(purpose.primaryUserJourneys || []).map(j => `• ${j}`).join('\n')}\n\nKey Claims:\n${(purpose.explicitClaims || []).map(c => `• ${c}`).join('\n')}`
-          },
-          {
-            heading: '3. Claim vs. Reality Verification Matrix',
-            body: (synthesizedResult.claimMatrix && synthesizedResult.claimMatrix.length > 0)
-              ? synthesizedResult.claimMatrix.map(m => `[${m.verdict}] ${m.claim}\nReasoning: ${m.reasoning}`).join('\n\n')
-              : 'No explicit claims evaluated.'
-          },
-          {
-            heading: '4. Categorized Findings & Evidence Trails',
-            body: finalFindings.length > 0
-              ? finalFindings.map((f, i) => {
-                  return `${i + 1}. [${f.severity ? f.severity.toUpperCase() : 'MEDIUM'}] [${f.category || 'CONFIRMED'}] ${f.title}\n` +
-                    `URL: ${f.url || site.startUrl}\n` +
-                    `Expected: ${f.expected || 'N/A'}\n` +
-                    `Actual: ${f.actual || 'N/A'}\n` +
-                    `Evidence: ${f.evidence || 'Recorded in browser trace'}\n` +
-                    `Root Cause: ${f.rootCause || 'N/A'}\n` +
-                    (f.screenshotUrl ? `Screenshot: ${f.screenshotUrl}\n` : '');
-                }).join('\n')
-              : 'No critical defects found during this automated test run.'
-          }
-        ]
+        sections: pdfSections
       };
 
       const pdfBuffer = await documentGenerator.generatePdf(pdfSpec);

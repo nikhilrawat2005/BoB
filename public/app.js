@@ -8487,6 +8487,7 @@ function renderWebsiteTestDetail(test) {
               <span class="tester-badge-pill ${vClass}">${escHtml(m.verdict)}</span>
             </div>
             <p class="tester-matrix-reason">${escHtml(m.reasoning)}</p>
+            ${m.businessImpact ? `<div class="tester-matrix-impact"><strong>Impact:</strong> ${escHtml(m.businessImpact)}</div>` : ''}
           </div>
         `;
       }).join('');
@@ -8558,6 +8559,7 @@ function renderTesterFindings() {
           </div>
           ${f.evidence ? `<div class="tester-finding-row"><span class="tester-lbl">Evidence:</span><code class="tester-code">${escHtml(f.evidence)}</code></div>` : ''}
           ${f.rootCause ? `<div class="tester-finding-row"><span class="tester-lbl">Root Cause:</span><span>${escHtml(f.rootCause)}</span></div>` : ''}
+          ${f.fixRecommendation ? `<div class="tester-finding-row tester-fix-box"><span class="tester-lbl">Fix Guidance:</span><span>💡 ${escHtml(f.fixRecommendation)}</span></div>` : ''}
         </div>
         ${f.screenshotUrl ? `
           <div class="tester-finding-shot">

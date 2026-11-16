@@ -386,11 +386,11 @@ async function executePlaywrightPipeline({ testId, userId, url, callbackUrl }) {
             const actions = [];
             const searchInput = document.querySelector('input[type="search"], input[name*="search" i], input[placeholder*="search" i]');
             if (searchInput) {
-              actions.push({ element: 'search_input', found: true });
+              actions.push({ element: 'search_input', found: true, placeholder: searchInput.placeholder || '' });
             }
-            const tabs = Array.from(document.querySelectorAll('[role="tab"], .tab, button[data-tab]')).slice(0, 2);
+            const tabs = Array.from(document.querySelectorAll('[role="tab"], .tab, button[data-tab], nav a, header a')).slice(0, 5);
             tabs.forEach((t) => {
-              actions.push({ element: 'tab', text: (t.innerText || '').slice(0, 30) });
+              actions.push({ element: 'nav_item', text: (t.innerText || t.textContent || '').trim().slice(0, 40) });
             });
             return actions;
           });
@@ -408,10 +408,12 @@ async function executePlaywrightPipeline({ testId, userId, url, callbackUrl }) {
         const mobileAudit = await page.evaluate(() => {
           const scrollWidth = document.documentElement.scrollWidth;
           const clientWidth = window.innerWidth;
+          const mobileNavToggle = document.querySelector('button[aria-label*="menu" i], button.hamburger, .menu-toggle');
           return {
             hasMobileOverflow: scrollWidth > (clientWidth + 5),
             scrollWidth,
-            clientWidth
+            clientWidth,
+            hasMobileNav: Boolean(mobileNavToggle)
           };
         }).catch(() => null);
 
