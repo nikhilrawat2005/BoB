@@ -586,6 +586,8 @@ async function performAuthentication(context, page, startUrl, authConfig) {
       await page.goto(signupUrl, { waitUntil: 'domcontentloaded', timeout: 20000 });
       await page.waitForTimeout(1500);
 
+      let formSubmitted = false;
+
       const hasSignupInput = await page.evaluate(() => {
         return Boolean(document.querySelector('input[type="password"], input[type="email"]'));
       }).catch(() => false);
@@ -603,101 +605,159 @@ async function performAuthentication(context, page, startUrl, authConfig) {
         await page.waitForTimeout(2500);
       }
 
-      // Try creating real mail.tm inbox
-      const mailInbox = new MailTmInbox();
-      const mailTmCreated = await mailInbox.createInbox();
+      // Check if registration form fields actually exist
+      const formFieldsFound = await page.evaluate(() => {
+        const hasEmail = Boolean(document.querySelector('input[type="email"], input[name*="email" i], input[id*="email" i]'));
+        const hasPw = Boolean(document.querySelector('input[type="password"]'));
+        return hasEmail || hasPw;
+      }).catch(() => false);
 
-      const testEmail = mailTmCreated ? mailInbox.email : `bob.audit.${Date.now()}@testmail.app`;
-      const testPassword = mailTmCreated ? mailInbox.password : `BobAudit#${new Date().getFullYear()}!`;
-      const testName = 'Bob QA Tester';
+      if (!formFieldsFound) {
+        console.log('[testerCore] No signup or registration form found on this site; proceeding with public audit.');
+        result.authenticated = false;
+        result.authError = 'No signup or registration form found on this site; proceeded with public audit.';
+        result.postLoginUrl = page.url();
+        const landingPng = await page.screenshot({ fullPage: false, type: 'png' }).catch(() => null);
+        result.authScreenshotBase64 = await compressScreenshotWebp(landingPng);
+      } else {
+        // Try creating real mail.tm inbox
+        const mailInbox = new MailTmInbox();
+        const mailTmCreated = await mailInbox.createInbox();
 
-      await page.evaluate(({ name, email, password }) => {
-        const nameInput = document.querySelector('input[name*="name" i], input[id*="name" i], input[placeholder*="name" i]');
-        if (nameInput) {
-          nameInput.focus();
-          nameInput.value = name;
-          nameInput.dispatchEvent(new Event('input', { bubbles: true }));
-        }
+        const testEmail = mailTmCreated ? mailInbox.email : `bob.audit.${Date.now()}@testmail.app`;
+        const testPassword = mailTmCreated ? mailInbox.password : `BobAudit#${new Date().getFullYear()}!`;
+        const testName = 'Bob QA Tester';
 
-        const emailInput = document.querySelector('input[type="email"], input[name*="email" i], input[id*="email" i]');
-        if (emailInput) {
-          emailInput.focus();
-          emailInput.value = email;
-          emailInput.dispatchEvent(new Event('input', { bubbles: true }));
-        }
+        await page.evaluate(({ name, email, password }) => {
+          const nameInput = document.querySelector('input[name*="name" i], input[id*="name" i], input[placeholder*="name" i]');
+          if (nameInput) {
+            nameInput.focus();
+            nameInput.value = name;
+            nameInput.dispatchEvent(new Event('input', { bubbles: true }));
+          }
 
-        const pwInputs = Array.from(document.querySelectorAll('input[type="password"]'));
-        pwInputs.forEach((p) => {
-          p.focus();
-          p.value = password;
-          p.dispatchEvent(new Event('input', { bubbles: true }));
-        });
+          const emailInput = document.querySelector('input[type="email"], input[name*="email" i], input[id*="email" i]');
+          if (emailInput) {
+            emailInput.focus();
+            emailInput.value = email;
+            emailInput.dispatchEvent(new Event('input', { bubbles: true }));
+          }
 
-        // Accept checkboxes if any
-        const checkboxes = Array.from(document.querySelectorAll('input[type="checkbox"]'));
-        checkboxes.forEach(c => { if (!c.checked) c.click(); });
-      }, { name: testName, email: testEmail, password: testPassword }).catch(() => {});
+          const pwInputs = Array.from(document.querySelectorAll('input[type="password"]'));
+          pwInputs.forEach((p) => {
+            p.focus();
+            p.value = password;
+            p.dispatchEvent(new Event('input', { bubbles: true }));
+          });
 
-      await page.waitForTimeout(500);
+          // Accept checkboxes if any
+          const checkboxes = Array.from(document.querySelectorAll('input[type="checkbox"]'));
+          checkboxes.forEach(c => { if (!c.checked) c.click(); });
+        }, { name: testName, email: testEmail, password: testPassword }).catch(() => {});
 
-      // Submit Registration
-      await page.evaluate(() => {
-        const submitBtn = document.querySelector('button[type="submit"], input[type="submit"]');
-        if (submitBtn) {
-          submitBtn.click();
-          return;
-        }
-        const buttons = Array.from(document.querySelectorAll('button'));
-        const regBtn = buttons.find(b => /sign\s*up|register|create|get\s*started/i.test(b.innerText || ''));
-        if (regBtn) regBtn.click();
-      }).catch(() => {});
+        await page.waitForTimeout(500);
 
-      await Promise.race([
-        page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 8000 }).catch(() => {}),
-        page.waitForTimeout(4500)
-      ]);
-
-      // Check if site asks for Email OTP or verification link
-      if (mailTmCreated) {
-        const asksForOtp = await page.evaluate(() => {
-          const bodyText = document.body ? document.body.innerText : '';
-          const hasOtpPrompt = /enter (the )?(code|otp|verification)|check your email|we sent a code/i.test(bodyText);
-          const hasInput = Boolean(document.querySelector('input[name*="code" i], input[name*="otp" i], input[autocomplete="one-time-code"], input[placeholder*="code" i]'));
-          return hasOtpPrompt || hasInput;
+        // Submit Registration
+        const didSubmit = await page.evaluate(() => {
+          const submitBtn = document.querySelector('button[type="submit"], input[type="submit"]');
+          if (submitBtn) {
+            submitBtn.click();
+            return true;
+          }
+          const buttons = Array.from(document.querySelectorAll('button'));
+          const regBtn = buttons.find(b => /sign\s*up|register|create|get\s*started/i.test(b.innerText || ''));
+          if (regBtn) {
+            regBtn.click();
+            return true;
+          }
+          return false;
         }).catch(() => false);
 
-        if (asksForOtp) {
-          console.log('[testerCore] Detected OTP / Verification screen on registration. Polling mail.tm...');
-          const emailMessage = await mailInbox.pollForOtpOrLink(20000);
-          if (emailMessage?.otp) {
-            console.log(`[testerCore] Found email OTP: ${emailMessage.otp}. Filling into form...`);
-            await page.evaluate((otpVal) => {
-              const input = document.querySelector('input[name*="code" i], input[name*="otp" i], input[autocomplete="one-time-code"], input[placeholder*="code" i], input[type="text"]');
-              if (input) {
-                input.focus();
-                input.value = otpVal;
-                input.dispatchEvent(new Event('input', { bubbles: true }));
-                input.dispatchEvent(new Event('change', { bubbles: true }));
-              }
-            }, emailMessage.otp).catch(() => {});
+        if (didSubmit) {
+          formSubmitted = true;
+        } else {
+          // Attempt enter press if submit button not directly clicked
+          await page.keyboard.press('Enter');
+          formSubmitted = true;
+        }
 
-            await page.keyboard.press('Enter');
-            await page.waitForTimeout(3000);
-          } else if (emailMessage?.verifyUrl) {
-            console.log(`[testerCore] Found email verification URL: ${emailMessage.verifyUrl}. Navigating...`);
-            await page.goto(emailMessage.verifyUrl, { waitUntil: 'domcontentloaded', timeout: 15000 }).catch(() => {});
-            await page.waitForTimeout(3000);
+        await Promise.race([
+          page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 8000 }).catch(() => {}),
+          page.waitForTimeout(4500)
+        ]);
+
+        // Check if site asks for Email OTP or verification link
+        if (mailTmCreated) {
+          const asksForOtp = await page.evaluate(() => {
+            const bodyText = document.body ? document.body.innerText : '';
+            const hasOtpPrompt = /enter (the )?(code|otp|verification)|check your email|we sent a code/i.test(bodyText);
+            const hasInput = Boolean(document.querySelector('input[name*="code" i], input[name*="otp" i], input[autocomplete="one-time-code"], input[placeholder*="code" i]'));
+            return hasOtpPrompt || hasInput;
+          }).catch(() => false);
+
+          if (asksForOtp) {
+            console.log('[testerCore] Detected OTP / Verification screen on registration. Polling mail.tm...');
+            const emailMessage = await mailInbox.pollForOtpOrLink(20000);
+            if (emailMessage?.otp) {
+              console.log(`[testerCore] Found email OTP: ${emailMessage.otp}. Filling into form...`);
+              await page.evaluate((otpVal) => {
+                const input = document.querySelector('input[name*="code" i], input[name*="otp" i], input[autocomplete="one-time-code"], input[placeholder*="code" i], input[type="text"]');
+                if (input) {
+                  input.focus();
+                  input.value = otpVal;
+                  input.dispatchEvent(new Event('input', { bubbles: true }));
+                  input.dispatchEvent(new Event('change', { bubbles: true }));
+                }
+              }, emailMessage.otp).catch(() => {});
+
+              await page.keyboard.press('Enter');
+              await page.waitForTimeout(3000);
+            } else if (emailMessage?.verifyUrl) {
+              console.log(`[testerCore] Found email verification URL: ${emailMessage.verifyUrl}. Navigating...`);
+              await page.goto(emailMessage.verifyUrl, { waitUntil: 'domcontentloaded', timeout: 15000 }).catch(() => {});
+              await page.waitForTimeout(3000);
+            }
           }
         }
+
+        const postUrl = page.url();
+        result.postLoginUrl = postUrl;
+
+        if (!formSubmitted) {
+          result.authenticated = false;
+          result.authError = 'No signup or registration form found on this site; proceeded with public audit.';
+        } else {
+          // Require BOTH:
+          // 1. postUrl is not a /signup, /register, or /login page, AND
+          // 2. At least one positive post-login signal exists
+          const isNotOnAuthPage = !/\/(signup|register|login|signin)/i.test(postUrl);
+          const postSignals = await page.evaluate(() => {
+            const bodyText = document.body ? document.body.innerText : '';
+            const hasAuthText = Boolean(bodyText.match(/logout|sign\s*out|dashboard|my\s*account/i));
+            const hasSidebarOrAvatar = Boolean(document.querySelector('aside, nav[class*="sidebar" i], [class*="dashboard" i], img[class*="avatar" i], [aria-label*="profile" i]'));
+            let hasAuthStorage = false;
+            try {
+              const keys = Object.keys(window.localStorage || {});
+              hasAuthStorage = keys.some(k => /token|auth|session|jwt|user/i.test(k));
+            } catch (_) {}
+            return { hasAuthText, hasSidebarOrAvatar, hasAuthStorage };
+          }).catch(() => ({ hasAuthText: false, hasSidebarOrAvatar: false, hasAuthStorage: false }));
+
+          const cookies = await context.cookies().catch(() => []);
+          const hasAuthCookie = cookies.some(c => /sess|auth|token|jwt|id/i.test(c.name));
+
+          const positiveSignal = postSignals.hasAuthText || postSignals.hasSidebarOrAvatar || postSignals.hasAuthStorage || hasAuthCookie;
+          result.authenticated = isNotOnAuthPage && positiveSignal;
+
+          if (!result.authenticated) {
+            result.authError = 'Registration did not yield an authenticated session; proceeded with public audit.';
+          }
+        }
+
+        const landingPng = await page.screenshot({ fullPage: false, type: 'png' }).catch(() => null);
+        result.authScreenshotBase64 = await compressScreenshotWebp(landingPng);
+        console.log(`[testerCore] Auto-signup complete. Authenticated: ${result.authenticated} - URL: ${postUrl}`);
       }
-
-      const postUrl = page.url();
-      result.postLoginUrl = postUrl;
-      result.authenticated = !/\/(signup|register)/i.test(postUrl);
-
-      const landingPng = await page.screenshot({ fullPage: false, type: 'png' }).catch(() => null);
-      result.authScreenshotBase64 = await compressScreenshotWebp(landingPng);
-      console.log(`[testerCore] Auto-signup complete. Authenticated: ${result.authenticated} - URL: ${postUrl}`);
     }
 
     // Capture Reusable savedAuthSnapshot for Session Persistence Recovery

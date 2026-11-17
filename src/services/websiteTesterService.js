@@ -101,6 +101,52 @@ function parseResilientJson(rawText) {
 }
 
 /**
+ * Normalizes URL pathname for strict per-page screenshot matching.
+ * Ignores 'www.', protocol, and trailing slashes.
+ */
+function normalizeUrlPath(rawUrl) {
+  if (!rawUrl || typeof rawUrl !== 'string') return '/';
+  try {
+    // Strip any [Tab: ...] suffix from pageUrl before URL parse
+    const cleanUrl = rawUrl.replace(/\s*\[Tab:[^\]]*\]/i, '').trim();
+    const parsed = new URL(cleanUrl.startsWith('http') ? cleanUrl : `https://${cleanUrl}`);
+    const normalized = parsed.pathname.replace(/\/+$/, '') || '/';
+    return normalized.toLowerCase();
+  } catch (_) {
+    const withoutProtocol = rawUrl.replace(/^https?:\/\//i, '').replace(/\s*\[Tab:[^\]]*\]/i, '').trim();
+    const slashIdx = withoutProtocol.indexOf('/');
+    if (slashIdx === -1) return '/';
+    const pathOnly = withoutProtocol.slice(slashIdx).split(/[?#]/)[0].replace(/\/+$/, '') || '/';
+    return pathOnly.toLowerCase();
+  }
+}
+
+/**
+ * Matches a screenshot strictly against a finding's URL based on normalized pathname.
+ * Does not fall back to the homepage screenshot when routes differ.
+ */
+function matchScreenshotForUrl(findingUrl, screenshots) {
+  if (!findingUrl || !Array.isArray(screenshots) || screenshots.length === 0) {
+    return null;
+  }
+  const targetPath = normalizeUrlPath(findingUrl);
+
+  // 1. Exact pageUrl match
+  const exactMatch = screenshots.find(s => s && s.pageUrl === findingUrl);
+  if (exactMatch && exactMatch.url) return exactMatch.url;
+
+  // 2. Normalized pathname match
+  const pathMatch = screenshots.find(s => {
+    if (!s || !s.pageUrl) return false;
+    return normalizeUrlPath(s.pageUrl) === targetPath;
+  });
+  if (pathMatch && pathMatch.url) return pathMatch.url;
+
+  // No specific screenshot matched for this route
+  return null;
+}
+
+/**
  * Builds clean PDF specification sections with standard ASCII rules.
  * Zero mojibake in PDFKit's Helvetica font.
  */
@@ -586,6 +632,11 @@ async function handleWorkerWebhook(payload) {
   if (event === 'phase1_complete') {
     const { site, discoveryData, authResult } = payload;
 
+    // Persist homepage live text sample in the site object for Phase 5 claim verification
+    if (discoveryData?.homepage?.textSample && site) {
+      site.homepageTextSample = (discoveryData.homepage.textSample || '').slice(0, 5000);
+    }
+
     let authScreenshotUrl = null;
     if (authResult?.authScreenshotBase64) {
       try {
@@ -1014,6 +1065,7 @@ SITE AUDITED: ${site.startUrl} ("${site.title}")
 AUTHENTICATION CONTEXT: ${JSON.stringify(testData.authSummary || { mode: 'guest' })}
 PURPOSE & JOURNEYS: ${JSON.stringify(purpose)}
 MARKETING & STATISTICAL CLAIMS TO VERIFY: ${JSON.stringify(purpose.explicitClaims || [])}
+HOMEPAGE LIVE TEXT: ${site.homepageTextSample || ''}
 TRIAGE FINDINGS: ${JSON.stringify(triageFindings.slice(0, 35))}
 BROWSER CONSOLE ERRORS: ${JSON.stringify(evidence.console.slice(0, 25))}
 NETWORK ANOMALIES & FAILED REQUESTS: ${JSON.stringify(evidence.network.slice(0, 25))}
@@ -1027,12 +1079,20 @@ Instructions:
    - Core technical, visual, accessibility, or backend bottlenecks.
    - If authenticated, include evaluation of post-login dashboard modules, API authentication health, empty state bugs, and sidebar navigation.
 2. Claim Verification Matrix:
-   - For every claim in MARKETING & STATISTICAL CLAIMS, assign a verdict ('VERIFIED', 'DISPROVEN', 'LIKELY', 'INCONCLUSIVE').
+   - For every claim in MARKETING & STATISTICAL CLAIMS, assign a verdict ('VERIFIED', 'DISPROVEN', 'CONTRADICTED', 'LIKELY', or 'INCONCLUSIVE'):
+     * If a claim (e.g. "Autonomous College since 2025", "8090 Students in Campus", "24000+ Alumni Worldwide", "2690+ Scopus Publication", "B.Tech. CSE with 900 seats") is explicitly present in the captured HOMEPAGE LIVE TEXT or crawled page content and NOT contradicted by another page, mark it 'VERIFIED' (noting "Verified as explicitly stated on the live page; external third-party/regulatory proof not audited").
+     * If contradicted by another page (like "60 LPA" vs "45 LPA" or "1692 Offers" vs "1290 offers"), mark it 'DISPROVEN' (or 'CONTRADICTED') and cite both conflicting pages.
+     * Reserve 'INCONCLUSIVE' ONLY when the claim text itself could not be located in any crawled page.
    - Provide concrete "reasoning" citing DOM text, stats, or network responses.
    - Provide "businessImpact".
 3. Discovered Defects:
    - Group findings: 'confirmed' (hard technical/API failures, 4xx/5xx, net::ERR), 'likely', 'ux', 'accessibility', 'visual-defect'.
    - Avoid generic phrases like "Detected in browser audit logs" or "DOM/Script anomaly". Populate exact failed URLs, HTTP codes, console traces, or affected selectors.
+   - For each finding, generate a specific, non-generic rootCause and actionable fixRecommendation:
+     * VISUAL-DEFECT / visual: Cite CSS layout/positioning overlap, z-index clashing, insufficient color contrast ratios, or missing <meta charset="UTF-8"> encoding (e.g. "itâ€™s" mojibake) with an exact CSS/HTML/charset fix.
+     * ACCESSIBILITY-INTERACTIVE / ux: Cite missing ARIA label/alt text, low contrast, or unattached JS click listener with exact WCAG attributes or event handler fixes.
+     * CONTRADICTION-HYGIENE: Cite outdated or mismatched copy across pages (e.g. homepage vs /placement.html) and recommend syncing data from a single source of truth.
+     * NETWORK-BACKEND / confirmed: Cite actual failed HTTP status / console exception with exact failed URL and HTTP status code.
    - For each finding, provide:
      * title: Clear and descriptive.
      * url: Exact route where it occurs.
@@ -1041,8 +1101,8 @@ Instructions:
      * expected: Expected behavior.
      * actual: Exact error message, HTTP code, or broken DOM state.
      * evidence: Direct technical log or network URL excerpt.
-     * rootCause: Deep architectural / code-level explanation.
-     * fixRecommendation: Actionable code/architecture fix.
+     * rootCause: Deep architectural / code-level explanation specific to this defect.
+     * fixRecommendation: Actionable code/architecture fix tailored to this defect.
      * screenshotUrl: Matching screenshot URL from evidence list or null.
 
 Respond ONLY with a valid JSON object in this format:
@@ -1124,7 +1184,9 @@ Respond ONLY with a valid JSON object in this format:
         synthesizedResult.findings = triageFindings.map((f, idx) => {
           let realEvidence = f.evidence || f.actual;
           let realRootCause = f.rootCause;
+          let realFixRecommendation = f.fixRecommendation;
 
+          const categoryKey = (f.category || '').toLowerCase();
           const matchedNet = evidence.network?.find(n => n.url && (f.url ? n.url.includes(f.url) : true));
           const matchedConsole = evidence.console?.find(c => c.text && f.title && c.text.toLowerCase().includes(f.title.toLowerCase().slice(0, 20)));
 
@@ -1139,14 +1201,38 @@ Respond ONLY with a valid JSON object in this format:
           }
 
           if (!realRootCause) {
-            if (matchedNet) {
-              realRootCause = `Network resource failed with HTTP ${matchedNet.status || 'ERR'} status code at runtime.`;
+            if (categoryKey.includes('visual')) {
+              realRootCause = `CSS layout/positioning conflict, viewport element overlap, or missing <meta charset="UTF-8"> document encoding.`;
+            } else if (categoryKey.includes('access') || categoryKey.includes('ux') || categoryKey.includes('interact')) {
+              realRootCause = `Missing WCAG accessibility attributes (ARIA labels / alt text), insufficient color contrast ratio, or unbound JavaScript event listener.`;
+            } else if (categoryKey.includes('contra') || categoryKey.includes('hygiene')) {
+              realRootCause = `Desynchronized marketing figures or conflicting content across pages without a single source of truth.`;
+            } else if (matchedNet) {
+              realRootCause = `Failed HTTP status ${matchedNet.status || 'ERR'} on network request ${matchedNet.url || ''}.`;
             } else if (matchedConsole) {
-              realRootCause = `Uncaught script error in client JavaScript execution.`;
+              realRootCause = `Uncaught client JavaScript runtime exception: ${matchedConsole.text || 'script error'}.`;
             } else {
-              realRootCause = `Discrepancy between DOM/Visual state and expected layout.`;
+              realRootCause = `Discrepancy between DOM/Visual state and expected UI behavior at ${f.url || site.startUrl}.`;
             }
           }
+
+          if (!realFixRecommendation) {
+            if (categoryKey.includes('visual')) {
+              realFixRecommendation = `Ensure <meta charset="UTF-8"> is declared in <head> to eliminate mojibake encoding corruption, and adjust CSS flex/grid overflow and z-index to prevent layout collisions.`;
+            } else if (categoryKey.includes('access') || categoryKey.includes('ux') || categoryKey.includes('interact')) {
+              realFixRecommendation = `Add descriptive aria-label attributes, semantic HTML elements, and verify interactive button elements have active event listeners attached.`;
+            } else if (categoryKey.includes('contra') || categoryKey.includes('hygiene')) {
+              realFixRecommendation = `Standardize all institutional metrics and placement data across routes by pulling from a unified database or single content configuration.`;
+            } else if (matchedNet) {
+              realFixRecommendation = `Verify server route availability, CORS configuration, and network upstream connectivity for ${matchedNet.url || 'the endpoint'}.`;
+            } else if (matchedConsole) {
+              realFixRecommendation = `Add null-safety guards and wrap unhandled script promises to prevent client-side JavaScript execution failure.`;
+            } else {
+              realFixRecommendation = `Inspect component markup, styles, and event handlers on ${f.url || site.startUrl}.`;
+            }
+          }
+
+          const matchedShotUrl = matchScreenshotForUrl(f.url, evidence.screenshots || []);
 
           return {
             id: `bug_${idx + 1}`,
@@ -1156,12 +1242,12 @@ Respond ONLY with a valid JSON object in this format:
             expected: f.expected || 'Clean presentation without errors',
             actual: f.actual || 'Defect detected in runtime',
             evidence: realEvidence,
-            screenshotUrl: evidence.screenshots?.[0]?.url || null,
+            screenshotUrl: matchedShotUrl,
             category: f.category || (f.severity === 'critical' || f.severity === 'high' ? 'confirmed' : 'likely'),
             severity: f.severity || 'medium',
             confidence: 0.85,
             rootCause: realRootCause,
-            fixRecommendation: f.fixRecommendation || 'Inspect component markup and network response handling.'
+            fixRecommendation: realFixRecommendation
           };
         });
       }
@@ -1173,11 +1259,16 @@ Respond ONLY with a valid JSON object in this format:
       console.log(`[websiteTester] Running dedicated claim verification pass for ${claimsToVerify.length} claims...`);
       try {
         const claimPassPrompt = `Analyze these specific claims against the site discovery & findings:
+HOMEPAGE LIVE TEXT: ${site.homepageTextSample || ''}
 Claims: ${JSON.stringify(claimsToVerify)}
 Findings: ${JSON.stringify((synthesizedResult.findings || []).slice(0, 10))}
 DOM Audits: ${JSON.stringify((evidence.domAudits || []).slice(0, 5))}
+Instructions:
+- If a claim is explicitly present in HOMEPAGE LIVE TEXT or crawled pages and NOT contradicted by another page, mark it VERIFIED.
+- If contradicted by another page, mark it DISPROVEN or CONTRADICTED and cite both conflicting sources.
+- Reserve INCONCLUSIVE only when the claim text itself cannot be found anywhere in the captured copy.
 Evaluate each claim and return a JSON array:
-[{"claim": "...", "verdict": "VERIFIED"|"DISPROVEN"|"LIKELY"|"INCONCLUSIVE", "reasoning": "...", "businessImpact": "..."}]`;
+[{"claim": "...", "verdict": "VERIFIED"|"DISPROVEN"|"CONTRADICTED"|"LIKELY"|"INCONCLUSIVE", "reasoning": "...", "businessImpact": "..."}]`;
 
         const claimRes = await geminiPool.callGeminiWithFallback(
           { messages: [{ role: 'user', content: claimPassPrompt }], temperature: 0.2 },
@@ -1200,14 +1291,11 @@ Evaluate each claim and return a JSON array:
     }
 
     const finalFindings = (synthesizedResult.findings || []).map((finding, idx) => {
-      let matchedShot = null;
-      if (finding.url && evidence.screenshots.length > 0) {
-        matchedShot = evidence.screenshots.find(s => s.pageUrl === finding.url) || evidence.screenshots[0];
-      }
+      const matchedShotUrl = matchScreenshotForUrl(finding.url, evidence.screenshots || []);
       return {
         ...finding,
         id: finding.id || `bug_${idx + 1}`,
-        screenshotUrl: finding.screenshotUrl || (matchedShot ? matchedShot.url : null)
+        screenshotUrl: finding.screenshotUrl !== undefined ? finding.screenshotUrl : matchedShotUrl
       };
     });
 
