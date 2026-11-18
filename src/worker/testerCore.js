@@ -1358,13 +1358,28 @@ async function executePlaywrightPipeline({ testId, userId, url, callbackUrl, aut
         pageErrors.push({ type: 'uncaught_exception', text: (err.message || String(err)).slice(0, 300) });
       };
       const onRequestFailed = (req) => {
-        const failedUrl = req.url().slice(0, 200);
-        networkFailedUrls.add(req.url());
+        const failure = req.failure();
+        const errText = failure?.errorText || '';
+        const reqUrl = req.url();
+
+        // 1. Ignore Playwright/Chromium navigation cancellation artifacts & long-poll stream teardowns
+        if (errText.includes('ERR_ABORTED') || errText.includes('NS_BINDING_ABORTED')) {
+          return;
+        }
+
+        // 2. Ignore telemetry, analytics beacons, and long-polling stream endpoints
+        if (/firestore\.googleapis\.com\/.*\/Listen/i.test(reqUrl) ||
+            /google-analytics\.com|googletagmanager\.com|doubleclick\.net|clarity\.ms|hotjar\.com/i.test(reqUrl)) {
+          return;
+        }
+
+        const failedUrl = reqUrl.slice(0, 200);
+        networkFailedUrls.add(reqUrl);
         networkAnomalies.push({
           type: 'request_failed',
           url: failedUrl,
           method: req.method(),
-          failure: req.failure() ? req.failure().errorText : 'Unknown failure'
+          failure: errText || 'Unknown failure'
         });
       };
       const onResponse = async (res) => {
@@ -1556,6 +1571,41 @@ async function executePlaywrightPipeline({ testId, userId, url, callbackUrl, aut
             const checkStr = `${text} ${ariaLabel} ${el.className || ''}`;
             if (DESTRUCTIVE_REGEX.test(checkStr)) return;
 
+            // 1. Must be truly visible on screen
+            const rect = el.getBoundingClientRect();
+            const style = window.getComputedStyle(el);
+            if (rect.width === 0 || rect.height === 0 || style.display === 'none' || style.visibility === 'hidden' || parseFloat(style.opacity || '1') === 0) {
+              return;
+            }
+
+            // 2. Must not be inside a closed/hidden modal or drawer
+            if (el.closest('[aria-hidden="true"], .modal:not(.show):not(.open):not(.active), [class*="modal" i][style*="display: none"], [class*="modal" i][style*="display:none"], [class*="drawer" i][style*="display: none"]')) {
+              return;
+            }
+
+            // 3. Skip modal close (×) buttons (clicking close when no modal is open is a no-op)
+            const isCloseBtn = /^(×|✕|✖|x|close|dismiss|cancel)$/i.test(text) ||
+              el.matches('.close, [data-dismiss], [data-bs-dismiss], [aria-label*="close" i]');
+            if (isCloseBtn) return;
+
+            // 4. Skip form submit buttons when required form inputs are empty
+            const isSubmitBtn = el.type === 'submit' ||
+              Boolean(el.closest('form')) ||
+              /\b(submit|log\s*in|sign\s*in|publish|send|register|book\s*now|pay)\b/i.test(text) ||
+              /\b(submit|log\s*in|sign\s*in|publish|send|register|book\s*now|pay)\b/i.test(ariaLabel);
+            if (isSubmitBtn) {
+              const parentForm = el.closest('form') || el.closest('[role="form"]');
+              if (parentForm) {
+                const requiredInputs = Array.from(parentForm.querySelectorAll('input[required], textarea[required], select[required]'));
+                const hasEmptyRequired = requiredInputs.some(inp => !inp.value || inp.value.trim() === '');
+                if (hasEmptyRequired || requiredInputs.length === 0) {
+                  return;
+                }
+              } else {
+                return;
+              }
+            }
+
             const hasInteractiveAttr = el.hasAttribute('data-bs-toggle') ||
               el.hasAttribute('data-toggle') ||
               el.hasAttribute('data-bs-target') ||
@@ -1631,6 +1681,16 @@ async function executePlaywrightPipeline({ testId, userId, url, callbackUrl, aut
                 const el = document.querySelectorAll('a, button, [role="button"], [role="tab"]')[ctrlItem.checkIdx];
                 if (!el) return { changed: true };
 
+                // Re-verify visibility and modal/form guard
+                const rect = el.getBoundingClientRect();
+                const style = window.getComputedStyle(el);
+                if (rect.width === 0 || rect.height === 0 || style.display === 'none' || style.visibility === 'hidden' || parseFloat(style.opacity || '1') === 0) {
+                  return { changed: true };
+                }
+                if (el.closest('[aria-hidden="true"], .modal:not(.show):not(.open):not(.active), [class*="modal" i][style*="display: none"], [class*="modal" i][style*="display:none"], [class*="drawer" i][style*="display: none"]')) {
+                  return { changed: true };
+                }
+
                 const urlBefore = window.location.href;
                 const bodyLenBefore = document.body ? document.body.innerHTML.length : 0;
                 const scrollYBefore = window.scrollY;
@@ -1692,9 +1752,23 @@ async function executePlaywrightPipeline({ testId, userId, url, callbackUrl, aut
         const desktopPng = await page.screenshot({ fullPage: false, type: 'png' }).catch(() => null);
         desktopScreenshotBase64 = await compressScreenshotWebp(desktopPng);
 
-        // Mobile walk (390x844)
+        // Mobile walk (390x844) with clean layout recalculation
         await page.setViewportSize({ width: 390, height: 844 });
-        await page.waitForTimeout(500);
+        await page.evaluate(() => {
+          window.dispatchEvent(new Event('resize'));
+          window.scrollTo(0, 0);
+        }).catch(() => {});
+        await page.waitForTimeout(300);
+
+        // Check if desktop JS marquee/GSAP inline styles caused fake overflow; if so, do a clean mobile reload
+        const needsMobileReload = await page.evaluate(() => {
+          return document.documentElement.scrollWidth > (window.innerWidth + 5);
+        }).catch(() => false);
+
+        if (needsMobileReload) {
+          await page.reload({ waitUntil: 'domcontentloaded', timeout: 12000 }).catch(() => {});
+          await page.waitForTimeout(800);
+        }
 
         const mobileAudit = await page.evaluate(() => {
           const scrollWidth = document.documentElement.scrollWidth;
@@ -1779,11 +1853,26 @@ async function executePlaywrightPipeline({ testId, userId, url, callbackUrl, aut
         pageErrors.push({ type: 'uncaught_exception', text: (err.message || String(err)).slice(0, 300) });
       };
       const onRequestFailed = (req) => {
+        const failure = req.failure();
+        const errText = failure?.errorText || '';
+        const reqUrl = req.url();
+
+        // 1. Ignore Playwright/Chromium navigation cancellation artifacts & long-poll stream teardowns
+        if (errText.includes('ERR_ABORTED') || errText.includes('NS_BINDING_ABORTED')) {
+          return;
+        }
+
+        // 2. Ignore telemetry, analytics beacons, and long-polling stream endpoints
+        if (/firestore\.googleapis\.com\/.*\/Listen/i.test(reqUrl) ||
+            /google-analytics\.com|googletagmanager\.com|doubleclick\.net|clarity\.ms|hotjar\.com/i.test(reqUrl)) {
+          return;
+        }
+
         networkAnomalies.push({
           type: 'request_failed',
-          url: req.url().slice(0, 200),
+          url: reqUrl.slice(0, 200),
           method: req.method(),
-          failure: req.failure() ? req.failure().errorText : 'Unknown failure'
+          failure: errText || 'Unknown failure'
         });
       };
       const onResponse = async (res) => {

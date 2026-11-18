@@ -984,9 +984,11 @@ Return ONLY a JSON array of findings:
 Network Events: ${JSON.stringify(evidence.network.slice(0, 30))}
 Console Errors: ${JSON.stringify(evidence.console.slice(0, 25))}
 
-CRITICAL 404 RULE:
+CRITICAL 404 & NETWORK CANCELLATION RULES:
 - Only report a 404 page navigation defect when the event's sourceType is 'dom_link' or 'sitemap'. NEVER report a 404 for guessed 'js_bundle' routes.
 - When reporting a 404 broken route bug, explicitly cite "Linked from: <foundOnPage>" in the actual and evidence fields.
+- NEVER report net::ERR_ABORTED on Firestore Listen/channel streams, analytics, or lazy images as broken assets/APIs unless an HTTP >= 400 status code was actually recorded.
+- Report uncaught runtime JS exceptions (such as 'ReferenceError: Motion is not defined' or TypeError) as their own CONFIRMED Runtime Script Defect, rather than blaming unrelated buttons.
 
 Identify backend and API defects. Return ONLY a JSON array:
 [{"title": "...", "severity": "critical"|"high"|"medium"|"low", "actual": "...", "expected": "...", "url": "...", "category": "backend-api"}]`;
@@ -1019,6 +1021,11 @@ Identify backend and API defects. Return ONLY a JSON array:
 
         const a11yPrompt = `Analyze WCAG @axe-core accessibility violations, click-verified dead buttons, and form fuzzing responses:
 Audit Data: ${JSON.stringify(axeData)}
+
+RULES FOR DEAD BUTTONS & FORMS:
+- Do NOT flag form submit buttons (e.g. 'Log In', 'Submit Inquiry', 'Publish', 'Register') as dead buttons when required form inputs are empty.
+- Do NOT flag modal close ('×' or 'close') buttons on closed or background modals as dead buttons.
+
 Identify confirmed accessibility, interactive, and form validation defects. Return ONLY a JSON array:
 [{"title": "...", "severity": "high"|"medium"|"low", "actual": "...", "expected": "...", "url": "...", "category": "accessibility-interactive"}]`;
 
@@ -1125,6 +1132,10 @@ Instructions:
 3. Discovered Defects:
    - Group findings: 'confirmed' (hard technical/API failures, 4xx/5xx, net::ERR), 'likely', 'ux', 'accessibility', 'visual-defect'.
    - ZERO FALSE-POSITIVE 404 RULE: Only report a 404 page navigation bug when sourceType is 'dom_link' or 'sitemap'. NEVER report a 404 for guessed 'js_bundle' routes. Always state "Linked from: <foundOnPage>" in both actual and evidence fields.
+   - RUNTIME SCRIPT DEFECTS VS DEAD BUTTONS:
+     * Report uncaught runtime JS exceptions (like "ReferenceError: Motion is not defined" or unhandled script errors) as their own 'CONFIRMED' Runtime Script Defect, rather than falsely blaming unrelated buttons unless the click test explicitly proved a visible, non-form-submit trigger failed to open its target.
+     * Never report 'net::ERR_ABORTED' on Firestore Listen/channel, analytics beacons, or in-flight lazy image streams as broken assets unless an HTTP >= 400 status code or naturalWidth === 0 after scroll was recorded.
+     * Never report modal close ('×') buttons on closed modals or form submit buttons ('Log In', 'Submit Inquiry', 'Publish') with empty required inputs as dead buttons.
    - Avoid generic phrases like "Detected in browser audit logs" or "DOM/Script anomaly". Populate exact failed URLs, HTTP codes, console traces, or affected selectors.
    - For each finding, generate a specific, non-generic rootCause and actionable fixRecommendation:
      * VISUAL-DEFECT / visual: Cite CSS layout/positioning overlap, z-index clashing, insufficient color contrast ratios, or missing <meta charset="UTF-8"> encoding (e.g. "itâ€™s" mojibake) with an exact CSS/HTML/charset fix.
