@@ -8213,6 +8213,7 @@ function renderResumeAuditReport(report, historyMeta = null, pastHistory = null)
 
 let testerPollTimer = null;
 let currentTesterTestId = null;
+let currentTesterTestRecord = null;
 let testerFindingsCache = [];
 let testerActiveFilter = 'all';
 let testerSelectedAuthMode = 'auto_signup';
@@ -8490,6 +8491,7 @@ async function pollWebsiteTestStatus(testId) {
 }
 
 function renderWebsiteTestDetail(test) {
+  currentTesterTestRecord = test;
   const emptyEl = document.getElementById('tester-detail-empty');
   const contentEl = document.getElementById('tester-detail-content');
   const coldNoticeEl = document.getElementById('tester-cold-notice');
@@ -8602,6 +8604,10 @@ function renderWebsiteTestDetail(test) {
       pdfBtn.dataset.boundFetch = 'true';
       pdfBtn.addEventListener('click', async (e) => {
         e.preventDefault();
+        const activeTest = currentTesterTestRecord || test;
+        const activeTestId = activeTest?.testId || currentTesterTestId;
+        if (!activeTestId) return;
+
         const originalText = pdfBtn.innerHTML;
         pdfBtn.innerHTML = '<span>⏳ Generating PDF...</span>';
         pdfBtn.style.pointerEvents = 'none';
@@ -8609,8 +8615,8 @@ function renderWebsiteTestDetail(test) {
           const user = auth.currentUser;
           const token = user ? await user.getIdToken() : '';
           const urlWithFallback = token 
-            ? `/api/website-tester/${encodeURIComponent(test.testId)}/pdf?token=${encodeURIComponent(token)}`
-            : `/api/website-tester/${encodeURIComponent(test.testId)}/pdf`;
+            ? `/api/website-tester/${encodeURIComponent(activeTestId)}/pdf?token=${encodeURIComponent(token)}`
+            : `/api/website-tester/${encodeURIComponent(activeTestId)}/pdf`;
 
           const res = await fetch(urlWithFallback, {
             headers: token ? { Authorization: `Bearer ${token}` } : {}
@@ -8623,7 +8629,7 @@ function renderWebsiteTestDetail(test) {
 
           const blob = await res.blob();
           const blobUrl = URL.createObjectURL(blob);
-          const safeName = (test.site?.title || 'Website_Audit_Report').replace(/[^a-zA-Z0-9_-]/g, '_');
+          const safeName = (activeTest?.site?.title || activeTest?.url || 'Website_Audit_Report').replace(/[^a-zA-Z0-9_-]/g, '_');
           triggerDownload(blobUrl, `Bob_Website_Audit_${safeName}.pdf`, 3000);
 
           pdfBtn.innerHTML = '<span>✅ Downloaded!</span>';
@@ -8770,6 +8776,7 @@ async function deleteWebsiteTest(testId) {
   try {
     await apiFetch(`/api/website-tester/${encodeURIComponent(testId)}`, { method: 'DELETE' });
     currentTesterTestId = null;
+    currentTesterTestRecord = null;
     loadWebsiteTestsList();
     renderWebsiteTestDetail(null);
   } catch (err) {
