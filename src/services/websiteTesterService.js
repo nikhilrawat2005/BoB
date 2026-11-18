@@ -556,7 +556,9 @@ async function getWebsiteTestStatus(userId, testId, baseUrl) {
   if (!snap.exists) return null;
 
   const data = snap.data();
-  if (data.status === 'waking_worker' && !data.workerDispatched && baseUrl) {
+  // Self-heal / auto-dispatch retry: if test is still stuck in Phase 0 (dispatching) or waking_worker and not dispatched
+  const isStuckPhase0 = data.status === 'running' && !data.workerDispatched && Number(data.progress?.phase || 0) === 0;
+  if ((data.status === 'waking_worker' || isStuckPhase0) && !data.workerDispatched && baseUrl) {
     tryWakeAndDispatchWorker(testId, userId, data.url, baseUrl).catch(() => {});
   }
 
