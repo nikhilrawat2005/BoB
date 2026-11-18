@@ -121,14 +121,15 @@ const BINARY_EXTENSIONS_REGEX = /\.(pdf|zip|tar|gz|rar|7z|jpg|jpeg|png|gif|webp|
 function normalizeUrlString(rawUrl) {
   try {
     const parsed = new URL(rawUrl);
-    let clean = `${parsed.origin}${parsed.pathname}`;
-    if (clean.length > parsed.origin.length + 1 && clean.endsWith('/')) {
-      clean = clean.slice(0, -1);
+    // ONLY lowercase protocol and hostname. Preserve exact pathname and query casing!
+    const protocol = parsed.protocol.toLowerCase();
+    const hostname = parsed.hostname.toLowerCase();
+    const port = parsed.port ? `:${parsed.port}` : '';
+    let pathname = parsed.pathname;
+    if (pathname.length > 1 && pathname.endsWith('/')) {
+      pathname = pathname.slice(0, -1);
     }
-    if (parsed.search) {
-      clean += parsed.search;
-    }
-    return clean;
+    return `${protocol}//${hostname}${port}${pathname}${parsed.search}`;
   } catch {
     return rawUrl;
   }
@@ -972,8 +973,8 @@ async function executePlaywrightPipeline({ testId, userId, url, callbackUrl, aut
     }).catch(() => []);
 
     // LAYER A: DOM Link Extraction
-    const extractDomLinks = async () => {
-      return await page.evaluate(({ baseHost }) => {
+    const extractDomLinks = async (sourcePageUrl = page.url()) => {
+      return await page.evaluate(({ baseHost, sourcePageUrl }) => {
         const DESTRUCTIVE_REGEX = /\b(log\s*out|sign\s*out|signout|logout|delete\s*(account|profile|workspace|project|organization|team|data|all)|remove\s*account|close\s*account|deactivate|cancel\s*subscription|unsubscribe|revoke\s*token|reset\s*password|change\s*password|pay\s*now|complete\s*purchase|place\s*order|confirm\s*payment|transfer\s*funds|wipe|destroy)\b/i;
         const BINARY_REGEX = /\.(pdf|zip|tar|gz|rar|7z|jpg|jpeg|png|gif|webp|svg|ico|mp4|mov|avi|mkv|mp3|wav|docx?|xlsx?|pptx?|exe|dmg|apk)$/i;
 
@@ -1002,23 +1003,31 @@ async function executePlaywrightPipeline({ testId, userId, url, callbackUrl, aut
             if (!isInternalHost(parsed.hostname)) return;
             if (BINARY_REGEX.test(parsed.pathname)) return;
 
-            let cleanUrl = `${parsed.origin}${parsed.pathname}`;
-            if (cleanUrl.length > parsed.origin.length + 1 && cleanUrl.endsWith('/')) {
-              cleanUrl = cleanUrl.slice(0, -1);
+            // Preserve pathname and search case! Only lowercase protocol & hostname
+            const protocol = parsed.protocol.toLowerCase();
+            const hostname = parsed.hostname.toLowerCase();
+            const port = parsed.port ? `:${parsed.port}` : '';
+            let pathname = parsed.pathname;
+            if (pathname.length > 1 && pathname.endsWith('/')) {
+              pathname = pathname.slice(0, -1);
             }
-            if (parsed.search) {
-              cleanUrl += parsed.search;
-            }
+            const cleanUrl = `${protocol}//${hostname}${port}${pathname}${parsed.search}`;
 
             const isVisible = (a.offsetParent !== null) && (window.getComputedStyle(a).display !== 'none');
-            links.push({ url: cleanUrl, linkText: text, isVisible });
+            links.push({
+              url: cleanUrl,
+              linkText: text,
+              isVisible,
+              sourceType: 'dom_link',
+              foundOnPage: sourcePageUrl
+            });
           } catch {}
         });
         return links;
-      }, { baseHost: canonicalHost }).catch(() => []);
+      }, { baseHost: canonicalHost, sourcePageUrl }).catch(() => []);
     };
 
-    const initialDomLinks = await extractDomLinks();
+    const initialDomLinks = await extractDomLinks(postLoginUrl);
     for (const l of initialDomLinks) {
       if (!visitedUrls.has(l.url) && discoveredLinks.length < MAX_DISCOVERED_PAGES) {
         visitedUrls.add(l.url);
@@ -1063,7 +1072,13 @@ async function executePlaywrightPipeline({ testId, userId, url, callbackUrl, aut
             const clean = normalizeUrlString(rawLoc);
             if (!visitedUrls.has(clean) && discoveredLinks.length < MAX_DISCOVERED_PAGES) {
               visitedUrls.add(clean);
-              discoveredLinks.push({ url: clean, linkText: 'Sitemap / Robots Route', isVisible: true });
+              discoveredLinks.push({
+                url: clean,
+                linkText: 'Sitemap / Robots Route',
+                isVisible: true,
+                sourceType: 'sitemap',
+                foundOnPage: mapUrl
+              });
               if (linkQueue.length < 60) linkQueue.push(clean);
             }
           }
@@ -1073,57 +1088,75 @@ async function executePlaywrightPipeline({ testId, userId, url, callbackUrl, aut
       console.warn('[testerCore] Layer B sitemap/robots notice:', eB.message);
     }
 
-    // LAYER C: JS Bundle Client-Side Router Route Extraction
+    // LAYER C: JS Bundle Client-Side Router Route Extraction (Real SPAs Only!)
     try {
-      const extractedJsRoutes = await page.evaluate(async ({ baseHost }) => {
-        const cleanBase = (baseHost || '').toLowerCase().replace(/^www\./i, '');
-        const isInternalHost = (h) => (h || '').toLowerCase().replace(/^www\./i, '') === cleanBase;
-        const routes = [];
+      const isSpaFramework = await page.evaluate(() => Boolean(
+        window.__NEXT_DATA__ ||
+        document.querySelector('#__next, #root[data-reactroot], #app[data-v-app], [ng-version]') ||
+        document.querySelector('script[src*="/_next/static/"], script[src*="/assets/index-"]')
+      )).catch(() => false);
 
-        // Find loaded same-origin script bundles
-        const scriptTags = Array.from(document.querySelectorAll('script[src]'))
-          .map(s => s.src)
-          .filter(src => {
-            try {
-              const u = new URL(src);
-              return isInternalHost(u.hostname) && (src.includes('chunk') || src.includes('main') || src.includes('app') || src.includes('index') || src.includes('_next'));
-            } catch {
-              return false;
-            }
-          })
-          .slice(0, 8);
+      if (isSpaFramework) {
+        console.log('[testerCore] Detected SPA framework on site. Proceeding with Layer C JS bundle route harvesting...');
+        const extractedJsRoutes = await page.evaluate(async ({ baseHost }) => {
+          const cleanBase = (baseHost || '').toLowerCase().replace(/^www\./i, '');
+          const isInternalHost = (h) => (h || '').toLowerCase().replace(/^www\./i, '') === cleanBase;
+          const routes = [];
 
-        for (const src of scriptTags) {
-          try {
-            const ctrl = new AbortController();
-            const tid = setTimeout(() => ctrl.abort(), 3000);
-            const res = await fetch(src, { signal: ctrl.signal });
-            clearTimeout(tid);
-            if (!res.ok) continue;
-            const jsText = await res.text();
-
-            // Look for router patterns like path:"/dashboard/..." or "/settings" or "/analytics"
-            const routeRegex = /["'](\/(?:dashboard|analytics|settings|projects|billing|profile|teams|portal|auth|account|explore|admin|login|register)[a-zA-Z0-9_\-\/]*)["']/g;
-            let m;
-            while ((m = routeRegex.exec(jsText)) !== null) {
-              const path = m[1];
-              if (path && path.length > 2 && !path.includes('//') && !path.endsWith('.js') && !path.endsWith('.css')) {
-                routes.push(`${window.location.origin}${path}`);
-                if (routes.length >= 30) break;
+          // Find loaded same-origin script bundles
+          const scriptTags = Array.from(document.querySelectorAll('script[src]'))
+            .map(s => s.src)
+            .filter(src => {
+              try {
+                const u = new URL(src);
+                return isInternalHost(u.hostname) && (src.includes('chunk') || src.includes('main') || src.includes('app') || src.includes('index') || src.includes('_next'));
+              } catch {
+                return false;
               }
-            }
-          } catch {}
-        }
-        return Array.from(new Set(routes));
-      }, { baseHost: canonicalHost }).catch(() => []);
+            })
+            .slice(0, 8);
 
-      for (const jsRoute of extractedJsRoutes) {
-        const clean = normalizeUrlString(jsRoute);
-        if (!visitedUrls.has(clean) && discoveredLinks.length < MAX_DISCOVERED_PAGES) {
-          visitedUrls.add(clean);
-          discoveredLinks.push({ url: clean, linkText: 'JS Router Extracted Route', isVisible: false });
-          if (linkQueue.length < 80) linkQueue.push(clean);
+          for (const src of scriptTags) {
+            try {
+              const ctrl = new AbortController();
+              const tid = setTimeout(() => ctrl.abort(), 3000);
+              const res = await fetch(src, { signal: ctrl.signal });
+              clearTimeout(tid);
+              if (!res.ok) continue;
+              const jsText = await res.text();
+
+              // Look for router patterns like path:"/dashboard/..." or "/settings" or "/analytics"
+              const routeRegex = /["'](\/(?:dashboard|analytics|settings|projects|billing|profile|teams|portal|auth|account|explore|admin|login|register)[a-zA-Z0-9_\-\/]*)["']/g;
+              let m;
+              while ((m = routeRegex.exec(jsText)) !== null) {
+                const path = m[1];
+                if (path && path.length > 2 && !path.includes('//') && !path.endsWith('.js') && !path.endsWith('.css')) {
+                  routes.push({ url: `${window.location.origin}${path}`, scriptSrc: src });
+                  if (routes.length >= 30) break;
+                }
+              }
+            } catch {}
+          }
+          return routes;
+        }, { baseHost: canonicalHost }).catch(() => []);
+
+        for (const item of extractedJsRoutes) {
+          const jsRoute = item.url;
+          const clean = normalizeUrlString(jsRoute);
+          if (!visitedUrls.has(clean) && discoveredLinks.length < MAX_DISCOVERED_PAGES) {
+            visitedUrls.add(clean);
+            discoveredLinks.push({
+              url: clean,
+              linkText: 'JS Router Extracted Route',
+              isVisible: false,
+              sourceType: 'js_bundle',
+              foundOnPage: item.scriptSrc || postLoginUrl
+            });
+            if (linkQueue.length < 80) linkQueue.push(clean);
+          }
         }
+      } else {
+        console.log('[testerCore] Site is not a client-side SPA (no Next.js/React/Vue/Angular detected). Skipping Layer C JS bundle route extraction to prevent false-positive route guessing.');
       }
     } catch (eC) {
       console.warn('[testerCore] Layer C JS route extraction notice:', eC.message);
@@ -1141,7 +1174,7 @@ async function executePlaywrightPipeline({ testId, userId, url, callbackUrl, aut
       const nextUrl = linkQueue.shift();
       try {
         await page.goto(nextUrl, { waitUntil: 'domcontentloaded', timeout: 6000 });
-        const moreLinks = await extractDomLinks();
+        const moreLinks = await extractDomLinks(nextUrl);
         for (const l of moreLinks) {
           if (!visitedUrls.has(l.url) && discoveredLinks.length < MAX_DISCOVERED_PAGES) {
             visitedUrls.add(l.url);
@@ -1261,6 +1294,17 @@ async function executePlaywrightPipeline({ testId, userId, url, callbackUrl, aut
       }
     }
 
+    // Fast lookup map for discovered links metadata (sourceType & foundOnPage)
+    const discoveredLinksMeta = new Map();
+    discoveredLinks.forEach(l => {
+      if (l && l.url) {
+        discoveredLinksMeta.set(l.url, {
+          sourceType: l.sourceType || 'dom_link',
+          foundOnPage: l.foundOnPage || url
+        });
+      }
+    });
+
     const totalExplorationCount = tier1Targets.length + tier2Targets.length;
     console.log(`[testerCore] Starting Two-Tier Exploration: Tier 1 Deep Audit = ${tier1Targets.length} targets, Tier 2 Sweep = ${tier2Targets.length} targets (Total: ${totalExplorationCount} targets)`);
 
@@ -1333,12 +1377,23 @@ async function executePlaywrightPipeline({ testId, userId, url, callbackUrl, aut
           // Forensics: HTTP >= 400 or latency inspection
           if (status >= 400) {
             httpErrorStatuses.set(resUrl, status);
-            networkAnomalies.push({
-              type: 'http_error',
-              url: resUrl.slice(0, 200),
-              method: req.method(),
-              status
-            });
+            const meta = discoveredLinksMeta.get(resUrl);
+            const sourceType = meta?.sourceType || (isSameSite(resUrl, canonicalHost) ? 'dom_link' : 'external');
+            const foundOnPage = meta?.foundOnPage || targetUrl;
+
+            // Never report a JS-guessed 404 (Layer C) as a confirmed broken route
+            if (status === 404 && sourceType === 'js_bundle') {
+              console.log(`[testerCore] Ignoring 404 on unverified JS-guessed route: ${resUrl}`);
+            } else {
+              networkAnomalies.push({
+                type: 'http_error',
+                url: resUrl.slice(0, 200),
+                method: req.method(),
+                status,
+                sourceType,
+                foundOnPage
+              });
+            }
           }
 
           // Black-box API Forensics: Inspect JSON responses of same-origin XHR/fetch
@@ -1734,13 +1789,25 @@ async function executePlaywrightPipeline({ testId, userId, url, callbackUrl, aut
       const onResponse = async (res) => {
         try {
           const status = res.status();
+          const resUrl = res.url();
           if (status >= 400) {
-            networkAnomalies.push({
-              type: 'http_error',
-              url: res.url().slice(0, 200),
-              method: res.request().method(),
-              status
-            });
+            const meta = discoveredLinksMeta.get(resUrl);
+            const sourceType = meta?.sourceType || (isSameSite(resUrl, canonicalHost) ? 'dom_link' : 'external');
+            const foundOnPage = meta?.foundOnPage || sweepUrl;
+
+            // Never report a JS-guessed 404 (Layer C) as a confirmed broken route
+            if (status === 404 && sourceType === 'js_bundle') {
+              console.log(`[testerCore] Sweep ignoring 404 on unverified JS-guessed route: ${resUrl}`);
+            } else {
+              networkAnomalies.push({
+                type: 'http_error',
+                url: resUrl.slice(0, 200),
+                method: res.request().method(),
+                status,
+                sourceType,
+                foundOnPage
+              });
+            }
           }
         } catch {}
       };

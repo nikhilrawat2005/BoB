@@ -101,6 +101,33 @@ function parseResilientJson(rawText) {
 }
 
 /**
+ * Deduplicates and merges overlapping/substring claims into unified authoritative claims.
+ */
+function deduplicateClaims(claimsList) {
+  if (!Array.isArray(claimsList) || claimsList.length === 0) return [];
+  const cleaned = claimsList
+    .map(c => typeof c === 'string' ? c.trim() : (c?.claim ? String(c.claim).trim() : ''))
+    .filter(Boolean);
+
+  const unique = Array.from(new Set(cleaned));
+  // Sort descending by length so longer superset claims come first
+  unique.sort((a, b) => b.length - a.length);
+
+  const merged = [];
+  for (const claim of unique) {
+    const isSubstringOfExisting = merged.some(existing => {
+      const eLower = existing.toLowerCase();
+      const cLower = claim.toLowerCase();
+      return eLower !== cLower && eLower.includes(cLower);
+    });
+    if (!isSubstringOfExisting) {
+      merged.push(claim);
+    }
+  }
+  return merged;
+}
+
+/**
  * Normalizes URL pathname for strict per-page screenshot matching.
  * Ignores 'www.', protocol, and trailing slashes.
  */
@@ -705,6 +732,7 @@ Sample Discovered Internal Links: ${JSON.stringify((discoveryData.linksSample ||
 
 INSTRUCTIONS FOR TARGET PAGES SELECTION & CLAIM EXTRACTION:
 - Extract BOTH marketing claims AND concrete statistical/institutional/pricing claims (e.g. packages, offer counts, accreditations, user counts, feature promises).
+- DEDUPLICATE & MERGE OVERLAPPING CLAIMS: Merge substring or overlapping fragments into unified authoritative claims (e.g., do NOT output separate claims for "60 LPA", "Highest Package in Placements 2025", and "60 LPA Highest Package in Placements 2025"—keep only the unified "60 LPA Highest Package in Placements 2025").
 - If authenticated (${Boolean(authResult?.authenticated)}), ensure at least 70% of targetPages are post-login dashboard/protected routes (e.g., /dashboard, /analytics, /settings, /projects, /profile, /billing) or discovered SPA tabs.
 - Select up to 20 priority deep-audit pages (targetPages) covering diverse modules, tabs, admissions, pricing, or product features.
 - Inventory both Public Claims and Authenticated Dashboard Capabilities in claimedFeatures and explicitClaims.
@@ -752,6 +780,7 @@ Respond ONLY with a JSON object in this exact format:
         ...extractedClaimsSample.slice(0, 15)
       ]));
     }
+    purpose.explicitClaims = deduplicateClaims(purpose.explicitClaims || []);
 
     // Select up to 20 targetPages for Tier 1 Deep Audit
     let finalTargetPages = Array.isArray(purpose.targetPages) && purpose.targetPages.length > 0
@@ -952,6 +981,11 @@ Return ONLY a JSON array of findings:
         const forensicsPrompt = `Analyze network failures, slow API endpoints (>3000ms), silent 200 failures (where JSON contains error/ok:false), and leaked stack traces:
 Network Events: ${JSON.stringify(evidence.network.slice(0, 30))}
 Console Errors: ${JSON.stringify(evidence.console.slice(0, 25))}
+
+CRITICAL 404 RULE:
+- Only report a 404 page navigation defect when the event's sourceType is 'dom_link' or 'sitemap'. NEVER report a 404 for guessed 'js_bundle' routes.
+- When reporting a 404 broken route bug, explicitly cite "Linked from: <foundOnPage>" in the actual and evidence fields.
+
 Identify backend and API defects. Return ONLY a JSON array:
 [{"title": "...", "severity": "critical"|"high"|"medium"|"low", "actual": "...", "expected": "...", "url": "...", "category": "backend-api"}]`;
 
@@ -1083,10 +1117,12 @@ Instructions:
      * If a claim (e.g. "Autonomous College since 2025", "8090 Students in Campus", "24000+ Alumni Worldwide", "2690+ Scopus Publication", "B.Tech. CSE with 900 seats") is explicitly present in the captured HOMEPAGE LIVE TEXT or crawled page content and NOT contradicted by another page, mark it 'VERIFIED' (noting "Verified as explicitly stated on the live page; external third-party/regulatory proof not audited").
      * If contradicted by another page (like "60 LPA" vs "45 LPA" or "1692 Offers" vs "1290 offers"), mark it 'DISPROVEN' (or 'CONTRADICTED') and cite both conflicting pages.
      * Reserve 'INCONCLUSIVE' ONLY when the claim text itself could not be located in any crawled page.
+   - DEDUPLICATION RULE: Merge and deduplicate overlapping or substring claims (for example, do NOT output "60 LPA", "Highest Package in Placements 2025", and "60 LPA Highest Package in Placements 2025" as 3 separate rows—keep one unified claim "60 LPA Highest Package in Placements 2025").
    - Provide concrete "reasoning" citing DOM text, stats, or network responses.
    - Provide "businessImpact".
 3. Discovered Defects:
    - Group findings: 'confirmed' (hard technical/API failures, 4xx/5xx, net::ERR), 'likely', 'ux', 'accessibility', 'visual-defect'.
+   - ZERO FALSE-POSITIVE 404 RULE: Only report a 404 page navigation bug when sourceType is 'dom_link' or 'sitemap'. NEVER report a 404 for guessed 'js_bundle' routes. Always state "Linked from: <foundOnPage>" in both actual and evidence fields.
    - Avoid generic phrases like "Detected in browser audit logs" or "DOM/Script anomaly". Populate exact failed URLs, HTTP codes, console traces, or affected selectors.
    - For each finding, generate a specific, non-generic rootCause and actionable fixRecommendation:
      * VISUAL-DEFECT / visual: Cite CSS layout/positioning overlap, z-index clashing, insufficient color contrast ratios, or missing <meta charset="UTF-8"> encoding (e.g. "itâ€™s" mojibake) with an exact CSS/HTML/charset fix.
@@ -1267,6 +1303,7 @@ Instructions:
 - If a claim is explicitly present in HOMEPAGE LIVE TEXT or crawled pages and NOT contradicted by another page, mark it VERIFIED.
 - If contradicted by another page, mark it DISPROVEN or CONTRADICTED and cite both conflicting sources.
 - Reserve INCONCLUSIVE only when the claim text itself cannot be found anywhere in the captured copy.
+- DEDUPLICATE: Merge and eliminate overlapping or substring duplicate claims into a single authoritative claim row.
 Evaluate each claim and return a JSON array:
 [{"claim": "...", "verdict": "VERIFIED"|"DISPROVEN"|"CONTRADICTED"|"LIKELY"|"INCONCLUSIVE", "reasoning": "...", "businessImpact": "..."}]`;
 
@@ -1288,6 +1325,23 @@ Evaluate each claim and return a JSON array:
           businessImpact: 'Builds institutional authority and visitor trust.'
         }));
       }
+    }
+
+    if (Array.isArray(synthesizedResult.claimMatrix) && synthesizedResult.claimMatrix.length > 0) {
+      const dedupedMatrix = [];
+      const seenClaimTexts = [];
+      // Sort longer claims first to keep the most comprehensive wording
+      const sortedEntries = [...synthesizedResult.claimMatrix].sort((a, b) => (b.claim || '').length - (a.claim || '').length);
+      for (const entry of sortedEntries) {
+        const text = (entry.claim || '').trim().toLowerCase();
+        if (!text) continue;
+        const isSub = seenClaimTexts.some(existing => existing !== text && existing.includes(text));
+        if (!isSub && !seenClaimTexts.includes(text)) {
+          seenClaimTexts.push(text);
+          dedupedMatrix.push(entry);
+        }
+      }
+      synthesizedResult.claimMatrix = dedupedMatrix;
     }
 
     const finalFindings = (synthesizedResult.findings || []).map((finding, idx) => {
